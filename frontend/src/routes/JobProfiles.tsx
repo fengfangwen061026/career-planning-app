@@ -17,6 +17,7 @@ import {
   Select,
   Divider,
 } from 'antd';
+import client from '../api/client';
 import {
   SearchOutlined,
   ReloadOutlined,
@@ -28,6 +29,7 @@ import {
   SafetyOutlined,
   BookOutlined,
   BarChartOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { jobsApi } from '../api/jobs';
@@ -70,6 +72,7 @@ export default function JobProfiles() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingProfile, setEditingProfile] = useState<JobProfileResponse | null>(null);
   const [editForm] = Form.useForm();
+  const [batchGenerating, setBatchGenerating] = useState(false);
 
   useEffect(() => {
     fetchRoles();
@@ -84,6 +87,19 @@ export default function JobProfiles() {
       message.error('获取角色列表失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBatchGenerate = async () => {
+    setBatchGenerating(true);
+    try {
+      const response = await client.post<{ success: boolean; message: string; generated_count: number }>('/job-profiles/generate-all');
+      message.success(`批量生成完成，成功生成 ${response.data.generated_count} 个画像`);
+      fetchRoles();
+    } catch (error) {
+      message.error('批量生成失败');
+    } finally {
+      setBatchGenerating(false);
     }
   };
 
@@ -323,9 +339,18 @@ export default function JobProfiles() {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-800">岗位画像库</h1>
-        <Button icon={<ReloadOutlined />} onClick={fetchRoles}>
-          刷新
-        </Button>
+        <Space>
+          <Button
+            icon={<ThunderboltOutlined />}
+            onClick={handleBatchGenerate}
+            loading={batchGenerating}
+          >
+            批量生成画像
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={fetchRoles}>
+            刷新
+          </Button>
+        </Space>
       </div>
 
       <div className="flex gap-4 mb-6">

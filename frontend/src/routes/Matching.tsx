@@ -471,10 +471,10 @@ export default function Matching() {
                   <div className="flex items-start justify-between mb-3">
                     <div>
                       <h3 className="text-lg font-semibold text-gray-800">
-                        匹配结果 #{index + 1}
+                        {result.role_name || result.job_title || `匹配结果 #${index + 1}`}
                       </h3>
                       <p className="text-gray-500 text-sm">
-                        岗位画像: {result.job_profile_id.slice(0, 8)}...
+                        {result.role_name ? '' : `岗位画像: ${result.job_profile_id.slice(0, 8)}...`}
                       </p>
                     </div>
                     {isTarget && (

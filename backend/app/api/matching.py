@@ -22,16 +22,32 @@ from app.services.matching import (
 router = APIRouter()
 
 
-def _mr_to_response(mr) -> MatchResultResponse:
+async def _mr_to_response(mr, db: AsyncSession = None) -> MatchResultResponse:
     """将 ORM MatchResult 转为 API 响应."""
     scores_json = mr.scores_json or {}
     gaps_json = mr.gaps_json or []
     reasons = scores_json.pop("match_reasons", []) if isinstance(scores_json, dict) else []
 
+    # 获取job_profile的role_name
+    role_name = None
+    if db and mr.job_profile_id:
+        from sqlalchemy import select
+        from app.models.job import JobProfile, Role
+        result = await db.execute(
+            select(JobProfile, Role)
+            .join(Role, JobProfile.role_id == Role.id)
+            .where(JobProfile.id == mr.job_profile_id)
+        )
+        jp_role = result.first()
+        if jp_role:
+            _, role = jp_role
+            role_name = role.name if role else None
+
     return MatchResultResponse(
         id=mr.id,
         student_profile_id=mr.student_profile_id,
         job_profile_id=mr.job_profile_id,
+        role_name=role_name,
         total_score=mr.total_score * 100,  # DB 存 0-1，API 返回 0-100
         scores=FourDimensionScores(**{k: v for k, v in scores_json.items() if k != "match_reasons"}) if scores_json else FourDimensionScores(),
         gaps=[GapItem(**g) for g in gaps_json] if gaps_json else [],
@@ -52,7 +68,7 @@ async def run_match(
         mr = await match_student_job(db, request.student_id, request.job_profile_id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    return _mr_to_response(mr)
+    return await _mr_to_response(mr, db)
 
 
 # POST /api/matching/recommend/{student_id} - 返回 Top-N 推荐岗位
@@ -71,7 +87,7 @@ async def recommend(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     return MatchingResponse(
         student_id=student_id,
-        results=[_mr_to_response(mr) for mr in results],
+        results=[await _mr_to_response(mr, db) for mr in results],
     )
 
 
@@ -85,7 +101,7 @@ async def get_result(
     mr = await get_match_result(db, match_id)
     if mr is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match result not found")
-    return _mr_to_response(mr)
+    return await _mr_to_response(mr, db)
 
 
 # GET /api/matching/student/{student_id} - 查看学生所有匹配
@@ -98,5 +114,5 @@ async def list_student_matches(
     results = await get_student_matches(db, student_id)
     return MatchingResponse(
         student_id=student_id,
-        results=[_mr_to_response(mr) for mr in results],
+        results=[await _mr_to_response(mr, db) for mr in results],
     )

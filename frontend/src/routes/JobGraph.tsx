@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Card, Select, Empty, message, Tooltip, Button, Space } from 'antd';
-import { ReloadOutlined, AppstoreOutlined, BorderOutlined, TableOutlined } from '@ant-design/icons';
+import { ReloadOutlined, AppstoreOutlined, BorderOutlined, TableOutlined, BuildOutlined } from '@ant-design/icons';
 import cytoscape, { Core, ElementDefinition } from 'cytoscape';
 import client from '../api/client';
 import LoadingState from '../components/LoadingState';
@@ -70,6 +70,7 @@ const LAYOUTS = [
 export default function JobGraph() {
   const [graphData, setGraphData] = useState<CytoscapeElement[]>([]);
   const [loading, setLoading] = useState(false);
+  const [building, setBuilding] = useState(false);
   const [selectedNode, setSelectedNode] = useState<JobProfile | null>(null);
   const [currentLayout, setCurrentLayout] = useState('cose');
   const [edgeTypeFilter, setEdgeTypeFilter] = useState<string | undefined>(undefined);
@@ -306,6 +307,19 @@ export default function JobGraph() {
     fetchGraphData();
   };
 
+  const handleBuildGraph = async () => {
+    setBuilding(true);
+    try {
+      await client.post('/graph/build');
+      message.success('图谱构建成功');
+      fetchGraphData();
+    } catch {
+      message.error('图谱构建失败，请稍后重试');
+    } finally {
+      setBuilding(false);
+    }
+  };
+
   // Get unique nodes for select dropdown
   const nodeOptions = graphData
     .filter((el) => el.data.id && el.data.label)
@@ -319,6 +333,13 @@ export default function JobGraph() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-800">岗位图谱</h1>
         <Space>
+          <Button
+            icon={<BuildOutlined />}
+            onClick={handleBuildGraph}
+            loading={building}
+          >
+            构建图谱
+          </Button>
           <Button
             icon={<ReloadOutlined />}
             onClick={handleRefresh}

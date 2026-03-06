@@ -119,6 +119,8 @@ class MatchResultResponse(MatchResultBase):
     id: UUID
     student_profile_id: UUID
     job_profile_id: UUID
+    job_title: str | None = None  # 岗位名称
+    role_name: str | None = None  # 角色名称
     created_at: datetime
     updated_at: datetime
 

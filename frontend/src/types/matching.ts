@@ -80,6 +80,8 @@ export interface MatchResultResponse {
   id: string;
   student_profile_id: string;
   job_profile_id: string;
+  role_name?: string; // 岗位角色名称
+  job_title?: string; // 岗位标题
   total_score: number; // 0-100
   scores: FourDimensionScores;
   gaps: GapItem[];

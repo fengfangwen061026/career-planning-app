@@ -5,8 +5,7 @@ import logging
 from collections import OrderedDict
 from typing import Any
 
-from openai import AsyncOpenAI
-
+import httpx
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -16,13 +15,11 @@ _CACHE_MAX_SIZE = 2048
 
 
 class EmbeddingProvider:
-    """Unified embedding provider using OpenAI-compatible SDK with caching."""
+    """Unified embedding provider using httpx for Alibaba Cloud Bailian with caching."""
 
     def __init__(self) -> None:
-        self.client = AsyncOpenAI(
-            base_url=settings.embedding_base_url,
-            api_key=settings.embedding_api_key,
-        )
+        self.base_url = settings.embedding_base_url
+        self.api_key = settings.embedding_api_key
         self.model = settings.embedding_model
         self._cache: OrderedDict[str, list[float]] = OrderedDict()
 
@@ -58,11 +55,23 @@ class EmbeddingProvider:
         if cached is not None:
             return cached
 
-        response = await self.client.embeddings.create(
-            model=self.model,
-            input=text,
-        )
-        vec = response.data[0].embedding
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.base_url}/embeddings",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.model,
+                    "input": text,
+                },
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            vec = data["data"][0]["embedding"]
+
         self._put_cache(text, vec)
         return vec
 
@@ -85,15 +94,26 @@ class EmbeddingProvider:
 
         if uncached_texts:
             logger.debug("Embedding batch: %d cached, %d to fetch", len(texts) - len(uncached_texts), len(uncached_texts))
-            response = await self.client.embeddings.create(
-                model=self.model,
-                input=uncached_texts,
-            )
-            for data_item in response.data:
-                idx = uncached_indices[data_item.index]
-                vec = data_item.embedding
-                results[idx] = vec
-                self._put_cache(uncached_texts[data_item.index], vec)
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.base_url}/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.model,
+                        "input": uncached_texts,
+                    },
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+                for item in data["data"]:
+                    idx = uncached_indices[item["index"]]
+                    vec = item["embedding"]
+                    results[idx] = vec
+                    self._put_cache(uncached_texts[idx], vec)
 
         return results  # type: ignore[return-value]
 
