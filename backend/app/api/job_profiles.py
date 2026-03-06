@@ -33,9 +33,17 @@ async def generate_profile_for_role(
 ) -> JobProfileGenerateResponse:
     """为指定 Role 生成岗位画像（新版本不覆盖旧版本）。"""
     try:
+        logger.info(f"Generating profile for role {role_id}")
         result = await generate_role_profile(role_id, db)
+        logger.info(f"Profile generated, committing...")
+        await db.commit()
+        logger.info(f"Committed successfully")
     except ValueError as e:
+        logger.error(f"ValueError: {e}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error generating profile: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
     profile = result["profile"]
     role = await db.get(Role, role_id)
@@ -86,6 +94,10 @@ async def generate_all_profiles(
                 "error": str(e),
             })
 
+    # Commit all successful profiles
+    if results:
+        await db.commit()
+
     return BatchGenerateResponse(
         total=len(roles),
         succeeded=len(results),
@@ -125,6 +137,7 @@ async def update_profile(
     """人工微调画像内容。"""
     try:
         profile = await update_job_profile(profile_id, body.profile_json, db)
+        await db.commit()
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 

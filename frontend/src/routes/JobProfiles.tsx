@@ -93,8 +93,8 @@ export default function JobProfiles() {
   const handleBatchGenerate = async () => {
     setBatchGenerating(true);
     try {
-      const response = await client.post<{ success: boolean; message: string; generated_count: number }>('/job-profiles/generate-all');
-      message.success(`批量生成完成，成功生成 ${response.data.generated_count} 个画像`);
+      const response = await client.post<{ total: number; succeeded: number; failed: number }>('/job-profiles/generate-all');
+      message.success(`批量生成完成，成功生成 ${response.data.succeeded} 个画像`);
       fetchRoles();
     } catch (error) {
       message.error('批量生成失败');
