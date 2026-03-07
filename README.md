@@ -92,3 +92,4 @@ cd frontend && npm run dev
 - 后端: Python + FastAPI
 - 数据库: PostgreSQL + pgvector
 - LLM: OpenAI 兼容接口
+# Test hook
