@@ -1,5 +1,68 @@
 // Job types - aligned with backend/app/schemas/job.ts
 
+// ============================================
+// 新7类Schema类型定义 (V2)
+// ============================================
+
+export interface ProfileBasicRequirements {
+  education: Record<string, number>;  // {"本科": 0.82, "大专": 0.12, "硕士": 0.06}
+  experience: Record<string, number>;  // {"不限": 0.40, "1-3年": 0.35}
+  majors: string[];
+  languages: Array<{ name: string; frequency: number }>;
+  cities: Array<{ name: string; count: number }>;
+}
+
+export interface ProfileTechnicalSkills {
+  programming_languages: Array<{ name: string; frequency: number; weight: number; is_required: boolean }>;
+  frameworks_and_libraries: Array<{ name: string; frequency: number; weight: number; is_required: boolean }>;
+  tools_and_platforms: Array<{ name: string; frequency: number; weight: number; is_required: boolean }>;
+  domain_skills: Array<{ name: string; frequency: number; weight: number; is_required: boolean }>;
+  databases: Array<{ name: string; frequency: number; weight: number; is_required: boolean }>;
+  methodologies: Array<{ name: string; frequency: number; weight: number; is_required: boolean }>;
+}
+
+export interface ProfileSoftSkill {
+  name: string;
+  frequency: number;
+  weight: number;
+  evidence?: string;
+}
+
+export interface ProfileCertificate {
+  name: string;
+  frequency: number;
+  importance: 'required' | 'preferred';
+}
+
+export interface ProfileBenefit {
+  name: string;
+  frequency: number;
+}
+
+export interface ProfileMetadata {
+  version: string;
+  generated_at: string;
+  noise_filtered_count: number;
+  supplemented_skills_count: number;
+}
+
+// 新7类完整结构
+export interface JobProfileV2 {
+  role_name: string;
+  total_jds_analyzed: number;
+  basic_requirements: ProfileBasicRequirements;
+  technical_skills: ProfileTechnicalSkills;
+  soft_skills: ProfileSoftSkill[];
+  certificates: ProfileCertificate[];
+  job_responsibilities: string[];
+  benefits: ProfileBenefit[];
+  metadata: ProfileMetadata;
+}
+
+// ============================================
+// 旧版Schema类型（兼容）
+// ============================================
+
 export interface JobBase {
   title: string;
   role: string;

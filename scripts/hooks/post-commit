@@ -1,0 +1,29 @@
+#!/bin/bash
+# Auto-commit and push hook
+# 每一次 commit 后自动推送到远程仓库
+
+# 获取当前分支
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# 检查是否有远程仓库
+if ! git rev-parse --verify origin/$BRANCH >/dev/null 2>&1; then
+    echo "⚠️  远程分支 origin/$BRANCH 不存在，跳过推送"
+    exit 0
+fi
+
+# 检查是否有需要推送的内容
+if ! git diff --quiet HEAD~1 HEAD 2>/dev/null; then
+    # 获取最新 commit 的消息
+    COMMIT_MSG=$(git log -1 --pretty=%s)
+
+    echo "📤 自动推送到远程仓库..."
+    git push origin $BRANCH 2>&1
+
+    if [ $? -eq 0 ]; then
+        echo "✅ 推送成功: $COMMIT_MSG"
+    else
+        echo "❌ 推送失败，请检查网络或远程仓库状态"
+    fi
+else
+    echo "ℹ️  没有需要推送的更改"
+fi

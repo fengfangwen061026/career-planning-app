@@ -6,6 +6,7 @@ Features:
 3. 路径规划 - Dijkstra/BFS 搜索最优路径
 4. 图谱数据接口 - 兼容 Cytoscape.js 格式
 """
+import hashlib
 import heapq
 import logging
 import re
@@ -33,8 +34,94 @@ LEVEL_CN_MAP = {
     "expert": "负责人",
 }
 
+# 职级中文到英文的映射
+LEVEL_CN_TO_EN = {
+    "初级": "entry",
+    "中级": "growing",
+    "高级": "mature",
+    "负责人": "expert",
+}
+
+# 职级数值映射（用于难度计算）
+LEVEL_VALUE_MAP = {
+    "entry": 0,
+    "growing": 1,
+    "mature": 2,
+    "expert": 3,
+    "初级": 0,
+    "中级": 1,
+    "高级": 2,
+    "负责人": 3,
+    "stable": 0,    # 未知/稳定级别，按初级处理
+    "unknown": -1,  # 未知级别，按低于初级处理
+}
+
+
+def _calc_level_difficulty(from_level: str, to_level: str) -> float:
+    """基于级别跨度的基础难度"""
+    f = LEVEL_VALUE_MAP.get(from_level, 0)
+    t = LEVEL_VALUE_MAP.get(to_level, 1)
+    gap = t - f
+    if gap <= 0:
+        return 0.5
+    elif gap == 1 and f == 0:
+        return 0.5  # 初级→中级
+    elif gap == 1 and f == 1:
+        return 0.7  # 中级→高级
+    elif gap == 1 and f == 2:
+        return 0.9  # 高级→负责人
+    else:
+        return min(0.95, 0.5 + gap * 0.2)
+
+
+def _deterministic_jitter(role_name: str, from_level: str, to_level: str) -> float:
+    """基于角色名的确定性扰动 [-0.15, +0.15]，保证可复现"""
+    seed = hashlib.md5(f"{role_name}:{from_level}:{to_level}".encode()).hexdigest()
+    value = int(seed[:8], 16) / 0xFFFFFFFF
+    return (value - 0.5) * 0.3
+
+
+def _get_skill_count_from_profile(profile_data: dict | None) -> int:
+    """从岗位画像中提取技能总数"""
+    if not profile_data:
+        return 0
+    tech = profile_data.get("technical_skills", {})
+    total = 0
+    for category in tech.values():
+        if isinstance(category, list):
+            total += len(category)
+        elif isinstance(category, dict):
+            total += len(category)
+    return total
+
+
+def calc_promotion_difficulty(
+    from_level: str,
+    to_level: str,
+    role_name: str,
+    profile_data: dict | None = None,
+) -> float:
+    """
+    综合计算晋升难度。三因素加权：
+    - 级别跨度 40%
+    - 技能密集度 30%（从画像读取）
+    - 确定性扰动 30%（保证同岗位不同方向有差异）
+    """
+    level_d = _calc_level_difficulty(from_level, to_level)
+
+    skill_count = _get_skill_count_from_profile(profile_data) if profile_data else 15
+    skill_density = min(1.0, skill_count / 30)
+
+    jitter = _deterministic_jitter(role_name, from_level, to_level)
+
+    difficulty = 0.4 * level_d + 0.3 * skill_density + 0.3 * (0.5 + jitter)
+    return round(max(0.2, min(0.95, difficulty)), 3)
+
 # 技能重叠度阈值
-TRANSITION_THRESHOLD = 0.3
+TRANSITION_THRESHOLD = 0.15
+
+# 单个节点最大 transition 边数
+MAX_TRANSITIONS_PER_NODE = 5
 
 # 从 JD 年限推断职级的映射
 EXPERIENCE_TO_LEVEL = {
@@ -85,15 +172,48 @@ def _get_skills_from_profile(profile_json: dict[str, Any]) -> list[str]:
     """从 JobProfile 的 profile_json 中提取技能列表。"""
     skills: list[str] = []
 
-    dims = profile_json.get("dimensions", {})
-    prof_skills = dims.get("professional_skills", [])
+    # 技能在根层的 technical_skills 下
+    tech_skills = profile_json.get("technical_skills", {})
+    if tech_skills:
+        # 编程语言
+        for item in tech_skills.get("programming_languages", []):
+            name = item.get("name", "")
+            if name:
+                skills.append(name.lower())
 
-    for skill in prof_skills:
-        skill_name = skill.get("skill_name", "")
-        if skill_name:
-            skills.append(skill_name.lower())
+        # 框架和库
+        for item in tech_skills.get("frameworks_and_libraries", []):
+            name = item.get("name", "")
+            if name:
+                skills.append(name.lower())
 
-    return skills
+        # 工具和平台
+        for item in tech_skills.get("tools_and_platforms", []):
+            name = item.get("name", "")
+            if name:
+                skills.append(name.lower())
+
+        # 数据库
+        for item in tech_skills.get("databases", []):
+            name = item.get("name", "")
+            if name:
+                skills.append(name.lower())
+
+        # 其他技术技能
+        for item in tech_skills.get("other_technical", []):
+            name = item.get("name", "")
+            if name:
+                skills.append(name.lower())
+
+    # 软技能
+    soft_skills = profile_json.get("soft_skills", [])
+    for item in soft_skills:
+        name = item.get("name", "")
+        if name:
+            skills.append(name.lower())
+
+    # 去重
+    return list(set(skills))
 
 
 def _calculate_skill_overlap(
@@ -132,6 +252,11 @@ def _calculate_skill_overlap(
 
 async def build_vertical_paths(db: AsyncSession) -> dict[str, Any]:
     """构建垂直晋升路径（同一 Role 的不同职级之间）。"""
+    # 先删除所有现有的垂直边，强制重建
+    from sqlalchemy import delete
+    await db.execute(delete(GraphEdge).where(GraphEdge.edge_type == "vertical"))
+    await db.commit()
+
     # 获取所有 Role
     result = await db.execute(
         select(Role).options(selectinload(Role.jobs))
@@ -209,15 +334,24 @@ async def build_vertical_paths(db: AsyncSession) -> dict[str, Any]:
                     GraphEdge.edge_type == "vertical",
                 )
             )
-            if not existing_edge.scalar_one_or_none():
-                # 计算晋升难度（职级差距越大，难度越高）
-                difficulty = (i + 1) * 0.3 + 0.5
+            edge = existing_edge.scalar_one_or_none()
 
+            # 计算晋升难度（使用三因素加权计算）
+            difficulty = calc_promotion_difficulty(
+                from_level=source_level,
+                to_level=target_level,
+                role_name=role.name,
+                profile_data=None,  # 暂时不传 profile，后续可优化
+            )
+            weight = round(1.0 - difficulty * 0.8, 3)
+
+            if not edge:
+                # 边不存在，创建新边
                 edge = GraphEdge(
                     source_node_id=source_node.id,
                     target_node_id=target_node.id,
                     edge_type="vertical",
-                    weight=1.0 / difficulty,  # 难度越高，权重越低
+                    weight=weight,
                     explanation_json={
                         "type": "vertical_promotion",
                         "from_level": source_level,
@@ -232,6 +366,22 @@ async def build_vertical_paths(db: AsyncSession) -> dict[str, Any]:
                     },
                 )
                 db.add(edge)
+                edges_created += 1
+            else:
+                # 边已存在，更新 difficulty 和 weight
+                edge.weight = weight
+                edge.explanation_json = {
+                    "type": "vertical_promotion",
+                    "from_level": source_level,
+                    "to_level": target_level,
+                    "difficulty": difficulty,
+                    "description": f"从{LEVEL_CN_MAP.get(source_level, source_level)}到{LEVEL_CN_MAP.get(target_level, target_level)}的晋升路径",
+                    "action_items": [
+                        "提升专业技术深度",
+                        "积累项目经验",
+                        "培养团队协作能力",
+                    ],
+                }
                 edges_created += 1
 
     await db.commit()
@@ -248,7 +398,15 @@ async def build_vertical_paths(db: AsyncSession) -> dict[str, Any]:
 
 
 async def build_transition_paths(db: AsyncSession) -> dict[str, Any]:
-    """构建横向换岗路径（不同 Role 之间基于技能重叠度）。"""
+    """构建横向换岗路径（不同 Role 之间基于技能重叠度）。
+
+    约束：
+    - 只连接不同 Role 的节点
+    - 每个节点最多 MAX_TRANSITIONS_PER_NODE 条 transition 边
+    - 只取 overlap_ratio 最高的边
+    """
+    from collections import defaultdict
+
     # 获取所有有 profile 的 Role
     result = await db.execute(
         select(JobProfile)
@@ -263,19 +421,17 @@ async def build_transition_paths(db: AsyncSession) -> dict[str, Any]:
         if p.role_id not in latest_profiles or p.version > latest_profiles[p.role_id].version:
             latest_profiles[p.role_id] = p
 
-    # 获取所有角色节点
-    role_nodes_result = await db.execute(
-        select(GraphNode).where(
-            GraphNode.node_type == "role",
-            GraphNode.level == "entry",
-        )
+    # 获取所有角色节点（所有级别）
+    all_nodes_result = await db.execute(
+        select(GraphNode).where(GraphNode.node_type == "role")
     )
-    role_nodes = {n.role_id: n for n in role_nodes_result.scalars().all()}
-
-    edges_created = 0
+    role_nodes = {n.role_id: n for n in all_nodes_result.scalars().all()}
 
     # 计算所有 Role 对之间的技能重叠度
     role_list = list(latest_profiles.keys())
+
+    # 收集所有潜在的边
+    potential_edges: list[tuple[str, str, float, list[str], list[str], str, str]] = []
 
     for i, role_id1 in enumerate(role_list):
         for role_id2 in role_list[i + 1:]:
@@ -288,47 +444,77 @@ async def build_transition_paths(db: AsyncSession) -> dict[str, Any]:
             overlap_ratio, transferable, gap = _calculate_skill_overlap(skills1, skills2)
 
             if overlap_ratio >= TRANSITION_THRESHOLD:
-                node1 = role_nodes.get(role_id1)
-                node2 = role_nodes.get(role_id2)
+                role1_name = profile1.profile_json.get("role_name", "未知")
+                role2_name = profile2.profile_json.get("role_name", "未知")
+                potential_edges.append((
+                    str(role_id1), str(role_id2), overlap_ratio,
+                    transferable, gap, role1_name, role2_name
+                ))
 
-                if not node1 or not node2:
-                    continue
+    # 按 overlap_ratio 排序
+    potential_edges.sort(key=lambda x: x[2], reverse=True)
 
-                # 检查边是否已存在
-                existing = await db.execute(
-                    select(GraphEdge).where(
-                        GraphEdge.source_node_id == node1.id,
-                        GraphEdge.target_node_id == node2.id,
-                        GraphEdge.edge_type == "transition",
-                    )
-                )
-                if existing.scalar_one_or_none():
-                    continue
+    # 每个节点最多保留 MAX_TRANSITIONS_PER_NODE 条边
+    node_edge_count: dict[str, int] = defaultdict(int)
+    edges_created = 0
 
-                # 计算转岗可行性分数
-                feasibility = overlap_ratio * (1 - len(gap) * 0.1)
-                feasibility = max(0.1, min(1.0, feasibility))
+    for item in potential_edges:
+        role_id1_str, role_id2_str, overlap_ratio, transferable, gap, role1_name, role2_name = item
+        role_id1 = UUID(role_id1_str)
+        role_id2 = UUID(role_id2_str)
 
-                edge = GraphEdge(
-                    source_node_id=node1.id,
-                    target_node_id=node2.id,
-                    edge_type="transition",
-                    weight=feasibility,
-                    explanation_json={
-                        "type": "lateral_transfer",
-                        "overlap_ratio": round(overlap_ratio, 2),
-                        "transferable_skills": transferable,
-                        "gap_skills": gap,
-                        "description": f"从{profile1.role.name}转岗到{profile2.role.name}的路径",
-                        "action_items": [
-                            f"学习新技能: {', '.join(gap[:5])}" if gap else "巩固现有技能",
-                            "积累相关项目经验",
-                            "获取相关证书",
-                        ],
-                    },
-                )
-                db.add(edge)
-                edges_created += 1
+        node1 = role_nodes.get(role_id1)
+        node2 = role_nodes.get(role_id2)
+
+        if not node1 or not node2:
+            continue
+
+        # 检查两个节点是否已达到上限
+        if node_edge_count.get(str(node1.id), 0) >= MAX_TRANSITIONS_PER_NODE:
+            continue
+        if node_edge_count.get(str(node2.id), 0) >= MAX_TRANSITIONS_PER_NODE:
+            continue
+
+        # 检查边是否已存在
+        existing = await db.execute(
+            select(GraphEdge).where(
+                GraphEdge.source_node_id == node1.id,
+                GraphEdge.target_node_id == node2.id,
+                GraphEdge.edge_type == "transition",
+            )
+        )
+        if existing.scalar_one_or_none():
+            continue
+
+        # 计算转岗可行性分数
+        feasibility = overlap_ratio * (1 - min(len(gap) * 0.1, 0.5))
+        feasibility = max(0.1, min(1.0, feasibility))
+
+        edge = GraphEdge(
+            source_node_id=node1.id,
+            target_node_id=node2.id,
+            edge_type="transition",
+            weight=feasibility,
+            explanation_json={
+                "type": "skill_transition",
+                "overlap_ratio": round(overlap_ratio, 2),
+                "transferable_skills": transferable,
+                "gap_skills": gap,
+                "difficulty": round(1 - overlap_ratio, 2),
+                "description": f"从{role1_name}转岗到{role2_name}，可迁移技能包括{'、'.join(transferable[:5])}",
+                "action_items": [
+                    f"学习新技能: {', '.join(gap[:5])}" if gap else "巩固现有技能",
+                    "积累相关项目经验",
+                    "考取相关证书",
+                ],
+            },
+        )
+        db.add(edge)
+
+        # 更新计数
+        node_edge_count[str(node1.id)] += 1
+        node_edge_count[str(node2.id)] += 1
+        edges_created += 1
 
     await db.commit()
 
