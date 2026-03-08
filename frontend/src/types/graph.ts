@@ -1,36 +1,70 @@
-// Graph types
+import type { ElementDefinition } from 'cytoscape';
 
-export interface Node {
+export type GraphEdgeType = 'vertical' | 'transition' | 'related';
+export type GraphLayoutType = 'cose' | 'circle' | 'grid';
+
+export interface RawGraphElement {
+  data: Record<string, unknown>;
+}
+
+export interface RawGraphResponse {
+  elements: RawGraphElement[];
+}
+
+export interface AdaptedGraphNode {
   id: string;
   label: string;
-  type?: string;
-  level?: number;
-  x?: number;
-  y?: number;
-  data?: Record<string, unknown>;
+  fullLabel: string;
+  nodeType?: string;
+  level?: string;
+  color: string;
+  size: number;
+  degree: number;
+  rawData: Record<string, unknown>;
 }
 
-export interface Edge {
+export interface AdaptedGraphEdge {
+  id: string;
   source: string;
   target: string;
-  label?: string;
+  edgeType: GraphEdgeType;
   weight?: number;
-  type?: string;
+  rawData: Record<string, unknown>;
 }
 
-export interface GraphData {
-  nodes: Node[];
-  edges: Edge[];
+export interface GraphDataWarnings {
+  invalidNodes: number;
+  invalidEdges: number;
+  duplicateEdges: number;
 }
 
-export interface JobGraphNode extends Node {
-  job_id?: string;
-  job_title?: string;
-  company?: string;
+export interface AdaptedGraphData {
+  nodes: AdaptedGraphNode[];
+  edges: AdaptedGraphEdge[];
+  elements: ElementDefinition[];
+  stats: {
+    nodeCount: number;
+    edgeCount: number;
+  };
+  warnings: GraphDataWarnings;
 }
 
-export interface CareerPathNode extends Node {
-  student_id?: string;
-  job_id?: string;
-  stage?: string;
+export interface GraphViewMeta {
+  mode: 'full' | 'local' | 'limited';
+  startNodeId?: string;
+  focusDepth: number;
+  isLargeGraph: boolean;
+  autoLimited: boolean;
+  message?: string;
+}
+
+export interface AdaptedGraphView {
+  nodes: AdaptedGraphNode[];
+  edges: AdaptedGraphEdge[];
+  elements: ElementDefinition[];
+  stats: {
+    nodeCount: number;
+    edgeCount: number;
+  };
+  meta: GraphViewMeta;
 }
