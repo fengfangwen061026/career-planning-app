@@ -32,7 +32,7 @@ app.add_middleware(
 
 
 # Import and register routers
-from app.api import jobs, job_profiles, roles, students, matching, reports, graph, companies
+from app.api import jobs, job_profiles, roles, students, matching, reports, graph, companies, resumes
 
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(job_profiles.router, prefix="/api/job-profiles", tags=["job-profiles"])
@@ -42,6 +42,7 @@ app.include_router(matching.router, prefix="/api/matching", tags=["matching"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(graph.router, prefix="/api/graph", tags=["graph"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
+app.include_router(resumes.router, prefix="/api/resumes", tags=["resumes"])
 
 
 @app.get("/health")

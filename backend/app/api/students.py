@@ -13,6 +13,7 @@ from app.config import settings
 from app.database import get_db
 from app.models.student import Resume, Student, StudentProfile
 from app.schemas.student import (
+    ProfileGenerateRequest,
     ResumeResponse,
     ResumeUploadResponse,
     StudentCreate,
@@ -279,3 +280,36 @@ async def put_student_profile(
         raise HTTPException(status_code=404, detail=str(e))
 
     return StudentProfileResponse.model_validate(profile)
+
+
+@router.post("/{student_id}/profile/generate", response_model=StudentProfileResponse)
+async def generate_profile(
+    student_id: UUID,
+    request: ProfileGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> StudentProfileResponse:
+    """Generate student profile from a specific resume."""
+    # 验证学生存在
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    # 验证简历存在
+    resume = await db.get(Resume, request.resume_id)
+    if not resume or resume.student_id != student_id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    if not resume.parsed_json:
+        raise HTTPException(status_code=400, detail="Resume has not been parsed yet")
+
+    # 生成画像
+    try:
+        result = await generate_student_profile(student_id, db)
+        profile = result["profile"]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    response = StudentProfileResponse.model_validate(profile)
+    evidence = profile.evidence_json or {}
+    response.missing_suggestions = evidence.get("missing_suggestions")
+    return response
