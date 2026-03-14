@@ -1,4 +1,4 @@
-import type { ElementDefinition } from 'cytoscape';
+// Legacy graph types (deprecated - replaced by D3-based JobGraph)
 
 export type GraphEdgeType = 'vertical' | 'transition' | 'related';
 export type GraphLayoutType = 'cose' | 'circle' | 'grid';
@@ -41,7 +41,7 @@ export interface GraphDataWarnings {
 export interface AdaptedGraphData {
   nodes: AdaptedGraphNode[];
   edges: AdaptedGraphEdge[];
-  elements: ElementDefinition[];
+  elements: unknown[];
   stats: {
     nodeCount: number;
     edgeCount: number;
@@ -61,7 +61,7 @@ export interface GraphViewMeta {
 export interface AdaptedGraphView {
   nodes: AdaptedGraphNode[];
   edges: AdaptedGraphEdge[];
-  elements: ElementDefinition[];
+  elements: unknown[];
   stats: {
     nodeCount: number;
     edgeCount: number;

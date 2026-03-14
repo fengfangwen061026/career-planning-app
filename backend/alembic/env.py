@@ -11,6 +11,7 @@ from app.database import Base
 from app.config import settings
 from app.models import (
     CareerReport,
+    GraphCache,
     GraphEdge,
     GraphNode,
     Job,

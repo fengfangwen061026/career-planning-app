@@ -247,3 +247,39 @@ export interface PaginatedRoleCompaniesResponse {
   page_size: number;
   total_pages: number;
 }
+
+// 公司简要信息（用于 JD 列表）
+export interface CompanyBrief {
+  id: string;
+  name: string;
+  industries?: string;  // 逗号分隔的字符串
+  company_size?: string;
+  company_stage?: string;
+}
+
+// 带公司信息的 JD（用于筛选功能）
+export interface JobWithCompany {
+  id: string;
+  title: string;
+  role: string;
+  role_id?: string;
+  city: string;
+  district?: string;
+  salary_min?: number;
+  salary_max?: number;
+  salary_months?: number;
+  description?: string;
+  published_at?: string;
+  source_url?: string;
+  company_id?: string;
+  company?: CompanyBrief;
+  company_name?: string;  // 原始公司名（当 company_id 为空时使用）
+  benefits: string[];
+}
+
+// 筛选状态
+export interface FilterState {
+  salaryRange: string | null;
+  city: string | null;
+  benefits: string[];
+}

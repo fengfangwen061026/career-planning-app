@@ -60,8 +60,41 @@ class JobResponse(JobBase):
     job_code: str
     role_id: UUID | None = None
     published_at: datetime | None = None
+    source_url: str | None = None
     created_at: datetime
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CompanyBrief(BaseModel):
+    """Brief company info for job response."""
+    id: UUID
+    name: str
+    industries: str | None = None  # 逗号分隔的字符串
+    company_size: str | None = None
+    company_stage: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class JobWithCompanyResponse(BaseModel):
+    """Job with company info for frontend filtering."""
+    id: UUID
+    title: str
+    role: str
+    role_id: UUID | None = None
+    city: str
+    district: str | None = None
+    salary_min: int | None = None
+    salary_max: int | None = None
+    salary_months: int = 12
+    description: str | None = None
+    published_at: str | None = None
+    source_url: str | None = None
+    company_id: UUID | None = None
+    company: CompanyBrief | None = None
+    benefits: list[str] = []
 
     model_config = ConfigDict(from_attributes=True)
 
