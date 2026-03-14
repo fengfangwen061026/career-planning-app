@@ -142,13 +142,6 @@ export interface ResumeUploadRequest {
   student_id?: number;
 }
 
-export interface ResumeUploadResponse {
-  resume_id: number;
-  student_id: number;
-  parse_result: ResumeParseResult;
-  warnings: string[];
-}
-
 export interface ProfileGenerateRequest {
   resume_id: number;
 }

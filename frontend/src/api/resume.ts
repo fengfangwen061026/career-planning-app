@@ -1,5 +1,6 @@
 import client from './client';
-import type { ResumeParseResult, ResumeUploadResponse } from '../types/profiles';
+import type { ResumeParseResult } from '../types/profiles';
+import type { ResumeUploadResponse } from '../types/student';
 
 export interface ResumeConfirmRequest {
   raw_text: string;
@@ -14,38 +15,32 @@ export interface ResumeConfirmRequest {
   missing_fields: string[];
 }
 
+// 默认学生 UUID (demo student)
+const DEFAULT_STUDENT_UUID = '9e882ecb-816d-4478-b836-4dcaf7bc1660';
+
 export const resumeApi = {
   /**
    * Upload a resume file and parse it
    */
-  uploadResume: (file: File, studentId?: number) => {
+  uploadResume: (file: File, studentId?: string) => {
     const formData = new FormData();
     formData.append('file', file);
-    return client.post<ResumeUploadResponse>('/resumes/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      params: studentId ? { student_id: studentId } : undefined,
-    });
+    // 使用学生端点，需要 UUID 格式的 student_id
+    const studentUuid = studentId || DEFAULT_STUDENT_UUID;
+    return client.post<ResumeUploadResponse>(`/students/${studentUuid}/upload-resume`, formData);
   },
 
   /**
    * Get resume details by ID
    */
-  getResume: (resumeId: number) => {
-    return client.get<{
-      resume_id: number;
-      student_id: number;
-      filename: string;
-      file_type: string;
-      raw_text: string;
-      parsed_json: ResumeParseResult;
-      created_at: string;
-    }>(`/resumes/${resumeId}`);
+  getResume: (studentId: string, resumeId: string) => {
+    return client.get<ResumeUploadResponse>(`/students/${studentId}/resumes/${resumeId}`);
   },
 
   /**
    * Confirm and update the parsed resume result
    */
-  confirmResume: (resumeId: number, data: ResumeConfirmRequest) => {
-    return client.post<{ success: boolean }>(`/resumes/${resumeId}/confirm`, data);
+  confirmResume: (studentId: string, resumeId: string, data: ResumeConfirmRequest) => {
+    return client.post<{ success: boolean }>(`/students/${studentId}/resumes/${resumeId}/confirm`, data);
   },
 };

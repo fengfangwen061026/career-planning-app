@@ -21,24 +21,28 @@ import {
 } from '@ant-design/icons';
 import { resumeApi } from '../api/resume';
 import type { ResumeParseResult } from '../types/profiles';
+import type { ResumeUploadResponse } from '../types/student';
 
 const { Title, Text, Paragraph } = Typography;
 const { Dragger } = Upload;
 
 type UploadStep = 'upload' | 'preview' | 'complete';
 
-interface UploadResponse {
-  resume_id: number;
-  student_id: number;
-  parse_result: ResumeParseResult;
-  warnings: string[];
-}
+// 默认学生 UUID
+const DEFAULT_STUDENT_UUID = '9e882ecb-816d-4478-b836-4dcaf7bc1660';
 
 export default function ResumeUpload() {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState<UploadStep>('upload');
   const [loading, setLoading] = useState(false);
-  const [uploadResponse, setUploadResponse] = useState<UploadResponse | null>(null);
+  const [uploadResponse, setUploadResponse] = useState<ResumeUploadResponse | null>(null);
+  const [studentId] = useState(DEFAULT_STUDENT_UUID);
+
+  // Helper to get typed parsed data
+  const getParsedData = (): ResumeParseResult | null => {
+    if (!uploadResponse?.parsed_data) return null;
+    return uploadResponse.parsed_data as unknown as ResumeParseResult;
+  };
 
   // File validation
   const beforeUpload = (file: File) => {
@@ -65,10 +69,10 @@ export default function ResumeUpload() {
       const response = await resumeApi.uploadResume(file);
       setUploadResponse(response.data);
 
-      // Check warnings
-      if (response.data.warnings && response.data.warnings.length > 0) {
-        response.data.warnings.forEach((warning: string) => {
-          message.warning(warning);
+      // Check missing suggestions
+      if (response.data.missing_suggestions && response.data.missing_suggestions.length > 0) {
+        response.data.missing_suggestions.forEach((suggestion: string) => {
+          message.warning(suggestion);
         });
       }
 
@@ -85,19 +89,22 @@ export default function ResumeUpload() {
   const handleConfirm = async () => {
     if (!uploadResponse) return;
 
+    const parsedData = getParsedData();
+    if (!parsedData) return;
+
     setLoading(true);
     try {
-      await resumeApi.confirmResume(uploadResponse.resume_id, {
-        raw_text: uploadResponse.parse_result.raw_text,
-        education: uploadResponse.parse_result.education,
-        experience: uploadResponse.parse_result.experience,
-        projects: uploadResponse.parse_result.projects,
-        skills: uploadResponse.parse_result.skills,
-        certificates: uploadResponse.parse_result.certificates,
-        awards: uploadResponse.parse_result.awards,
-        self_intro: uploadResponse.parse_result.self_intro,
-        parse_confidence: uploadResponse.parse_result.parse_confidence,
-        missing_fields: uploadResponse.parse_result.missing_fields,
+      await resumeApi.confirmResume(studentId, uploadResponse.resume.id, {
+        raw_text: parsedData.raw_text,
+        education: parsedData.education,
+        experience: parsedData.experience,
+        projects: parsedData.projects,
+        skills: parsedData.skills,
+        certificates: parsedData.certificates,
+        awards: parsedData.awards,
+        self_intro: parsedData.self_intro,
+        parse_confidence: parsedData.parse_confidence,
+        missing_fields: parsedData.missing_fields,
       });
 
       message.success('简历确认成功');
@@ -116,7 +123,8 @@ export default function ResumeUpload() {
 
   const handleViewProfile = () => {
     if (uploadResponse) {
-      navigate(`/students/${uploadResponse.student_id}`);
+      // Use the studentId we stored
+      navigate(`/students/${studentId}`);
     }
   };
 
@@ -129,7 +137,8 @@ export default function ResumeUpload() {
 
   // Render education tab
   const renderEducation = () => {
-    const { education } = uploadResponse?.parse_result || {};
+    const parsedData = getParsedData();
+    const education = parsedData?.education || [];
     if (!education || education.length === 0) {
       return <Text type="secondary">未找到教育经历</Text>;
     }
@@ -160,7 +169,8 @@ export default function ResumeUpload() {
 
   // Render experience tab
   const renderExperience = () => {
-    const { experience } = uploadResponse?.parse_result || {};
+    const parsedData = getParsedData();
+    const experience = parsedData?.experience || [];
     if (!experience || experience.length === 0) {
       return <Text type="secondary">未找到实习/工作经历</Text>;
     }
@@ -191,7 +201,8 @@ export default function ResumeUpload() {
 
   // Render projects tab
   const renderProjects = () => {
-    const { projects } = uploadResponse?.parse_result || {};
+    const parsedData = getParsedData();
+    const projects = parsedData?.projects || [];
     if (!projects || projects.length === 0) {
       return <Text type="secondary">未找到项目经历</Text>;
     }
@@ -224,7 +235,8 @@ export default function ResumeUpload() {
 
   // Render skills tab
   const renderSkills = () => {
-    const { skills } = uploadResponse?.parse_result || {};
+    const parsedData = getParsedData();
+    const skills = parsedData?.skills || [];
     if (!skills || skills.length === 0) {
       return <Text type="secondary">未找到技能信息</Text>;
     }
@@ -267,7 +279,8 @@ export default function ResumeUpload() {
 
   // Render certificates tab
   const renderCertificates = () => {
-    const { certificates } = uploadResponse?.parse_result || {};
+    const parsedData = getParsedData();
+    const certificates = parsedData?.certificates || [];
     if (!certificates || certificates.length === 0) {
       return <Text type="secondary">未找到证书信息</Text>;
     }
@@ -332,7 +345,7 @@ export default function ResumeUpload() {
       {currentStep === 'preview' && uploadResponse && (
         <div className="space-y-4">
           {/* Confidence warning */}
-          {uploadResponse.parse_result.parse_confidence < 0.6 && (
+          {getParsedData()?.parse_confidence !== undefined && getParsedData()!.parse_confidence < 0.6 && (
             <Alert
               type="warning"
               message="解析置信度较低"
@@ -346,9 +359,9 @@ export default function ResumeUpload() {
             <Space>
               <Text>解析置信度:</Text>
               <Text strong style={{
-                color: uploadResponse.parse_result.parse_confidence >= 0.6 ? 'green' : 'orange'
+                color: (getParsedData()?.parse_confidence ?? 0) >= 0.6 ? 'green' : 'orange'
               }}>
-                {(uploadResponse.parse_result.parse_confidence * 100).toFixed(0)}%
+                {((getParsedData()?.parse_confidence ?? 0) * 100).toFixed(0)}%
               </Text>
             </Space>
           </Card>
