@@ -189,3 +189,61 @@ export interface BatchGenerateResponse {
   results: JobProfileGenerateResponse[];
   errors: Record<string, unknown>[];
 }
+
+// ============================================
+// Company 相关类型
+// ============================================
+
+export interface CompanyBase {
+  name: string;
+  industries?: string;
+  company_size?: string;
+  company_stage?: string;
+  intro?: string;
+}
+
+export interface CompanyResponse extends CompanyBase {
+  id: string;
+  job_count: number;
+  avg_salary_min?: number;
+  avg_salary_max?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Role 关联的公司项
+export interface RoleCompanyItem extends CompanyResponse {
+  job_count: number;  // 该公司在该 role 下的岗位数
+  salary_range?: string;  // "8K-15K"
+  cities: string[];  // 工作城市
+}
+
+// 薪资分布项
+export interface SalaryDistributionItem {
+  range: string;
+  count: number;
+}
+
+// 城市分布项
+export interface CityDistributionItem {
+  city: string;
+  count: number;
+  avg_salary_min?: number;
+  avg_salary_max?: number;
+  top_companies: string[];
+}
+
+// 福利统计项
+export interface BenefitItem {
+  name: string;
+  frequency: number;
+}
+
+// 分页响应
+export interface PaginatedRoleCompaniesResponse {
+  items: RoleCompanyItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}

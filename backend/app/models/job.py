@@ -9,6 +9,29 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+class Company(Base):
+    """公司表 - 从 jobs 表抽取的公司维度数据."""
+    __tablename__ = "companies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False, unique=True, index=True)
+    industries = Column(String(500))  # 行业（逗号分隔）
+    company_size = Column(String(100))  # 公司规模（如"100-499人"）
+    company_stage = Column(String(100))  # 公司类型/阶段（如"民营"/"上市"）
+    intro = Column(Text)  # 公司介绍
+
+    # 统计字段
+    job_count = Column(Integer, default=0)
+    avg_salary_min = Column(Integer)
+    avg_salary_max = Column(Integer)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    jobs = relationship("Job", back_populates="company")
+
+
 class Job(Base):
     """Job posting model - 原始 JD 数据."""
     __tablename__ = "jobs"
@@ -49,7 +72,11 @@ class Job(Base):
     company_intro = Column(Text)
 
     # 发布日期
-    published_at = Column(DateTime)
+    published_at = Column(String(50))  # 原始格式保留
+    source_url = Column(Text)  # 岗位来源地址
+
+    # 公司外键
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), index=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -57,6 +84,7 @@ class Job(Base):
     # Relationships
     job_profile = relationship("JobProfile", back_populates="job", uselist=False)
     role_obj = relationship("Role", back_populates="jobs")
+    company = relationship("Company", back_populates="jobs")
 
 
 class Role(Base):
@@ -77,6 +105,9 @@ class Role(Base):
     jobs = relationship("Job", back_populates="role_obj")
     job_profiles = relationship("JobProfile", back_populates="role")
     graph_nodes = relationship("GraphNode", back_populates="role")
+
+    # 间接关联：通过 jobs 关联的 companies
+    _companies = relationship("Company", secondary="jobs", viewonly=True)
 
 
 class JobProfile(Base):

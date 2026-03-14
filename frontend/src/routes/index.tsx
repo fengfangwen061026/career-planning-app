@@ -3,6 +3,7 @@ import Layout from '../components/Layout';
 import Dashboard from './Dashboard';
 import JobManagement from './JobManagement';
 import JobProfiles from './JobProfiles';
+import JobProfileDetail from './JobProfileDetail';
 import JobGraph from './JobGraph';
 import ResumeUpload from './ResumeUpload';
 import StudentProfile from './StudentProfile';
@@ -25,6 +26,10 @@ const router = createBrowserRouter([
       {
         path: 'jobs/profiles',
         element: <JobProfiles />,
+      },
+      {
+        path: 'jobs/profiles/:roleId',
+        element: <JobProfileDetail />,
       },
       {
         path: 'jobs/graph',

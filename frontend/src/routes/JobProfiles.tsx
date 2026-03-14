@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Card,
   Row,
@@ -69,6 +69,7 @@ const categoryColors: Record<string, string> = {
 
 export default function JobProfiles() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [roles, setRoles] = useState<RoleWithProfile[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState(searchParams.get('keyword') || '');
@@ -165,11 +166,8 @@ export default function JobProfiles() {
   };
 
   const handleCardClick = (role: RoleWithProfile) => {
-    if (selectedRole?.id === role.id) {
-      setSelectedRole(null);
-    } else {
-      fetchRoleProfile(role);
-    }
+    // 跳转到详情页
+    navigate(`/jobs/profiles/${role.id}`);
   };
 
   const handleEdit = (profile: JobProfileResponse) => {

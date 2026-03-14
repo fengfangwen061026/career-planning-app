@@ -9,6 +9,11 @@ import type {
   PaginatedJobResponse,
   RoleResponse,
   JobProfileHistoryResponse,
+  PaginatedRoleCompaniesResponse,
+  SalaryDistributionItem,
+  CityDistributionItem,
+  BenefitItem,
+  CompanyResponse,
 } from '../types/job';
 
 export interface JobsParams {
@@ -61,4 +66,31 @@ export const jobsApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+
+  // Role-Company 关联 API
+  getRoleCompanies: (roleId: string, params?: {
+    page?: number;
+    page_size?: number;
+    sort_by?: string;
+    industry?: string;
+    company_size?: string;
+  }) => client.get<PaginatedRoleCompaniesResponse>(`/roles/${roleId}/companies`, { params }),
+
+  getSalaryDistribution: (roleId: string) =>
+    client.get<SalaryDistributionItem[]>(`/roles/${roleId}/salary-distribution`),
+
+  getCityDistribution: (roleId: string, limit?: number) =>
+    client.get<CityDistributionItem[]>(`/roles/${roleId}/city-distribution`, { params: { limit } }),
+
+  getBenefitsStats: (roleId: string) =>
+    client.get<BenefitItem[]>(`/roles/${roleId}/benefits-stats`),
+
+  getCompany: (companyId: string) =>
+    client.get<CompanyResponse>(`/companies/${companyId}`),
+
+  listCompanies: (params?: {
+    page?: number;
+    page_size?: number;
+    industry?: string;
+  }) => client.get<{ items: CompanyResponse[]; total: number; page: number; page_size: number; total_pages: number }>('/companies', { params }),
 };

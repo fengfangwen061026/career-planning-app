@@ -155,3 +155,67 @@ class PaginatedJobResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+# ---------------------------------------------------------------------------
+# Company schemas
+# ---------------------------------------------------------------------------
+class CompanyBase(BaseModel):
+    """Base company schema."""
+    name: str
+    industries: str | None = None
+    company_size: str | None = None
+    company_stage: str | None = None
+    intro: str | None = None
+
+
+class CompanyResponse(CompanyBase):
+    """Company response schema."""
+    id: UUID
+    job_count: int = 0
+    avg_salary_min: int | None = None
+    avg_salary_max: int | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RoleCompanyItem(CompanyResponse):
+    """Role-Company association item (for role detail page)."""
+    job_count: int = 0  # 该公司在该role下的岗位数
+    salary_range: str | None = None  # "8K-15K"
+    cities: list[str] = []  # 该公司该role的工作城市
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SalaryDistributionItem(BaseModel):
+    """薪资分布项."""
+    range: str  # e.g., "3-5K", "5-8K", "8-12K", "12-20K", "20K+"
+    count: int
+
+
+class CityDistributionItem(BaseModel):
+    """城市分布项."""
+    city: str
+    count: int
+    avg_salary_min: int | None = None
+    avg_salary_max: int | None = None
+    top_companies: list[str] = []
+
+
+class BenefitItem(BaseModel):
+    """福利统计项."""
+    name: str
+    frequency: int
+
+
+# Role-Company 关联列表响应
+class PaginatedRoleCompaniesResponse(BaseModel):
+    """Role 下的公司列表响应."""
+    items: list[RoleCompanyItem]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
