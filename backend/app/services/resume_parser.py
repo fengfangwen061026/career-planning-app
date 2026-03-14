@@ -100,7 +100,8 @@ class ResumeParserService:
 
         # Step 1: Extract text
         try:
-            text = extract_text(file_content, filename)
+            text, extraction_warnings = extract_text(file_content, filename)
+            warnings.extend(extraction_warnings)
         except ValueError as e:
             logger.warning(f"Text extraction failed: {e}")
             warnings.append(str(e))

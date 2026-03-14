@@ -204,12 +204,13 @@ export default function JobProfileDetail() {
 
     const profileData = profile.profile_json as any;
     const basicRequirements = profileData?.basic_requirements || {};
-    const techSkills = profileData?.technical_skills || {};
-    const softSkills = profileData?.soft_skills || [];
-    const benefits = profileData?.benefits || [];
+    // 兼容新旧两种结构：新结构是数组，旧结构是按分类的对象
+    const techSkillsRaw = profileData?.technical_skills;
+    const softSkills = Array.isArray(profileData?.soft_skills) ? profileData.soft_skills : [];
+    const benefits = Array.isArray(profileData?.benefits) ? profileData.benefits : [];
     const totalJds = profileData?.total_jds_analyzed || 0;
 
-    // 扁平化技能
+    // 扁平化技能 - 兼容数组结构
     const allSkills: Array<{ name: string; weight: number; category: string }> = [];
     const categoryLabels: Record<string, string> = {
       programming_languages: '编程语言',
@@ -220,15 +221,27 @@ export default function JobProfileDetail() {
       methodologies: '方法论',
     };
 
-    Object.entries(techSkills).forEach(([cat, items]) => {
-      (items as Array<any>).forEach(item => {
+    // 新结构：数组直接使用
+    if (Array.isArray(techSkillsRaw)) {
+      techSkillsRaw.forEach((item: any) => {
         allSkills.push({
           name: item.name,
-          weight: item.weight || 0,
-          category: categoryLabels[cat] || cat,
+          weight: (item.frequency_pct || 0) / 100,
+          category: item.category || '其他',
         });
       });
-    });
+    } else if (techSkillsRaw && typeof techSkillsRaw === 'object') {
+      // 旧结构：按分类的对象
+      Object.entries(techSkillsRaw).forEach(([cat, items]: [string, any]) => {
+        (Array.isArray(items) ? items : []).forEach((item: any) => {
+          allSkills.push({
+            name: item.name,
+            weight: item.weight || 0,
+            category: categoryLabels[cat] || cat,
+          });
+        });
+      });
+    }
     allSkills.sort((a, b) => b.weight - a.weight);
 
     return (
