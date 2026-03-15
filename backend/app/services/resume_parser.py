@@ -58,8 +58,11 @@ class ResumeParserService:
 
                 print(f"[ResumeParser] LLM返回长度={len(raw)}，前200字: {raw[:200]}")
 
-                # 剥离可能的 markdown 代码块
+                # 剥离可能的 markdown 代码块和思考内容
                 cleaned = raw.strip()
+                # 移除思考内容
+                if "<think>" in cleaned:
+                    cleaned = cleaned.split("</think>")[-1]
                 if cleaned.startswith("```"):
                     lines = cleaned.split("\n")
                     cleaned = "\n".join(lines[1:-1]) if (lines[-1].strip() == "```") else "\n".join(lines[1:])

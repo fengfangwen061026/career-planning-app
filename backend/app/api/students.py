@@ -217,24 +217,37 @@ async def upload_resume(
         )
 
     # 从解析结果更新 Student 基本信息
-    await update_student_basic_info(student_id, parse_result.model_dump(), db)
-
-    # 自动生成学生画像
     try:
-        await generate_student_profile(student_id, db)
+        await update_student_basic_info(student_id, parse_result.model_dump(), db)
     except Exception as e:
-        # 画像生成失败不阻塞返回
         import logging
-        logging.getLogger(__name__).warning("Profile generation failed: %s", e)
+        logging.getLogger(__name__).warning(f"Update basic info failed: {e}")
+
+    # 自动生成学生画像 - 暂时跳过以调试
+    # try:
+    #     await generate_student_profile(student_id, db)
+    # except Exception as e:
+    #     import logging
+    #     logger = logging.getLogger(__name__)
+    #     logger.warning("Profile generation failed: %s", e)
 
     from app.services.resume_parser import _calculate_completeness, _generate_suggestions
 
     completeness = _calculate_completeness(parse_result)
     suggestions = _generate_suggestions(parse_result)
 
+    # 打印调试信息
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Returning response with {len(parse_result.skills)} skills")
+
+    # 临时简化返回
+    parsed_dict = parse_result.model_dump()
+    logger.info(f"Parsed dict keys: {parsed_dict.keys()}")
+
     return ResumeUploadResponse(
         resume=ResumeResponse.model_validate(resume),
-        parsed_data=parse_result.model_dump(),
+        parsed_data=parsed_dict,
         completeness_score=completeness,
         missing_suggestions=suggestions,
         normalization_log=[],

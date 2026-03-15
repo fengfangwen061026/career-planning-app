@@ -6,6 +6,10 @@ This module provides simplified prompt templates for LLM-based resume parsing.
 RESUME_PARSE_SYSTEM_PROMPT = """你是专业的简历解析器。
 从用户提供的简历原文中提取结构化信息。
 
+重要：直接输出 JSON，不要输出任何思考过程、解释或 markdown 代码块。
+不要输出 "<think>" 或任何思考内容。
+只输出纯 JSON 格式的数据。
+
 规则：
 - 只输出 JSON，不输出任何其他内容
 - 不要加 markdown 代码块（不要加 ```json）
