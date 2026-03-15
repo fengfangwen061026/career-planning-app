@@ -22,7 +22,8 @@ from app.schemas.student import (
     StudentResponse,
     StudentUpdate,
 )
-from app.services.resume_parser import parse_resume, update_student_basic_info
+from app.services.resume_parser import parse_resume, parse_resume_text, update_student_basic_info
+from app.utils.file_extractor import extract_text
 from app.services.student_profile import (
     generate_student_profile,
     update_student_profile,
@@ -161,8 +162,23 @@ async def upload_resume(
     upload_dir = Path(settings.upload_dir) / str(student_id)
     upload_dir.mkdir(parents=True, exist_ok=True)
     file_path = upload_dir / file.filename
+
+    # 保存上传文件到磁盘
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
+
+    # 从保存的文件中提取文本
+    try:
+        with open(file_path, "rb") as f:
+            file_content = f.read()
+        logger = logging.getLogger(__name__)
+        logger.info(f"File content length: {len(file_content)}")
+        raw_text, extraction_warnings = extract_text(file_content, file.filename)
+        logger.info(f"Extracted text length: {len(raw_text)}")
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Text extraction failed: {e}", exc_info=True)
+        raw_text = ""
 
     # 创建 Resume 记录
     resume = Resume(
@@ -170,6 +186,7 @@ async def upload_resume(
         filename=file.filename,
         file_path=str(file_path),
         file_type=suffix.lstrip("."),
+        raw_text=raw_text,
         is_primary=True,
     )
     db.add(resume)
@@ -178,8 +195,21 @@ async def upload_resume(
 
     # 解析简历
     try:
-        result = await parse_resume(resume.id, db)
+        if raw_text:
+            parse_result = await parse_resume_text(raw_text)
+            import logging
+            logging.getLogger(__name__).info(f"Parse result: {parse_result.model_dump()}")
+            resume.parsed_json = parse_result.model_dump()
+        else:
+            from app.schemas.profiles import ResumeParseResult
+            parse_result = ResumeParseResult(
+                raw_text="",
+                parse_confidence=0.0,
+                missing_fields=["简历文本为空"],
+            )
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Parse error: {e}", exc_info=True)
         # 解析失败时仍保留 Resume 记录，但返回错误
         raise HTTPException(
             status_code=422,
@@ -187,7 +217,7 @@ async def upload_resume(
         )
 
     # 从解析结果更新 Student 基本信息
-    await update_student_basic_info(student_id, result["parsed_data"], db)
+    await update_student_basic_info(student_id, parse_result.model_dump(), db)
 
     # 自动生成学生画像
     try:
@@ -197,12 +227,17 @@ async def upload_resume(
         import logging
         logging.getLogger(__name__).warning("Profile generation failed: %s", e)
 
+    from app.services.resume_parser import _calculate_completeness, _generate_suggestions
+
+    completeness = _calculate_completeness(parse_result)
+    suggestions = _generate_suggestions(parse_result)
+
     return ResumeUploadResponse(
-        resume=ResumeResponse.model_validate(result["resume"]),
-        parsed_data=result["parsed_data"],
-        completeness_score=result["completeness_score"],
-        missing_suggestions=result["missing_suggestions"],
-        normalization_log=result["normalization_log"],
+        resume=ResumeResponse.model_validate(resume),
+        parsed_data=parse_result.model_dump(),
+        completeness_score=completeness,
+        missing_suggestions=suggestions,
+        normalization_log=[],
     )
 
 
