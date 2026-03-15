@@ -9,8 +9,7 @@ from sqlalchemy import select, or_, func
 from uuid import UUID
 
 from app.database import get_db
-from app.models.job import Job, Role
-from app.models.company import Company
+from app.models.job import Job, Role, Company
 from app.schemas.job import (
     JobResponse,
     JobUpdate,

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import apiClient from "../../api/client";
-import type { JobGraphData } from "./types";
+import { graphApi } from "../../api/graph";
+import type { JobGraphData, GraphNode } from "./types";
 
 interface UseGraphDataResult {
   data: JobGraphData | null;
@@ -19,8 +19,14 @@ export function useGraphData(): UseGraphDataResult {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiClient.get<JobGraphData>("/jobs/graph");
-      setData(response.data);
+      const response = await graphApi.getMindmap();
+      // Cast nodes to correct type
+      const graphData: JobGraphData = {
+        nodes: response.data.nodes as GraphNode[],
+        edges: response.data.edges,
+        generated_at: response.data.generated_at,
+      };
+      setData(graphData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch graph data");
     } finally {
@@ -32,7 +38,7 @@ export function useGraphData(): UseGraphDataResult {
     setLoading(true);
     setError(null);
     try {
-      await apiClient.post("/jobs/graph/rebuild", {});
+      await graphApi.rebuildMindmap();
       await fetchData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to rebuild graph");

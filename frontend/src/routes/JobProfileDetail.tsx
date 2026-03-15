@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Row, Col, Tabs, Table, Tag, Button, Spin, Empty,
-  Select, Space, message, Pagination, Drawer, Modal
+  Select, Space, message, Pagination, Drawer, Modal, Tooltip
 } from 'antd';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
+  BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell
 } from 'recharts';
 import {
   ArrowLeftOutlined, BankOutlined, DollarOutlined,
@@ -219,7 +219,7 @@ export default function JobProfileDetail() {
 
   // 计算筛选后的公司列表
   const companyList = useMemo(() => {
-    const companyMap = new Map<string, { name: string; jobCount: number; industries: string; company_size: string; cities: string[]; salaryRange: string }>();
+    const companyMap = new Map<string, { name: string; jobCount: number; industries: string; company_size: string; cities: string[]; salaryRange: string; benefits: string[] }>();
 
     filteredJobs.forEach(job => {
       const companyName = job.company?.name || job.company_name || '未知公司';
@@ -231,6 +231,7 @@ export default function JobProfileDetail() {
           company_size: job.company?.company_size || '',
           cities: [],
           salaryRange: '',
+          benefits: [],
         });
       }
       const c = companyMap.get(companyName)!;
@@ -242,11 +243,40 @@ export default function JobProfileDetail() {
         const range = `${Math.round(job.salary_min / 1000)}K-${Math.round(job.salary_max / 1000)}K`;
         if (!c.salaryRange) c.salaryRange = range;
       }
+      // 聚合福利标签（去重）
+      if (job.benefits && job.benefits.length > 0) {
+        job.benefits.forEach(b => {
+          if (!c.benefits.includes(b)) {
+            c.benefits.push(b);
+          }
+        });
+      }
     });
 
     return Array.from(companyMap.values())
       .sort((a, b) => b.jobCount - a.jobCount);
   }, [filteredJobs]);
+
+  // 福利标签组件（复用页面顶部福利统计的样式）
+  const BenefitTags = ({ benefits }: { benefits: string[] }) => {
+    if (!benefits || benefits.length === 0) {
+      return <span style={{ color: '#bbb' }}>—</span>;
+    }
+
+    return (
+      <Space size={4} wrap>
+        {benefits.map(b => (
+          <Tag
+            key={b}
+            color="green"
+            style={{ margin: 0, padding: '0 6px', fontSize: 12, lineHeight: '20px' }}
+          >
+            {b}
+          </Tag>
+        ))}
+      </Space>
+    );
+  };
 
   // ========== 筛选交互 ==========
   const handleSalaryClick = (range: string) => {
@@ -303,38 +333,54 @@ export default function JobProfileDetail() {
       title: '公司名称',
       dataIndex: 'name',
       key: 'name',
-      render: (name: string) => <a onClick={() => handleCompanyClick(name)}>{name}</a>,
+      minWidth: 150,
+      ellipsis: { showTitle: false },
+      render: (name: string) => (
+        <Tooltip title={name} placement="topLeft">
+          <span onClick={() => handleCompanyClick(name)} style={{ cursor: 'pointer', color: '#1890ff' }}>{name}</span>
+        </Tooltip>
+      ),
     },
     {
       title: '行业',
       dataIndex: 'industries',
       key: 'industries',
-      width: 150,
-      render: (ind: string) => ind ? <Tag>{ind.split(',')[0]}</Tag> : '-',
+      width: 110,
+      render: (ind: string) => <span style={{ whiteSpace: 'nowrap' }}>{ind ? ind.split(',')[0] : '—'}</span>,
     },
     {
       title: '规模',
       dataIndex: 'company_size',
       key: 'company_size',
       width: 100,
+      render: (size: string) => <span style={{ whiteSpace: 'nowrap' }}>{size || '—'}</span>,
     },
     {
       title: '岗位数',
       dataIndex: 'jobCount',
       key: 'jobCount',
-      width: 80,
+      width: 70,
     },
     {
       title: '薪资范围',
       dataIndex: 'salaryRange',
       key: 'salaryRange',
-      width: 100,
+      width: 110,
+      render: (range: string) => <span style={{ whiteSpace: 'nowrap' }}>{range || '—'}</span>,
     },
     {
       title: '城市',
       dataIndex: 'cities',
       key: 'cities',
+      width: 80,
       render: (cities: string[]) => cities?.slice(0, 2).map(c => <Tag key={c} color="blue">{c}</Tag>),
+    },
+    {
+      title: '福利',
+      dataIndex: 'benefits',
+      key: 'benefits',
+      minWidth: 200,
+      render: (benefits: string[]) => <BenefitTags benefits={benefits} />,
     },
   ];
 

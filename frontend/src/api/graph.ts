@@ -43,4 +43,11 @@ export const graphApi = {
 
   buildGraph: () =>
     client.post<{ vertical: Record<string, unknown>; transition: Record<string, unknown> }>('/graph/build'),
+
+  // 思维导图 API
+  getMindmap: () =>
+    client.get<{ nodes: Array<{ id: string; label: string; type: string; color?: string; icon?: string; category?: string; count?: number; jd_count?: number }>; edges: Array<{ source: string; target: string }>; generated_at: string }>('/graph/mindmap'),
+
+  rebuildMindmap: () =>
+    client.post<{ status: string; rebuilt_at: string; node_count: number }>('/graph/mindmap/rebuild'),
 };

@@ -98,11 +98,4 @@ export const jobsApi = {
   // 获取某 role 下的全量 JD 列表（包含公司信息和福利）
   getJobsByRole: (roleId: string) =>
     client.get<JobWithCompany[]>(`/jobs/by-role/${roleId}`),
-
-  // Job Graph (Category Tree)
-  getJobGraph: () =>
-    client.get<{ nodes: any[]; edges: any[]; generated_at: string }>('/jobs/graph'),
-
-  rebuildJobGraph: () =>
-    client.post<{ status: string; rebuilt_at: string; node_count: number }>('/jobs/graph/rebuild', {}),
 };

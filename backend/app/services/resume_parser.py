@@ -1,5 +1,6 @@
 """Resume parser service - parses resumes and extracts structured information."""
 
+import json
 import logging
 from typing import Any
 from uuid import UUID
@@ -9,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm_provider import llm
 from app.models.student import Resume, Student
-from app.prompts.resume_parse import build_resume_parse_prompt
+from app.prompts.resume_parse import (
+    RESUME_PARSE_SYSTEM_PROMPT,
+    RESUME_PARSE_USER_TEMPLATE,
+    build_resume_parse_prompt,
+)
 from app.schemas.profiles import ResumeParseResult
 from app.utils.file_extractor import extract_text
 
@@ -28,49 +33,56 @@ class ResumeParserService:
         Returns:
             ResumeParseResult with parsed data
         """
-        try:
-            messages = build_resume_parse_prompt(text)
-            system_prompt = messages[0]["content"]
-            user_prompt = messages[1]["content"]
-
-            parsed = await llm.generate_json(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                temperature=0.2,
-                max_retries=2,  # Retry once on failure
-            )
-
-            # Convert to ResumeParseResult
-            result = ResumeParseResult(
-                raw_text=text,
-                education=parsed.get("education", []),
-                experience=parsed.get("experience", []),
-                projects=parsed.get("projects", []),
-                skills=parsed.get("skills", []),
-                certificates=parsed.get("certificates", []),
-                awards=parsed.get("awards", []),
-                self_intro=parsed.get("self_intro"),
-                parse_confidence=parsed.get("parse_confidence", 0.8),
-                missing_fields=parsed.get("missing_fields", []),
-            )
-
-            return result
-
-        except Exception as e:
-            logger.error(f"Failed to parse resume: {e}")
-            # Return empty result with 0 confidence on failure
+        # Check text length
+        if not text or len(text.strip()) < 50:
+            print("[ResumeParser] 文本太短，返回空结果")
             return ResumeParseResult(
                 raw_text=text,
-                education=[],
-                experience=[],
-                projects=[],
-                skills=[],
-                certificates=[],
-                awards=[],
-                self_intro=None,
                 parse_confidence=0.0,
-                missing_fields=["解析失败"],
+                missing_fields=["文本内容不足，无法解析"],
             )
+
+        prompt = RESUME_PARSE_USER_TEMPLATE.format(resume_text=text[:8000])
+
+        for attempt in range(2):
+            try:
+                print(f"[ResumeParser] 第{attempt+1}次调用LLM，文本长度={len(text)}")
+
+                # 直接调用 generate，自己处理 JSON 解析
+                raw = await llm.generate(
+                    prompt=prompt,
+                    system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
+                    temperature=0.1,
+                    max_tokens=4000,
+                )
+
+                print(f"[ResumeParser] LLM返回长度={len(raw)}，前200字: {raw[:200]}")
+
+                # 剥离可能的 markdown 代码块
+                cleaned = raw.strip()
+                if cleaned.startswith("```"):
+                    lines = cleaned.split("\n")
+                    cleaned = "\n".join(lines[1:-1]) if (lines[-1].strip() == "```") else "\n".join(lines[1:])
+                cleaned = cleaned.strip()
+
+                data = json.loads(cleaned)
+                result = ResumeParseResult(raw_text=text, **data)
+                print(f"[ResumeParser] 解析成功，skills数量={len(result.skills)}，education数量={len(result.education)}")
+                return result
+
+            except Exception as e:
+                print(f"[ResumeParser] 第{attempt+1}次失败: {e}")
+                if attempt == 0:
+                    # 第二次用更简单的 prompt 重试
+                    prompt = f"解析这份简历，只输出JSON，不要其他内容：\n{text[:4000]}\n输出格式：{{\"skills\":[{{\"name\":\"技能\",\"category\":\"编程语言\",\"proficiency\":\"掌握\",\"evidence\":\"\"}}],\"education\":[],\"experience\":[],\"projects\":[],\"certificates\":[],\"awards\":[],\"self_intro\":null,\"parse_confidence\":0.5,\"missing_fields\":[]}}"
+                    continue
+
+        print("[ResumeParser] 两次均失败，返回空结果")
+        return ResumeParseResult(
+            raw_text=text,
+            parse_confidence=0.0,
+            missing_fields=["LLM解析失败"],
+        )
 
     async def process_upload(
         self,
