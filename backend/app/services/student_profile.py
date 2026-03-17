@@ -23,16 +23,32 @@ def _build_profile_json(parsed_data: dict[str, Any]) -> dict[str, Any]:
       3. soft_competencies - 软素养
       4. growth_potential - 成长潜力
     """
-    basic_info = parsed_data.get("basic_info", {})
-    education = parsed_data.get("education", [])
-    work_experience = parsed_data.get("work_experience", [])
-    project_experience = parsed_data.get("project_experience", [])
-    skills = parsed_data.get("skills", [])
-    certificates = parsed_data.get("certificates", [])
-    awards = parsed_data.get("awards", [])
-    campus_activities = parsed_data.get("campus_activities", [])
-    soft_skills = parsed_data.get("soft_skills", {})
-    self_evaluation = parsed_data.get("self_evaluation")
+    # Helper to convert Pydantic models to dicts
+    def to_dict(item):
+        if hasattr(item, "model_dump"):
+            return item.model_dump()
+        elif hasattr(item, "dict"):
+            return item.dict()
+        return item
+
+    # Helper to convert list of items to list of dicts
+    def to_dict_list(items):
+        return [to_dict(item) for item in items] if items else []
+
+    # Helper to convert dict of items to dict of dicts
+    def to_dict_dict(items):
+        return {k: to_dict(v) for k, v in items.items()} if items else {}
+
+    basic_info = to_dict(parsed_data.get("basic_info", {}))
+    education = to_dict_list(parsed_data.get("education", []))
+    work_experience = to_dict_list(parsed_data.get("experience", []))  # LLM returns "experience"
+    project_experience = to_dict_list(parsed_data.get("projects", []))  # LLM returns "projects"
+    skills = to_dict_list(parsed_data.get("skills", []))
+    certificates = to_dict_list(parsed_data.get("certificates", []))
+    awards = to_dict_list(parsed_data.get("awards", []))
+    campus_activities = to_dict_list(parsed_data.get("campus_activities", []))
+    soft_skills = to_dict_dict(parsed_data.get("soft_skills", {}))
+    self_evaluation = parsed_data.get("self_intro") or parsed_data.get("self_evaluation")
 
     # 最高学历
     degree_order = {"博士": 4, "硕士": 3, "本科": 2, "大专": 1}

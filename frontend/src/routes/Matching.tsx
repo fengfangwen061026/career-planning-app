@@ -1,35 +1,29 @@
 import { useState, useEffect } from 'react';
 import {
   Card,
-  Select,
   Button,
   Row,
   Col,
   Empty,
   message,
   Progress,
-  Tag,
-  Space,
-  Steps,
   Badge,
-  Divider,
+  Tabs,
+  Tag,
   List,
 } from 'antd';
 import {
-  PlayCircleOutlined,
-  ReloadOutlined,
+  RocketOutlined,
+  ThunderboltOutlined,
+  StarOutlined,
+  SafetyOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
   CloseCircleOutlined,
   AimOutlined,
-  ThunderboltOutlined,
   BookOutlined,
-  HeartOutlined,
-  StarOutlined,
-  ArrowRightOutlined,
-  WarningOutlined,
-  RocketOutlined,
-  SafetyOutlined,
+  ToolOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons';
 import {
   Radar,
@@ -39,56 +33,87 @@ import {
   PolarRadiusAxis,
   ResponsiveContainer,
   Legend,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Cell,
 } from 'recharts';
 import { studentsApi } from '../api/students';
 import { matchingApi } from '../api/matching';
 import { jobsApi } from '../api/jobs';
-import client from '../api/client';
 import type { StudentResponse } from '../types/student';
-import type { JobResponse, RoleResponse } from '../types/job';
-import type { MatchResultResponse, GapItem, MatchingResponse } from '../types/matching';
+import type { RoleResponse } from '../types/job';
+import type { MatchResultResponse, GapItem } from '../types/matching';
 import LoadingState from '../components/LoadingState';
 
 // Score color helper
 const getScoreColor = (score: number): string => {
   if (score >= 80) return '#52c41a'; // green
   if (score >= 60) return '#faad14'; // yellow
-  return '#ff4d4f'; // red
+  return '#ff4d4f'; // red;
 };
 
 // Gap priority helper
 const getGapPriorityInfo = (priority: string) => {
   switch (priority) {
     case 'high':
-      return { color: '#ff4d4f', label: '高优先', icon: <CloseCircleOutlined /> };
+      return { color: '#ff4d4f', label: '高优先', icon: <CloseCircleOutlined />, bgColor: '#fff2f0' };
     case 'medium':
-      return { color: '#faad14', label: '中优先', icon: <ExclamationCircleOutlined /> };
+      return { color: '#faad14', label: '中优先', icon: <ExclamationCircleOutlined />, bgColor: '#fffbe6' };
     case 'low':
-      return { color: '#52c41a', label: '低优先', icon: <CheckCircleOutlined /> };
+      return { color: '#52c41a', label: '低优先', icon: <CheckCircleOutlined />, bgColor: '#f6ffed' };
     default:
-      return { color: '#8c8c8c', label: '未知', icon: null };
+      return { color: '#8c8c8c', label: '未知', icon: null, bgColor: '#fafafa' };
   }
 };
 
-// Career path types (from graph API)
-interface CareerPathResult {
-  from_role: string;
-  from_level: string;
-  to_role: string;
-  to_level: string;
-  path: Array<{
-    node_id: string;
-    name: string;
-    level: string;
-    node_type: string;
-    edge?: {
-      edge_type: string;
-      weight: number;
-      explanation: Record<string, unknown>;
-    };
-  }>;
-  total_steps: number;
+// Action plan bucket type
+type ActionBucket = 'immediate' | 'near_term' | 'long_term';
+
+interface ActionItem {
+  action: string;
+  reason: string;
+  gap_item: string;
 }
+
+// Generate action items from missing skills
+const generateActionPlan = (gaps: GapItem[]): Record<ActionBucket, ActionItem[]> => {
+  const immediate: ActionItem[] = [];  // 立即开始 - 必备技能缺失
+  const nearTerm: ActionItem[] = [];  // 近期补充 - 优选技能
+  const longTerm: ActionItem[] = [];  // 长期规划 - 素养/潜力提升
+
+  gaps.forEach(gap => {
+    const actionItem: ActionItem = {
+      action: gap.suggestion,
+      reason: `${gap.current_level} → ${gap.required_level}`,
+      gap_item: gap.gap_item,
+    };
+
+    // 高优先级的技能差距 - 立即开始
+    if (gap.dimension === 'skill' && gap.priority === 'high') {
+      immediate.push(actionItem);
+    }
+    // 中优先级的技能差距 - 近期补充
+    else if (gap.dimension === 'skill' && gap.priority === 'medium') {
+      nearTerm.push(actionItem);
+    }
+    // 素养和潜力差距 - 长期规划
+    else if (gap.dimension === 'competency' || gap.dimension === 'potential') {
+      longTerm.push(actionItem);
+    }
+    // 基础差距 - 近期补充
+    else if (gap.dimension === 'basic') {
+      nearTerm.push(actionItem);
+    }
+    // 其他低优先级
+    else {
+      longTerm.push(actionItem);
+    }
+  });
+
+  return { immediate, near_term: nearTerm, long_term: longTerm };
+};
 
 export default function Matching() {
   const [students, setStudents] = useState<StudentResponse[]>([]);
@@ -97,12 +122,8 @@ export default function Matching() {
   const [selectedStudent, setSelectedStudent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [matching, setMatching] = useState(false);
-
-  // Expanded card state
-  const [expandedResultId, setExpandedResultId] = useState<string | null>(null);
-  const [targetResultId, setTargetResultId] = useState<string | null>(null);
-  const [careerPaths, setCareerPaths] = useState<CareerPathResult[]>([]);
-  const [loadingPath, setLoadingPath] = useState(false);
+  const [selectedResult, setSelectedResult] = useState<MatchResultResponse | null>(null);
+  const [activeTab, setActiveTab] = useState('1');
 
   // Fetch initial data
   useEffect(() => {
@@ -125,19 +146,53 @@ export default function Matching() {
     }
   };
 
-  const runMatching = async () => {
+  // 一键推荐
+  const runRecommend = async () => {
     if (!selectedStudent) {
       message.warning('请先选择学生');
       return;
     }
     setMatching(true);
     setMatchResults([]);
-    setExpandedResultId(null);
-    setTargetResultId(null);
-    setCareerPaths([]);
+    setSelectedResult(null);
     try {
       const response = await matchingApi.recommendJobs(selectedStudent, { top_k: 10 });
       setMatchResults(response.data.results);
+      // Auto-select the first result
+      if (response.data.results.length > 0) {
+        setSelectedResult(response.data.results[0]);
+      }
+      message.success('推荐完成');
+    } catch (error) {
+      message.error('推荐失败');
+    } finally {
+      setMatching(false);
+    }
+  };
+
+  // Single job matching
+  const runSingleMatch = async (jobProfileId: string) => {
+    if (!selectedStudent) {
+      message.warning('请先选择学生');
+      return;
+    }
+    setMatching(true);
+    try {
+      const response = await matchingApi.runMatch({
+        student_id: selectedStudent,
+        job_profile_id: jobProfileId,
+      });
+      // Update or add the result
+      setMatchResults(prev => {
+        const existing = prev.findIndex(r => r.job_profile_id === jobProfileId);
+        if (existing >= 0) {
+          const updated = [...prev];
+          updated[existing] = response.data;
+          return updated;
+        }
+        return [response.data, ...prev];
+      });
+      setSelectedResult(response.data);
       message.success('匹配完成');
     } catch (error) {
       message.error('匹配失败');
@@ -146,26 +201,13 @@ export default function Matching() {
     }
   };
 
-  const fetchCareerPath = async (roleName: string) => {
-    if (!selectedStudent) return;
-
-    setLoadingPath(true);
-    try {
-      // Use the graph career-path endpoint
-      const response = await client.post<CareerPathResult[]>('/graph/career-path', {
-        from_role: '通用',
-        to_role: roleName,
-        from_level: 'entry',
-      });
-      setCareerPaths(response.data);
-      message.success('职业路径规划完成');
-    } catch (error) {
-      console.error('Career path error:', error);
-      message.error('获取职业路径失败');
-      setCareerPaths([]);
-    } finally {
-      setLoadingPath(false);
-    }
+  // Get gap count by priority
+  const getGapCountByPriority = (result: MatchResultResponse) => {
+    return {
+      high: result.gaps.filter(g => g.priority === 'high').length,
+      medium: result.gaps.filter(g => g.priority === 'medium').length,
+      low: result.gaps.filter(g => g.priority === 'low').length,
+    };
   };
 
   // Prepare radar chart data for four dimensions
@@ -179,358 +221,621 @@ export default function Matching() {
     ];
   };
 
-  // Render skill progress bar for four dimensions
-  const renderDimensionProgress = (result: MatchResultResponse) => {
-    const scores = result.scores;
+  // Get matched and missing skills
+  const getSkillAnalysis = (result: MatchResultResponse) => {
+    const matched: string[] = [];
+    const missing: string[] = [];
 
-    const dimensions = [
-      { key: 'basic', label: '基础', score: scores.basic.score, icon: <SafetyOutlined className="text-blue-500" /> },
-      { key: 'skill', label: '技能', score: scores.skill.score, icon: <ThunderboltOutlined className="text-purple-500" /> },
-      { key: 'competency', label: '素养', score: scores.competency.score, icon: <StarOutlined className="text-green-500" /> },
-      { key: 'potential', label: '潜力', score: scores.potential.score, icon: <RocketOutlined className="text-pink-500" /> },
-    ];
+    result.scores.skill.items?.forEach(item => {
+      if (item.matched) {
+        matched.push(item.skill_name);
+      } else if (item.importance === 'required') {
+        missing.push(item.skill_name);
+      }
+    });
+
+    return { matched, missing };
+  };
+
+  // Render left panel - recommendation list
+  const renderLeftPanel = () => (
+    <div className="h-full flex flex-col">
+      {/* Header */}
+      <div className="p-4 border-b bg-gray-50">
+        <h2 className="text-lg font-semibold mb-3">岗位推荐</h2>
+        <div className="flex gap-2">
+          <Button
+            type="primary"
+            icon={<ThunderboltOutlined />}
+            onClick={runRecommend}
+            loading={matching}
+            disabled={!selectedStudent}
+            block
+          >
+            一键推荐
+          </Button>
+        </div>
+      </div>
+
+      {/* Student selector */}
+      <div className="p-4 border-b">
+        <span className="text-gray-600 text-sm">选择学生:</span>
+        <select
+          className="ml-2 p-1 border rounded text-sm"
+          value={selectedStudent || ''}
+          onChange={(e) => {
+            setSelectedStudent(e.target.value || null);
+            setMatchResults([]);
+            setSelectedResult(null);
+          }}
+        >
+          <option value="">请选择...</option>
+          {students.map(s => (
+            <option key={s.id} value={s.id}>{s.name || s.email}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Results list */}
+      <div className="flex-1 overflow-y-auto p-2">
+        {matchResults.length === 0 ? (
+          <Empty
+            description={selectedStudent ? '点击"一键推荐"获取匹配结果' : '请先选择学生'}
+            className="mt-8"
+          />
+        ) : (
+          <List
+            dataSource={matchResults}
+            renderItem={(result, index) => {
+              const gapCounts = getGapCountByPriority(result);
+              const isSelected = selectedResult?.id === result.id;
+
+              return (
+                <Card
+                  key={result.id}
+                  size="small"
+                  className={`mb-2 cursor-pointer transition-all ${
+                    isSelected ? 'ring-2 ring-blue-500 shadow-md' : 'hover:shadow-sm'
+                  }`}
+                  onClick={() => setSelectedResult(result)}
+                >
+                  {/* Header */}
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm truncate">
+                        {result.role_name || `岗位 #${index + 1}`}
+                      </div>
+                      <div className="text-xs text-gray-500">排名 #{index + 1}</div>
+                    </div>
+                    <div
+                      className="text-2xl font-bold ml-2"
+                      style={{ color: getScoreColor(result.total_score) }}
+                    >
+                      {result.total_score.toFixed(0)}
+                    </div>
+                  </div>
+
+                  {/* Score bar */}
+                  <Progress
+                    percent={result.total_score}
+                    strokeColor={getScoreColor(result.total_score)}
+                    showInfo={false}
+                    size="small"
+                  />
+
+                  {/* Four dimension progress bars */}
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-center gap-1">
+                      <SafetyOutlined className="text-blue-500 text-xs" />
+                      <span className="text-xs text-gray-500 w-8">基础</span>
+                      <Progress
+                        percent={result.scores.basic.score}
+                        size="small"
+                        strokeColor={getScoreColor(result.scores.basic.score)}
+                        className="flex-1"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <ThunderboltOutlined className="text-purple-500 text-xs" />
+                      <span className="text-xs text-gray-500 w-8">技能</span>
+                      <Progress
+                        percent={result.scores.skill.score}
+                        size="small"
+                        strokeColor={getScoreColor(result.scores.skill.score)}
+                        className="flex-1"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <StarOutlined className="text-green-500 text-xs" />
+                      <span className="text-xs text-gray-500 w-8">素养</span>
+                      <Progress
+                        percent={result.scores.competency.score}
+                        size="small"
+                        strokeColor={getScoreColor(result.scores.competency.score)}
+                        className="flex-1"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <RocketOutlined className="text-pink-500 text-xs" />
+                      <span className="text-xs text-gray-500 w-8">潜力</span>
+                      <Progress
+                        percent={result.scores.potential.score}
+                        size="small"
+                        strokeColor={getScoreColor(result.scores.potential.score)}
+                        className="flex-1"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Gap badges */}
+                  <div className="mt-2 flex gap-1">
+                    {gapCounts.high > 0 && (
+                      <Badge count={gapCounts.high} style={{ backgroundColor: '#ff4d4f' }} />
+                    )}
+                    {gapCounts.medium > 0 && (
+                      <Badge count={gapCounts.medium} style={{ backgroundColor: '#faad14' }} />
+                    )}
+                    {gapCounts.low > 0 && (
+                      <Badge count={gapCounts.low} style={{ backgroundColor: '#52c41a' }} />
+                    )}
+                    {gapCounts.high + gapCounts.medium + gapCounts.low === 0 && (
+                      <Tag color="success" className="text-xs">无差距</Tag>
+                    )}
+                  </div>
+                </Card>
+              );
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+
+  // Render Tab1: 匹配分析
+  const renderMatchAnalysis = () => {
+    if (!selectedResult) return <Empty description="请选择一个岗位" />;
+
+    const radarData = getRadarData(selectedResult);
+    const { matched, missing } = getSkillAnalysis(selectedResult);
 
     return (
-      <div className="space-y-2 mt-3">
-        {dimensions.map(dim => (
-          <div key={dim.key} className="flex items-center gap-2">
-            {dim.icon}
-            <span className="text-xs text-gray-500 w-10">{dim.label}</span>
-            <Progress
-              percent={dim.score}
-              size="small"
-              strokeColor={getScoreColor(dim.score)}
-              format={(p) => `${p?.toFixed(0)}%`}
-              className="flex-1"
-            />
-          </div>
-        ))}
+      <Row gutter={[16, 16]}>
+        {/* Radar Chart */}
+        <Col xs={24} lg={12}>
+          <Card title="四维能力对比雷达图" size="small">
+            <ResponsiveContainer width="100%" height={300}>
+              <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
+                <PolarGrid />
+                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12 }} />
+                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 10 }} />
+                <Radar
+                  name="学生能力"
+                  dataKey="A"
+                  stroke="#8884d8"
+                  fill="#8884d8"
+                  fillOpacity={0.6}
+                />
+                <Radar
+                  name="岗位要求"
+                  dataKey="B"
+                  stroke="#82ca9d"
+                  fill="#82ca9d"
+                  fillOpacity={0.6}
+                />
+                <Legend />
+              </RadarChart>
+            </ResponsiveContainer>
+          </Card>
+        </Col>
+
+        {/* Skill Analysis */}
+        <Col xs={24} lg={12}>
+          <Card title="技能匹配分析" size="small">
+            {matched.length > 0 ? (
+              <div className="mb-4">
+                <div className="text-sm font-medium text-green-600 mb-2 flex items-center gap-1">
+                  <CheckCircleOutlined /> 已匹配技能 ({matched.length})
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {matched.slice(0, 15).map((skill, idx) => (
+                    <Tag key={idx} color="success">{skill}</Tag>
+                  ))}
+                  {matched.length > 15 && <Tag color="success">+{matched.length - 15}</Tag>}
+                </div>
+              </div>
+            ) : null}
+
+            {missing.length > 0 ? (
+              <div>
+                <div className="text-sm font-medium text-red-600 mb-2 flex items-center gap-1">
+                  <CloseCircleOutlined /> 缺失技能 ({missing.length})
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {missing.slice(0, 15).map((skill, idx) => (
+                    <Tag key={idx} color="error">{skill}</Tag>
+                  ))}
+                  {missing.length > 15 && <Tag color="error">+{missing.length - 15}</Tag>}
+                </div>
+              </div>
+            ) : (
+              <div className="text-green-600 flex items-center gap-1">
+                <CheckCircleOutlined /> 所有必备技能已匹配
+              </div>
+            )}
+
+            {/* Skill score chart */}
+            <div className="mt-4">
+              <div className="text-sm font-medium mb-2">技能得分分布</div>
+              <ResponsiveContainer width="100%" height={150}>
+                <BarChart
+                  data={[
+                    { name: '必备', score: selectedResult.scores.skill.required_score || 0 },
+                    { name: '优选', score: selectedResult.scores.skill.preferred_score || 0 },
+                    { name: '加分', score: selectedResult.scores.skill.bonus_score || 0 },
+                  ]}
+                  layout="vertical"
+                >
+                  <XAxis type="number" domain={[0, 100]} />
+                  <YAxis type="category" dataKey="name" width={40} />
+                  <Bar dataKey="score" radius={[0, 4, 4, 0]}>
+                    {['#ff4d4f', '#faad14', '#52c41a'].map((color, index) => (
+                      <Cell key={`cell-${index}`} fill={color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+        </Col>
+      </Row>
+    );
+  };
+
+  // Render Tab2: 差距清单
+  const renderGapList = () => {
+    if (!selectedResult) return <Empty description="请选择一个岗位" />;
+
+    const sortedGaps = [...selectedResult.gaps].sort((a, b) => {
+      const order = { high: 0, medium: 1, low: 2 };
+      return (order[a.priority as keyof typeof order] ?? 3) - (order[b.priority as keyof typeof order] ?? 3);
+    });
+
+    if (sortedGaps.length === 0) {
+      return (
+        <Card>
+          <Empty description="恭喜！暂无差距项" />
+        </Card>
+      );
+    }
+
+    // Group by priority
+    const highGaps = sortedGaps.filter(g => g.priority === 'high');
+    const mediumGaps = sortedGaps.filter(g => g.priority === 'medium');
+    const lowGaps = sortedGaps.filter(g => g.priority === 'low');
+
+    return (
+      <div className="space-y-4">
+        {/* High Priority */}
+        {highGaps.length > 0 && (
+          <Card
+            title={
+              <span className="text-red-600 flex items-center gap-2">
+                <CloseCircleOutlined /> 高优先级差距 ({highGaps.length})
+              </span>
+            }
+            className="border-l-4 border-l-red-500"
+          >
+            <div className="space-y-3">
+              {highGaps.map((gap, idx) => (
+                <div key={idx} className="p-3 bg-red-50 rounded-lg border border-red-200">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="font-medium">{gap.gap_item}</div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        {gap.current_level} → {gap.required_level}
+                      </div>
+                      <div className="text-sm text-blue-600 mt-2">{gap.suggestion}</div>
+                    </div>
+                    <Tag color="red">高</Tag>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* Medium Priority */}
+        {mediumGaps.length > 0 && (
+          <Card
+            title={
+              <span className="text-yellow-600 flex items-center gap-2">
+                <ExclamationCircleOutlined /> 中优先级差距 ({mediumGaps.length})
+              </span>
+            }
+            className="border-l-4 border-l-yellow-500"
+          >
+            <div className="space-y-3">
+              {mediumGaps.map((gap, idx) => (
+                <div key={idx} className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="font-medium">{gap.gap_item}</div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        {gap.current_level} → {gap.required_level}
+                      </div>
+                      <div className="text-sm text-blue-600 mt-2">{gap.suggestion}</div>
+                    </div>
+                    <Tag color="gold">中</Tag>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* Low Priority */}
+        {lowGaps.length > 0 && (
+          <Card
+            title={
+              <span className="text-green-600 flex items-center gap-2">
+                <CheckCircleOutlined /> 低优先级差距 ({lowGaps.length})
+              </span>
+            }
+            className="border-l-4 border-l-green-500"
+          >
+            <div className="space-y-3">
+              {lowGaps.map((gap, idx) => (
+                <div key={idx} className="p-3 bg-green-50 rounded-lg border border-green-200">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="font-medium">{gap.gap_item}</div>
+                      <div className="text-sm text-gray-600 mt-1">
+                        {gap.current_level} → {gap.required_level}
+                      </div>
+                      <div className="text-sm text-blue-600 mt-2">{gap.suggestion}</div>
+                    </div>
+                    <Tag color="green">低</Tag>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
       </div>
     );
   };
 
-  // Render expanded details for a result
-  const renderExpandedDetails = (result: MatchResultResponse) => {
-    const isTarget = targetResultId === result.id;
+  // Render Tab3: 行动计划
+  const renderActionPlan = () => {
+    if (!selectedResult) return <Empty description="请选择一个岗位" />;
+
+    const actionPlan = generateActionPlan(selectedResult.gaps);
+
+    const bucketInfo = {
+      immediate: {
+        title: '立即开始',
+        icon: <RocketOutlined />,
+        color: '#ff4d4f',
+        bgColor: '#fff2f0',
+        description: '必备技能缺失，需要立即学习',
+      },
+      near_term: {
+        title: '近期补充',
+        icon: <ClockCircleOutlined />,
+        color: '#faad14',
+        bgColor: '#fffbe6',
+        description: '优选技能和基础条件提升',
+      },
+      long_term: {
+        title: '长期规划',
+        icon: <BookOutlined />,
+        color: '#52c41a',
+        bgColor: '#f6ffed',
+        description: '职业素养和潜力持续培养',
+      },
+    };
 
     return (
-      <div className="bg-gray-50 p-4 rounded-b-lg border-t">
-        <Row gutter={24}>
-          {/* Radar Chart */}
-          <Col xs={24} lg={10}>
-            <Card title="四维能力对比雷达图" size="small" className="h-full">
-              <ResponsiveContainer width="100%" height={280}>
-                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={getRadarData(result)}>
-                  <PolarGrid />
-                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12 }} />
-                  <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 10 }} />
-                  <Radar
-                    name="学生能力"
-                    dataKey="A"
-                    stroke="#8884d8"
-                    fill="#8884d8"
-                    fillOpacity={0.6}
-                  />
-                  <Radar
-                    name="岗位要求"
-                    dataKey="B"
-                    stroke="#82ca9d"
-                    fill="#82ca9d"
-                    fillOpacity={0.6}
-                  />
-                  <Legend />
-                </RadarChart>
-              </ResponsiveContainer>
-            </Card>
-          </Col>
+      <div className="space-y-4">
+        {/* Immediate bucket */}
+        <Card
+          title={
+            <span className="flex items-center gap-2" style={{ color: bucketInfo.immediate.color }}>
+              {bucketInfo.immediate.icon} {bucketInfo.immediate.title}
+            </span>
+          }
+          className="border-l-4"
+          style={{ borderLeftColor: bucketInfo.immediate.color }}
+        >
+          <div className="text-sm text-gray-500 mb-3">{bucketInfo.immediate.description}</div>
+          {actionPlan.immediate.length > 0 ? (
+            <div className="space-y-2">
+              {actionPlan.immediate.map((item, idx) => (
+                <div key={idx} className="p-3 rounded-lg" style={{ backgroundColor: bucketInfo.immediate.bgColor }}>
+                  <div className="font-medium">{item.gap_item}</div>
+                  <div className="text-sm text-gray-600 mt-1">{item.action}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <Empty description="暂无项" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+        </Card>
 
-          {/* Gap Analysis */}
-          <Col xs={24} lg={14}>
-            <Card title="差距分析清单" size="small" className="h-full">
-              <div className="space-y-2 max-h-[240px] overflow-y-auto">
-                {result.gaps.length > 0 ? (
-                  result.gaps
-                    .sort((a, b) => {
-                      const order = { high: 0, medium: 1, low: 2 };
-                      return (order[a.priority as keyof typeof order] ?? 3) - (order[b.priority as keyof typeof order] ?? 3);
-                    })
-                    .map((gap, idx) => {
-                      const info = getGapPriorityInfo(gap.priority);
-                      return (
-                        <div
-                          key={idx}
-                          className={`flex items-center justify-between p-2 rounded border-l-4 ${
-                            gap.priority === 'low' ? 'bg-green-50' :
-                            gap.priority === 'medium' ? 'bg-yellow-50' : 'bg-red-50'
-                          }`}
-                          style={{ borderLeftColor: info.color }}
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span style={{ color: info.color }}>{info.icon}</span>
-                              <span className="font-medium text-sm">{gap.gap_item}</span>
-                              <Tag color="blue" className="text-xs">{gap.dimension}</Tag>
-                            </div>
-                            <div className="text-xs text-gray-500 ml-6 mt-1">
-                              {gap.current_level} → {gap.required_level}: {gap.suggestion}
-                            </div>
-                          </div>
-                          <Tag color={info.color}>{info.label}</Tag>
-                        </div>
-                      );
-                    })
-                ) : (
-                  <Empty description="无差距项" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                )}
+        {/* Near term bucket */}
+        <Card
+          title={
+            <span className="flex items-center gap-2" style={{ color: bucketInfo.near_term.color }}>
+              {bucketInfo.near_term.icon} {bucketInfo.near_term.title}
+            </span>
+          }
+          className="border-l-4"
+          style={{ borderLeftColor: bucketInfo.near_term.color }}
+        >
+          <div className="text-sm text-gray-500 mb-3">{bucketInfo.near_term.description}</div>
+          {actionPlan.near_term.length > 0 ? (
+            <div className="space-y-2">
+              {actionPlan.near_term.map((item, idx) => (
+                <div key={idx} className="p-3 rounded-lg" style={{ backgroundColor: bucketInfo.near_term.bgColor }}>
+                  <div className="font-medium">{item.gap_item}</div>
+                  <div className="text-sm text-gray-600 mt-1">{item.action}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <Empty description="暂无项" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+        </Card>
+
+        {/* Long term bucket */}
+        <Card
+          title={
+            <span className="flex items-center gap-2" style={{ color: bucketInfo.long_term.color }}>
+              {bucketInfo.long_term.icon} {bucketInfo.long_term.title}
+            </span>
+          }
+          className="border-l-4"
+          style={{ borderLeftColor: bucketInfo.long_term.color }}
+        >
+          <div className="text-sm text-gray-500 mb-3">{bucketInfo.long_term.description}</div>
+          {actionPlan.long_term.length > 0 ? (
+            <div className="space-y-2">
+              {actionPlan.long_term.map((item, idx) => (
+                <div key={idx} className="p-3 rounded-lg" style={{ backgroundColor: bucketInfo.long_term.bgColor }}>
+                  <div className="font-medium">{item.gap_item}</div>
+                  <div className="text-sm text-gray-600 mt-1">{item.action}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <Empty description="暂无项" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+        </Card>
+      </div>
+    );
+  };
+
+  // Render right panel
+  const renderRightPanel = () => {
+    if (!selectedResult) {
+      return (
+        <div className="h-full flex items-center justify-center">
+          <Empty description="请从左侧选择一个岗位查看详情" />
+        </div>
+      );
+    }
+
+    return (
+      <div className="h-full flex flex-col">
+        {/* Header */}
+        <div className="p-4 border-b bg-gray-50">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">
+                {selectedResult.role_name || '目标岗位'}
+              </h2>
+              <div className="text-sm text-gray-500">
+                综合评分:{' '}
+                <span
+                  className="text-2xl font-bold"
+                  style={{ color: getScoreColor(selectedResult.total_score) }}
+                >
+                  {selectedResult.total_score.toFixed(0)}
+                </span>
+                /100
               </div>
-            </Card>
-          </Col>
-        </Row>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="text-center">
+                <div className="text-xs text-gray-500">差距项</div>
+                <div className="text-xl font-bold">{selectedResult.gaps.length}</div>
+              </div>
+            </div>
+          </div>
 
-        {/* Match Reasons */}
-        <Row gutter={24} className="mt-4">
-          <Col span={24}>
-            <Card title="匹配原因" size="small">
-              <Space wrap>
-                {result.match_reasons?.map((reason, idx) => (
-                  <Tag key={idx} color="blue" className="text-sm">
-                    {reason}
-                  </Tag>
-                ))}
-              </Space>
-            </Card>
-          </Col>
-        </Row>
+          {/* Summary progress */}
+          <div className="mt-3 grid grid-cols-4 gap-2">
+            {[
+              { key: 'basic', label: '基础', score: selectedResult.scores.basic.score, icon: <SafetyOutlined /> },
+              { key: 'skill', label: '技能', score: selectedResult.scores.skill.score, icon: <ThunderboltOutlined /> },
+              { key: 'competency', label: '素养', score: selectedResult.scores.competency.score, icon: <StarOutlined /> },
+              { key: 'potential', label: '潜力', score: selectedResult.scores.potential.score, icon: <RocketOutlined /> },
+            ].map(dim => (
+              <div key={dim.key} className="text-center p-2 bg-white rounded">
+                <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
+                  {dim.icon} {dim.label}
+                </div>
+                <div className="text-lg font-bold" style={{ color: getScoreColor(dim.score) }}>
+                  {dim.score.toFixed(0)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
 
-        {/* Set Target Button */}
-        <div className="mt-4 flex justify-center">
-          <Button
-            type={isTarget ? 'default' : 'primary'}
-            icon={<AimOutlined />}
-            size="large"
-            onClick={() => {
-              setTargetResultId(result.id);
-              // Try to find role name from metadata or use job_profile_id
-              // In a real scenario, we'd need to resolve the role name
-              // For now, just set it
-            }}
-            disabled={isTarget}
-            className={isTarget ? 'bg-green-50 border-green-500 text-green-600' : ''}
-          >
-            {isTarget ? '当前目标岗位' : '设为目标岗位'}
-          </Button>
+        {/* Tabs */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <Tabs
+            activeKey={activeTab}
+            onChange={setActiveTab}
+            items={[
+              {
+                key: '1',
+                label: (
+                  <span>
+                    <AimOutlined /> 匹配分析
+                  </span>
+                ),
+                children: renderMatchAnalysis(),
+              },
+              {
+                key: '2',
+                label: (
+                  <span>
+                    <ExclamationCircleOutlined /> 差距清单
+                  </span>
+                ),
+                children: renderGapList(),
+              },
+              {
+                key: '3',
+                label: (
+                  <span>
+                    <ToolOutlined /> 行动计划
+                  </span>
+                ),
+                children: renderActionPlan(),
+              },
+            ]}
+          />
         </div>
       </div>
     );
   };
 
-  // Render career path
-  const renderCareerPath = () => {
-    if (!targetResultId || !selectedStudent) return null;
-
-    if (loadingPath) {
-      return (
-        <Card title="职业路径规划" className="mt-4">
-          <LoadingState />
-        </Card>
-      );
-    }
-
-    if (careerPaths.length === 0) {
-      return (
-        <Card title="职业路径规划" className="mt-4">
-          <Empty description="暂无职业路径数据" />
-        </Card>
-      );
-    }
-
-    return (
-      <div className="mt-4 space-y-4">
-        {careerPaths.map((pathResult, pathIdx) => (
-          <Card
-            key={pathIdx}
-            title={
-              <div className="flex items-center gap-2">
-                <ThunderboltOutlined className="text-yellow-500" />
-                <span>路径方案 {pathIdx + 1}: {pathResult.from_role} → {pathResult.to_role}</span>
-                <Tag color="blue">{pathResult.to_level}</Tag>
-                <Tag color="green">{pathResult.total_steps} 步</Tag>
-              </div>
-            }
-          >
-            <Steps
-              current={pathResult.path.length - 1}
-              direction="vertical"
-              size="small"
-              items={pathResult.path.map((step, idx) => ({
-                title: (
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">{step.name}</span>
-                    <Space>
-                      <Tag color="blue">{step.level}</Tag>
-                      {step.edge && (
-                        <Tag color={step.edge.edge_type === 'vertical' ? 'cyan' : 'green'}>
-                          {step.edge.edge_type === 'vertical' ? '晋升' : '转岗'}
-                        </Tag>
-                      )}
-                    </Space>
-                  </div>
-                ),
-                description: step.edge?.explanation ? (
-                  <div className="text-gray-600 mt-1 text-sm">
-                    {(step.edge.explanation as Record<string, string>).description || ''}
-                  </div>
-                ) : undefined,
-                icon: (
-                  <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold">
-                    {idx + 1}
-                  </div>
-                ),
-              }))}
-            />
-          </Card>
-        ))}
-      </div>
-    );
-  };
-
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">岗位匹配推荐</h1>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>
-            刷新
-          </Button>
-        </Space>
+    <div className="h-screen p-4">
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-bold text-gray-800">人岗匹配推荐</h1>
+        <Button icon={<RocketOutlined />} onClick={fetchData} loading={loading}>
+          刷新
+        </Button>
       </div>
-
-      {/* Control Panel */}
-      <Card className="mb-4">
-        <Row gutter={16} align="middle">
-          <Col>
-            <span className="text-gray-600 mr-2">学生:</span>
-            <Select
-              placeholder="选择学生"
-              style={{ width: 200 }}
-              value={selectedStudent}
-              onChange={(value) => {
-                setSelectedStudent(value);
-                setMatchResults([]);
-                setExpandedResultId(null);
-                setTargetResultId(null);
-                setCareerPaths([]);
-              }}
-              allowClear
-              options={students.map((s) => ({
-                value: s.id,
-                label: s.name || s.email,
-              }))}
-            />
-          </Col>
-          <Col>
-            <Button
-              type="primary"
-              icon={<PlayCircleOutlined />}
-              loading={matching}
-              onClick={runMatching}
-              disabled={!selectedStudent}
-            >
-              开始匹配
-            </Button>
-          </Col>
-        </Row>
-      </Card>
 
       {loading ? (
         <LoadingState />
-      ) : matchResults.length === 0 ? (
-        <Card>
-          <Empty description="暂无匹配结果，请先选择学生并点击开始匹配">
-            <p className="text-gray-400">匹配结果将显示学生与岗位的四维匹配度</p>
-          </Empty>
-        </Card>
       ) : (
-        <>
-          {/* Result Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {matchResults.map((result, index) => {
-              const isExpanded = expandedResultId === result.id;
-              const isTarget = targetResultId === result.id;
-
-              return (
-                <Card
-                  key={result.id}
-                  className={`relative transition-all duration-300 ${
-                    isTarget ? 'ring-2 ring-green-500 shadow-lg' : ''
-                  } ${isExpanded ? 'shadow-lg' : 'hover:shadow-md'}`}
-                  hoverable={!isExpanded}
-                  onClick={() => setExpandedResultId(isExpanded ? null : result.id)}
-                >
-                  {/* Card Header */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-800">
-                        {result.role_name || result.job_title || `匹配结果 #${index + 1}`}
-                      </h3>
-                      <p className="text-gray-500 text-sm">
-                        {result.role_name ? '' : `岗位画像: ${result.job_profile_id.slice(0, 8)}...`}
-                      </p>
-                    </div>
-                    {isTarget && (
-                      <Badge
-                        count="目标"
-                        style={{ backgroundColor: '#52c41a' }}
-                      />
-                    )}
-                  </div>
-
-                  {/* Overall Score */}
-                  <div className="mb-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-gray-600">综合评分</span>
-                      <span
-                        className="text-2xl font-bold"
-                        style={{ color: getScoreColor(result.total_score) }}
-                      >
-                        {result.total_score.toFixed(0)}
-                      </span>
-                    </div>
-                    <Progress
-                      percent={result.total_score}
-                      strokeColor={getScoreColor(result.total_score)}
-                      showInfo={false}
-                    />
-                  </div>
-
-                  {/* Mini Dimension Progress */}
-                  {renderDimensionProgress(result)}
-
-                  {/* Rank Badge */}
-                  <div className="absolute top-2 right-2">
-                    <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold">
-                      {index + 1}
-                    </div>
-                  </div>
-                </Card>
-              );
-            })}
+        <div className="h-[calc(100vh-120px)] flex gap-4">
+          {/* Left Panel - 40% */}
+          <div className="w-2/5 bg-white rounded-lg shadow overflow-hidden border">
+            {renderLeftPanel()}
           </div>
 
-          {/* Expanded Details */}
-          {expandedResultId && (
-            <Card className="mt-4">
-              {(() => {
-                const result = matchResults.find(r => r.id === expandedResultId);
-                if (!result) return null;
-                return renderExpandedDetails(result);
-              })()}
-            </Card>
-          )}
-
-          {/* Career Path Section */}
-          {renderCareerPath()}
-        </>
+          {/* Right Panel - 60% */}
+          <div className="w-3/5 bg-white rounded-lg shadow overflow-hidden border">
+            {renderRightPanel()}
+          </div>
+        </div>
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 """Students API routes."""
 
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -13,6 +14,7 @@ from app.config import settings
 from app.database import get_db
 from app.models.student import Resume, Student, StudentProfile
 from app.schemas.student import (
+    ProfileGenerateRequest,
     ResumeResponse,
     ResumeUploadResponse,
     StudentCreate,
@@ -21,7 +23,8 @@ from app.schemas.student import (
     StudentResponse,
     StudentUpdate,
 )
-from app.services.resume_parser import parse_resume, update_student_basic_info
+from app.services.resume_parser import parse_resume, parse_resume_text, update_student_basic_info
+from app.utils.file_extractor import extract_text
 from app.services.student_profile import (
     generate_student_profile,
     update_student_profile,
@@ -128,14 +131,13 @@ async def delete_student(
 
 @router.post(
     "/{student_id}/upload-resume",
-    response_model=ResumeUploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_resume(
     student_id: UUID,
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
-) -> ResumeUploadResponse:
+) -> dict:
     """Upload a resume file, parse it, and return structured results.
 
     Accepts PDF and DOCX files.
@@ -160,8 +162,23 @@ async def upload_resume(
     upload_dir = Path(settings.upload_dir) / str(student_id)
     upload_dir.mkdir(parents=True, exist_ok=True)
     file_path = upload_dir / file.filename
+
+    # 保存上传文件到磁盘
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
+
+    # 从保存的文件中提取文本
+    try:
+        with open(file_path, "rb") as f:
+            file_content = f.read()
+        logger = logging.getLogger(__name__)
+        logger.info(f"File content length: {len(file_content)}")
+        raw_text, extraction_warnings = extract_text(file_content, file.filename)
+        logger.info(f"Extracted text length: {len(raw_text)}")
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Text extraction failed: {e}", exc_info=True)
+        raw_text = ""
 
     # 创建 Resume 记录
     resume = Resume(
@@ -169,6 +186,7 @@ async def upload_resume(
         filename=file.filename,
         file_path=str(file_path),
         file_type=suffix.lstrip("."),
+        raw_text=raw_text,
         is_primary=True,
     )
     db.add(resume)
@@ -176,33 +194,65 @@ async def upload_resume(
     await db.refresh(resume)
 
     # 解析简历
+    parse_result = None
     try:
-        result = await parse_resume(resume.id, db)
+        if raw_text:
+            parse_result = await parse_resume_text(raw_text)
+            resume.parsed_json = parse_result.model_dump()
+        else:
+            from app.schemas.profiles import ResumeParseResult
+            parse_result = ResumeParseResult(
+                raw_text="",
+                parse_confidence=0.0,
+                missing_fields=["简历文本为空"],
+            )
     except Exception as e:
-        # 解析失败时仍保留 Resume 记录，但返回错误
-        raise HTTPException(
-            status_code=422,
-            detail=f"Resume parsing failed: {e}",
+        import traceback
+        logging.getLogger(__name__).error(f"Parse error: {e}\n{traceback.format_exc()}")
+        from app.schemas.profiles import ResumeParseResult
+        parse_result = ResumeParseResult(
+            raw_text=raw_text or "",
+            parse_confidence=0.0,
+            missing_fields=["解析失败"],
         )
 
     # 从解析结果更新 Student 基本信息
-    await update_student_basic_info(student_id, result["parsed_data"], db)
-
-    # 自动生成学生画像
     try:
-        await generate_student_profile(student_id, db)
+        await update_student_basic_info(student_id, parse_result.model_dump(), db)
     except Exception as e:
-        # 画像生成失败不阻塞返回
-        import logging
-        logging.getLogger(__name__).warning("Profile generation failed: %s", e)
+        logging.getLogger(__name__).warning(f"Update basic info failed: {e}")
 
-    return ResumeUploadResponse(
-        resume=ResumeResponse.model_validate(result["resume"]),
-        parsed_data=result["parsed_data"],
-        completeness_score=result["completeness_score"],
-        missing_suggestions=result["missing_suggestions"],
-        normalization_log=result["normalization_log"],
-    )
+    # 自动生成学生画像 - 暂时跳过以调试
+    # try:
+    #     await generate_student_profile(student_id, db)
+    # except Exception as e:
+    #     import logging
+    #     logger = logging.getLogger(__name__)
+    #     logger.warning("Profile generation failed: %s", e)
+
+    from app.services.resume_parser import _calculate_completeness, _generate_suggestions
+
+    completeness = _calculate_completeness(parse_result)
+    suggestions = _generate_suggestions(parse_result)
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"Returning response - skills: {len(parse_result.skills)}, education: {len(parse_result.education)}")
+
+    # 直接返回字典而不是 Pydantic 模型
+    return {
+        "resume": {
+            "id": str(resume.id),
+            "student_id": str(resume.student_id),
+            "filename": resume.filename,
+            "file_type": resume.file_type,
+            "is_primary": resume.is_primary,
+            "created_at": resume.created_at.isoformat() if resume.created_at else None,
+        },
+        "parsed_data": parse_result.model_dump(),
+        "completeness_score": completeness,
+        "missing_suggestions": suggestions,
+        "normalization_log": [],
+    }
 
 
 @router.get("/{student_id}/resumes", response_model=list[ResumeResponse])
@@ -279,3 +329,36 @@ async def put_student_profile(
         raise HTTPException(status_code=404, detail=str(e))
 
     return StudentProfileResponse.model_validate(profile)
+
+
+@router.post("/{student_id}/profile/generate", response_model=StudentProfileResponse)
+async def generate_profile(
+    student_id: UUID,
+    request: ProfileGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> StudentProfileResponse:
+    """Generate student profile from a specific resume."""
+    # 验证学生存在
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    # 验证简历存在
+    resume = await db.get(Resume, request.resume_id)
+    if not resume or resume.student_id != student_id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+
+    if not resume.parsed_json:
+        raise HTTPException(status_code=400, detail="Resume has not been parsed yet")
+
+    # 生成画像
+    try:
+        result = await generate_student_profile(student_id, db)
+        profile = result["profile"]
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    response = StudentProfileResponse.model_validate(profile)
+    evidence = profile.evidence_json or {}
+    response.missing_suggestions = evidence.get("missing_suggestions")
+    return response

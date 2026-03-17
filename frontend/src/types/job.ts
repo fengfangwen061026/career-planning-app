@@ -189,3 +189,97 @@ export interface BatchGenerateResponse {
   results: JobProfileGenerateResponse[];
   errors: Record<string, unknown>[];
 }
+
+// ============================================
+// Company 相关类型
+// ============================================
+
+export interface CompanyBase {
+  name: string;
+  industries?: string;
+  company_size?: string;
+  company_stage?: string;
+  intro?: string;
+}
+
+export interface CompanyResponse extends CompanyBase {
+  id: string;
+  job_count: number;
+  avg_salary_min?: number;
+  avg_salary_max?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Role 关联的公司项
+export interface RoleCompanyItem extends CompanyResponse {
+  job_count: number;  // 该公司在该 role 下的岗位数
+  salary_range?: string;  // "8K-15K"
+  cities: string[];  // 工作城市
+}
+
+// 薪资分布项
+export interface SalaryDistributionItem {
+  range: string;
+  count: number;
+}
+
+// 城市分布项
+export interface CityDistributionItem {
+  city: string;
+  count: number;
+  avg_salary_min?: number;
+  avg_salary_max?: number;
+  top_companies: string[];
+}
+
+// 福利统计项
+export interface BenefitItem {
+  name: string;
+  frequency: number;
+}
+
+// 分页响应
+export interface PaginatedRoleCompaniesResponse {
+  items: RoleCompanyItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+// 公司简要信息（用于 JD 列表）
+export interface CompanyBrief {
+  id: string;
+  name: string;
+  industries?: string;  // 逗号分隔的字符串
+  company_size?: string;
+  company_stage?: string;
+}
+
+// 带公司信息的 JD（用于筛选功能）
+export interface JobWithCompany {
+  id: string;
+  title: string;
+  role: string;
+  role_id?: string;
+  city: string;
+  district?: string;
+  salary_min?: number;
+  salary_max?: number;
+  salary_months?: number;
+  description?: string;
+  published_at?: string;
+  source_url?: string;
+  company_id?: string;
+  company?: CompanyBrief;
+  company_name?: string;  // 原始公司名（当 company_id 为空时使用）
+  benefits: string[];
+}
+
+// 筛选状态
+export interface FilterState {
+  salaryRange: string | null;
+  city: string | null;
+  benefits: string[];
+}

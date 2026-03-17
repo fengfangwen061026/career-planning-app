@@ -43,13 +43,18 @@ interface ParsedResumeData {
     school: string;
     degree: string;
     major?: string;
-    duration?: string;
+    start_year?: number;
+    end_year?: number;
+    gpa?: number;
+    evidence?: string;
   }>;
   projects?: Array<{
     name: string;
     description?: string;
-    skills?: string[];
-    duration?: string;
+    tech_stack?: string[];
+    role?: string;
+    outcome?: string;
+    evidence?: string;
   }>;
   experience?: Array<{
     company: string;
@@ -57,7 +62,12 @@ interface ParsedResumeData {
     duration?: string;
     description?: string;
   }>;
-  skills?: string[];
+  skills?: Array<{
+    name: string;
+    category?: string;
+    proficiency?: string;
+    evidence?: string;
+  }>;
 }
 
 type UploadStep = 'upload' | 'parsing' | 'preview' | 'complete';
@@ -159,18 +169,44 @@ export default function ResumeUpload() {
 
       // Extract parsed data from the ResumeUploadResponse
       const parsedRecord = response.data.parsed_data as Record<string, unknown> | undefined;
-      const contactRecord = parsedRecord?.contact as Record<string, unknown> | undefined;
+      // Extract name from raw_text (first line typically contains name)
+      const rawText = (parsedRecord?.raw_text as string) || '';
+      const nameMatch = rawText.split('\n')[0]?.match(/^[^\u0000-\u001F\u007F-\u9FFF]+/);
+
+      // Transform backend education format to form format
+      const backendEducation = (parsedRecord?.education as Array<Record<string, unknown>>) || [];
+      const transformedEducation = backendEducation.map((edu) => ({
+        school: edu.school as string,
+        degree: edu.degree as string,
+        major: edu.major as string | undefined,
+        duration: edu.start_year && edu.end_year ? `${edu.start_year} - ${edu.end_year}` : undefined,
+        gpa: edu.gpa as number | undefined,
+      }));
+
+      // Transform backend project format to form format
+      const backendProjects = (parsedRecord?.projects as Array<Record<string, unknown>>) || [];
+      const transformedProjects = backendProjects.map((proj) => ({
+        name: proj.name as string,
+        description: proj.description as string | undefined,
+        skills: proj.tech_stack as string[] | undefined,
+        duration: undefined,
+      }));
+
+      // Transform backend experience format to form format
+      const backendExperience = (parsedRecord?.experience as Array<Record<string, unknown>>) || [];
+      const transformedExperience = backendExperience.map((exp) => ({
+        company: exp.company as string,
+        position: exp.role as string,
+        duration: exp.start_date && exp.end_date ? `${exp.start_date} - ${exp.end_date}` : undefined,
+        description: exp.description as string | undefined,
+      }));
+
       const extractedData: ParsedResumeData = {
-        name: (parsedRecord?.name as string) || undefined,
-        contact: contactRecord ? {
-          phone: (contactRecord.phone as string) || undefined,
-          email: (contactRecord.email as string) || undefined,
-          location: (contactRecord.location as string) || undefined,
-        } : undefined,
-        education: (parsedRecord?.education as ParsedResumeData['education']) || [],
-        projects: (parsedRecord?.projects as ParsedResumeData['projects']) || [],
-        experience: (parsedRecord?.experience as ParsedResumeData['experience']) || [],
-        skills: (parsedRecord?.skills as string[]) || [],
+        name: nameMatch ? nameMatch[0] : undefined,
+        education: transformedEducation,
+        projects: transformedProjects,
+        experience: transformedExperience,
+        skills: (parsedRecord?.skills as ParsedResumeData['skills']) || [],
       };
 
       setParsedData(extractedData);
@@ -526,7 +562,8 @@ export default function ResumeUpload() {
             <div className="flex flex-wrap gap-2">
               {parsedData.skills.map((skill, index) => (
                 <Tag key={index} color="blue">
-                  {skill}
+                  {typeof skill === 'string' ? skill : skill.name}
+                  {skill.proficiency && ` (${skill.proficiency})`}
                 </Tag>
               ))}
             </div>

@@ -1,4 +1,4 @@
-import type { ElementDefinition } from 'cytoscape';
+// Legacy graph adapter (deprecated - replaced by D3-based JobGraph)
 import type {
   AdaptedGraphData,
   AdaptedGraphEdge,
@@ -132,40 +132,6 @@ function buildNodeSize(level: string | undefined, degree: number): number {
   return Math.max(MIN_NODE_SIZE, Math.min(MAX_NODE_SIZE, Math.round(size)));
 }
 
-function createNodeElement(node: AdaptedGraphNode): ElementDefinition {
-  const labelSize = Math.max(10, Math.min(14, Math.round(node.size / 5)));
-  const shouldHideLabel = node.degree <= 1 && node.size <= 34;
-
-  return {
-    data: {
-      ...node.rawData,
-      id: node.id,
-      label: shouldHideLabel ? '' : node.label,
-      fullLabel: node.fullLabel,
-      nodeType: node.nodeType,
-      level: node.level,
-      color: node.color,
-      size: node.size,
-      degree: node.degree,
-      labelSize,
-    },
-  };
-}
-
-function createEdgeElement(edge: AdaptedGraphEdge): ElementDefinition {
-  return {
-    data: {
-      ...edge.rawData,
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      edgeType: edge.edgeType,
-      edgeLabel: EDGE_TYPE_LABELS[edge.edgeType],
-      weight: edge.weight,
-    },
-  };
-}
-
 export function adaptGraphResponse(response: RawGraphResponse): AdaptedGraphData {
   const nodeCandidates = new Map<string, RawGraphElement['data']>();
   const edgeCandidates: RawGraphElement['data'][] = [];
@@ -266,7 +232,7 @@ export function adaptGraphResponse(response: RawGraphResponse): AdaptedGraphData
   return {
     nodes: adaptedNodes,
     edges: adaptedEdges,
-    elements: [...adaptedNodes.map(createNodeElement), ...adaptedEdges.map(createEdgeElement)],
+    elements: [],
     stats: {
       nodeCount: adaptedNodes.length,
       edgeCount: adaptedEdges.length,
@@ -283,92 +249,6 @@ export function getRecommendedLayout(nodeCount: number): GraphLayoutType {
   return nodeCount <= 100 ? 'cose' : 'grid';
 }
 
-function buildLocalView(
-  data: AdaptedGraphData,
-  startNodeId: string,
-  depth: number,
-  edgeTypeFilter?: GraphEdgeType,
-): AdaptedGraphView {
-  const filteredEdges = data.edges.filter((edge) => !edgeTypeFilter || edge.edgeType === edgeTypeFilter);
-  const adjacency = new Map<string, Set<string>>();
-
-  for (const edge of filteredEdges) {
-    if (!adjacency.has(edge.source)) {
-      adjacency.set(edge.source, new Set());
-    }
-    if (!adjacency.has(edge.target)) {
-      adjacency.set(edge.target, new Set());
-    }
-    adjacency.get(edge.source)?.add(edge.target);
-    adjacency.get(edge.target)?.add(edge.source);
-  }
-
-  const visited = new Set<string>([startNodeId]);
-  let frontier = new Set<string>([startNodeId]);
-
-  for (let currentDepth = 0; currentDepth < depth; currentDepth += 1) {
-    const nextFrontier = new Set<string>();
-    for (const nodeId of frontier) {
-      for (const neighbor of adjacency.get(nodeId) ?? []) {
-        if (!visited.has(neighbor)) {
-          visited.add(neighbor);
-          nextFrontier.add(neighbor);
-        }
-      }
-    }
-    frontier = nextFrontier;
-  }
-
-  const nodes = data.nodes.filter((node) => visited.has(node.id));
-  const edges = filteredEdges.filter((edge) => visited.has(edge.source) && visited.has(edge.target));
-
-  return {
-    nodes,
-    edges,
-    elements: [...nodes.map(createNodeElement), ...edges.map(createEdgeElement)],
-    stats: {
-      nodeCount: nodes.length,
-      edgeCount: edges.length,
-    },
-    meta: {
-      mode: 'local',
-      startNodeId,
-      focusDepth: depth,
-      isLargeGraph: data.stats.nodeCount > LARGE_GRAPH_THRESHOLD,
-      autoLimited: false,
-      message: `当前展示起始岗位的 ${depth} 度邻居子图`,
-    },
-  };
-}
-
-function buildLimitedView(data: AdaptedGraphData, edgeTypeFilter?: GraphEdgeType): AdaptedGraphView {
-  const filteredEdges = data.edges.filter((edge) => !edgeTypeFilter || edge.edgeType === edgeTypeFilter);
-  const rankedNodeIds = [...data.nodes]
-    .sort((a, b) => b.degree - a.degree || b.size - a.size)
-    .slice(0, LIMITED_NODE_COUNT)
-    .map((node) => node.id);
-  const limitedNodeIdSet = new Set(rankedNodeIds);
-  const nodes = data.nodes.filter((node) => limitedNodeIdSet.has(node.id));
-  const edges = filteredEdges.filter((edge) => limitedNodeIdSet.has(edge.source) && limitedNodeIdSet.has(edge.target));
-
-  return {
-    nodes,
-    edges,
-    elements: [...nodes.map(createNodeElement), ...edges.map(createEdgeElement)],
-    stats: {
-      nodeCount: nodes.length,
-      edgeCount: edges.length,
-    },
-    meta: {
-      mode: 'limited',
-      focusDepth: 1,
-      isLargeGraph: true,
-      autoLimited: true,
-      message: '全图规模较大，已自动展示高关联节点子集，请选择起始岗位查看局部图谱。',
-    },
-  };
-}
-
 export function buildGraphView(
   data: AdaptedGraphData,
   options: {
@@ -378,15 +258,6 @@ export function buildGraphView(
   },
 ): AdaptedGraphView {
   const { startNodeId, edgeTypeFilter, focusDepth = 1 } = options;
-
-  if (startNodeId && data.nodes.some((node) => node.id === startNodeId)) {
-    return buildLocalView(data, startNodeId, focusDepth, edgeTypeFilter);
-  }
-
-  if (data.stats.nodeCount > LARGE_GRAPH_THRESHOLD) {
-    return buildLimitedView(data, edgeTypeFilter);
-  }
-
   const edges = data.edges.filter((edge) => !edgeTypeFilter || edge.edgeType === edgeTypeFilter);
   const nodeIds = new Set<string>();
   for (const edge of edges) {
@@ -399,7 +270,7 @@ export function buildGraphView(
   return {
     nodes,
     edges,
-    elements: [...nodes.map(createNodeElement), ...edges.map(createEdgeElement)],
+    elements: [],
     stats: {
       nodeCount: nodes.length,
       edgeCount: edges.length,

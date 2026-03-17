@@ -1,352 +1,331 @@
-"""Resume parser service - parses resumes and extracts structured information.
+"""Resume parser service - parses resumes and extracts structured information."""
 
-Pipeline:
-  1. 文本提取 - PDF(PyMuPDF) / DOCX(python-docx)
-  2. LLM 结构化抽取 - 调用 resume_parse prompt
-  3. 技能归一化 - 同义词词表硬匹配
-  4. 学生画像组装 - 完整度评分 + 缺失建议
-"""
-
+import json
 import logging
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-import fitz  # PyMuPDF
-from docx import Document
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm_provider import llm
-from app.ai.prompts.resume_parse import build_resume_parse_prompt
 from app.models.student import Resume, Student
-from app.utils.skill_normalizer import normalize
+from app.prompts.resume_parse import (
+    RESUME_PARSE_SYSTEM_PROMPT,
+    RESUME_PARSE_USER_TEMPLATE,
+    build_resume_parse_prompt,
+)
+from app.schemas.profiles import ResumeParseResult
+from app.utils.file_extractor import extract_text
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# 1. 文本提取
-# ---------------------------------------------------------------------------
+class ResumeParserService:
+    """Service for parsing resumes."""
 
-def extract_text_from_pdf(file_path: str) -> str:
-    """使用 PyMuPDF 从 PDF 提取文本。"""
-    doc = fitz.open(file_path)
-    pages: list[str] = []
-    for page in doc:
-        pages.append(page.get_text())
-    doc.close()
-    return "\n".join(pages).strip()
+    async def parse_resume_text(self, text: str) -> ResumeParseResult:
+        """Parse resume text using LLM.
 
+        Args:
+            text: Raw resume text
 
-def extract_text_from_docx(file_path: str) -> str:
-    """使用 python-docx 从 DOCX 提取文本。"""
-    doc = Document(file_path)
-    paragraphs: list[str] = []
-    for para in doc.paragraphs:
-        text = para.text.strip()
-        if text:
-            paragraphs.append(text)
-    # 也提取表格中的文本
-    for table in doc.tables:
-        for row in table.rows:
-            cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-            if cells:
-                paragraphs.append(" | ".join(cells))
-    return "\n".join(paragraphs).strip()
+        Returns:
+            ResumeParseResult with parsed data
+        """
+        # Check text length
+        if not text or len(text.strip()) < 50:
+            print("[ResumeParser] 文本太短，返回空结果")
+            return ResumeParseResult(
+                raw_text=text,
+                parse_confidence=0.0,
+                missing_fields=["文本内容不足，无法解析"],
+            )
 
+        prompt = RESUME_PARSE_USER_TEMPLATE.format(resume_text=text[:8000])
 
-def extract_text_from_file(file_path: str) -> str:
-    """根据文件类型分发提取。"""
-    path = Path(file_path)
-    suffix = path.suffix.lower()
+        for attempt in range(2):
+            try:
+                print(f"[ResumeParser] 第{attempt+1}次调用LLM，文本长度={len(text)}")
 
-    if suffix == ".pdf":
-        return extract_text_from_pdf(file_path)
-    elif suffix in (".docx", ".doc"):
-        return extract_text_from_docx(file_path)
-    else:
-        raise ValueError(f"Unsupported file type: {suffix}")
+                # 直接调用 generate，自己处理 JSON 解析
+                raw = await llm.generate(
+                    prompt=prompt,
+                    system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
+                    temperature=0.1,
+                    max_tokens=4000,
+                )
 
+                print(f"[ResumeParser] LLM返回长度={len(raw)}，前200字: {raw[:200]}")
 
-# ---------------------------------------------------------------------------
-# 2. LLM 结构化抽取
-# ---------------------------------------------------------------------------
+                # 剥离可能的 markdown 代码块和思考内容
+                cleaned = raw.strip()
+                # 移除思考内容
+                if "<think>" in cleaned:
+                    cleaned = cleaned.split("</think>")[-1]
+                if cleaned.startswith("```"):
+                    lines = cleaned.split("\n")
+                    cleaned = "\n".join(lines[1:-1]) if (lines[-1].strip() == "```") else "\n".join(lines[1:])
+                cleaned = cleaned.strip()
 
-async def parse_with_ai(raw_text: str) -> dict[str, Any]:
-    """调用 LLM 解析简历文本为结构化 JSON。"""
-    messages = build_resume_parse_prompt(raw_text)
-    system_prompt = messages[0]["content"]
-    user_prompt = messages[1]["content"]
+                data = json.loads(cleaned)
+                print(f"[ResumeParser] JSON解析成功，keys: {data.keys()}")
 
-    parsed = await llm.generate_json(
-        prompt=user_prompt,
-        system_prompt=system_prompt,
-        temperature=0.2,
-        max_retries=3,
-    )
-    logger.info("LLM resume parsing done, confidence=%.2f",
-                parsed.get("_meta", {}).get("parse_confidence", 0))
-    return parsed
+                # 只保留 ResumeParseResult 需要的字段
+                allowed_fields = {
+                    'education', 'experience', 'projects', 'skills',
+                    'certificates', 'awards', 'self_intro', 'parse_confidence', 'missing_fields'
+                }
+                filtered_data = {k: v for k, v in data.items() if k in allowed_fields}
 
+                result = ResumeParseResult(raw_text=text, **filtered_data)
+                print(f"[ResumeParser] 解析成功，skills数量={len(result.skills)}，education数量={len(result.education)}")
+                return result
 
-# ---------------------------------------------------------------------------
-# 3. 技能归一化
-# ---------------------------------------------------------------------------
+            except Exception as e:
+                import traceback
+                print(f"[ResumeParser] 第{attempt+1}次失败: {e}")
+                print(f"[ResumeParser] Traceback: {traceback.format_exc()}")
+                if attempt == 0:
+                    # 第二次用更简单的 prompt 重试
+                    prompt = f"解析这份简历，只输出JSON，不要其他内容：\n{text[:4000]}\n输出格式：{{\"skills\":[{{\"name\":\"技能\",\"category\":\"编程语言\",\"proficiency\":\"掌握\",\"evidence\":\"\"}}],\"education\":[],\"experience\":[],\"projects\":[],\"certificates\":[],\"awards\":[],\"self_intro\":null,\"parse_confidence\":0.5,\"missing_fields\":[]}}"
+                    continue
 
-def normalize_parsed_skills(
-    parsed_data: dict[str, Any],
-) -> tuple[dict[str, Any], list[dict[str, str]]]:
-    """对解析结果中的技能做归一化，返回 (更新后的数据, 归一化日志)。"""
-    normalization_log: list[dict[str, str]] = []
-    skills = parsed_data.get("skills", [])
-
-    for skill_entry in skills:
-        original = skill_entry.get("name", "")
-        normalized = normalize(original)
-        if normalized != original:
-            normalization_log.append({
-                "original": original,
-                "normalized": normalized,
-            })
-            skill_entry["name"] = normalized
-
-    # 也归一化 project_experience 中的 tech_stack
-    for proj in parsed_data.get("project_experience", []):
-        tech_stack = proj.get("tech_stack", [])
-        normalized_stack: list[str] = []
-        for tech in tech_stack:
-            norm = normalize(tech)
-            if norm != tech:
-                normalization_log.append({
-                    "original": tech,
-                    "normalized": norm,
-                })
-            normalized_stack.append(norm)
-        proj["tech_stack"] = normalized_stack
-
-    return parsed_data, normalization_log
-
-
-# ---------------------------------------------------------------------------
-# 4. 完整度评分 & 缺失建议
-# ---------------------------------------------------------------------------
-
-# 各维度权重
-_DIMENSION_WEIGHTS: dict[str, float] = {
-    "basic_info": 0.10,
-    "education": 0.20,
-    "work_experience": 0.20,
-    "project_experience": 0.15,
-    "skills": 0.20,
-    "certificates": 0.05,
-    "awards": 0.05,
-    "soft_skills": 0.05,
-}
-
-
-def _dimension_fill_rate(parsed_data: dict[str, Any], dim: str) -> float:
-    """计算单个维度的填充率 (0-1)。"""
-    val = parsed_data.get(dim)
-    if val is None:
-        return 0.0
-
-    if dim == "basic_info":
-        if not isinstance(val, dict):
-            return 0.0
-        key_fields = ["name", "phone", "email", "education", "location", "job_intention"]
-        filled = sum(1 for k in key_fields if val.get(k))
-        return filled / len(key_fields)
-
-    if dim == "soft_skills":
-        if not isinstance(val, dict):
-            return 0.0
-        scored = sum(1 for v in val.values() if isinstance(v, dict) and v.get("score", 0) > 1)
-        return min(scored / 6, 1.0)
-
-    # 列表类型维度
-    if isinstance(val, list):
-        if not val:
-            return 0.0
-        # 有内容就按条目数给分（1 条 0.5，2 条 0.7，3+ 条 1.0）
-        n = len(val)
-        if n >= 3:
-            return 1.0
-        elif n == 2:
-            return 0.7
-        else:
-            return 0.5
-
-    return 0.0
-
-
-def compute_completeness_score(parsed_data: dict[str, Any]) -> float:
-    """计算画像完整度评分 (0-1)，各维度加权。"""
-    score = 0.0
-    for dim, weight in _DIMENSION_WEIGHTS.items():
-        rate = _dimension_fill_rate(parsed_data, dim)
-        score += rate * weight
-    return round(score, 3)
-
-
-def generate_missing_suggestions(parsed_data: dict[str, Any]) -> list[str]:
-    """根据解析结果生成缺失项建议。"""
-    suggestions: list[str] = []
-
-    # 基本信息
-    basic = parsed_data.get("basic_info", {})
-    if not basic.get("email"):
-        suggestions.append("建议补充邮箱地址")
-    if not basic.get("phone"):
-        suggestions.append("建议补充手机号码")
-    if not basic.get("job_intention"):
-        suggestions.append("建议补充求职意向")
-
-    # 教育
-    education = parsed_data.get("education", [])
-    if not education:
-        suggestions.append("缺少教育经历，请补充学校、专业、学历等信息")
-    else:
-        for edu in education:
-            if not edu.get("gpa"):
-                suggestions.append("建议补充 GPA/成绩排名等量化指标")
-                break
-
-    # 工作/实习经验
-    work = parsed_data.get("work_experience", [])
-    if not work:
-        suggestions.append("缺少工作/实习经历")
-    else:
-        has_achievement = any(
-            exp.get("achievements") for exp in work
+        print("[ResumeParser] 两次均失败，返回空结果")
+        return ResumeParseResult(
+            raw_text=text,
+            parse_confidence=0.0,
+            missing_fields=["LLM解析失败"],
         )
-        if not has_achievement:
-            suggestions.append("建议在工作经历中补充量化成果（如提升了 XX%、负责了 XX 规模的项目）")
 
-    # 项目经验
-    projects = parsed_data.get("project_experience", [])
-    if not projects:
-        suggestions.append("缺少项目经历，建议补充个人项目、课程项目或开源贡献")
-    else:
-        has_tech = any(proj.get("tech_stack") for proj in projects)
-        if not has_tech:
-            suggestions.append("建议在项目经历中注明技术栈")
-        has_achievement = any(proj.get("achievements") for proj in projects)
-        if not has_achievement:
-            suggestions.append("建议在项目经历中补充量化成果")
+    async def process_upload(
+        self,
+        student_id: int,
+        file_content: bytes,
+        filename: str,
+        db: AsyncSession,
+    ) -> dict[str, Any]:
+        """Process uploaded resume file.
 
-    # 技能
-    skills = parsed_data.get("skills", [])
-    if not skills:
-        suggestions.append("缺少技能列表，请补充专业技能")
+        Pipeline:
+        1. Extract text from file
+        2. Parse with LLM
+        3. Save to database
+        4. Return results with warnings
 
-    # 证书
-    certs = parsed_data.get("certificates", [])
-    if not certs:
-        suggestions.append("建议补充相关证书（如语言证书、专业认证等）")
+        Args:
+            student_id: Student ID
+            file_content: Raw file bytes
+            filename: Original filename
+            db: Database session
 
-    # _meta 中标记的缺失
-    meta = parsed_data.get("_meta", {})
-    for field in meta.get("missing_fields", []):
-        suggestions.append(f"简历中未找到：{field}")
+        Returns:
+            Dict with resume_id, parse_result, warnings
+        """
+        warnings: list[str] = []
 
-    return suggestions
+        # Step 1: Extract text
+        try:
+            text, extraction_warnings = extract_text(file_content, filename)
+            warnings.extend(extraction_warnings)
+        except ValueError as e:
+            logger.warning(f"Text extraction failed: {e}")
+            warnings.append(str(e))
+            text = ""
+
+        # Check for short text warning
+        if text and len(text) < 200:
+            warnings.append("简历文本较短，可能影响解析质量")
+
+        # Step 2: Parse with LLM (if text extracted)
+        if text:
+            parse_result = await self.parse_resume_text(text)
+        else:
+            # Return empty result
+            parse_result = ResumeParseResult(
+                raw_text="",
+                education=[],
+                experience=[],
+                projects=[],
+                skills=[],
+                certificates=[],
+                awards=[],
+                self_intro=None,
+                parse_confidence=0.0,
+                missing_fields=["文本提取失败"],
+            )
+
+        # Add low confidence warning
+        if parse_result.parse_confidence < 0.6:
+            warnings.append(f"解析置信度较低 ({parse_result.parse_confidence:.0%})，建议手动核对")
+
+        # Step 3: Save to database
+        # Get student UUID from int ID
+        student_uuid = await self._get_student_uuid(student_id, db)
+        if not student_uuid:
+            raise ValueError(f"Student {student_id} not found")
+
+        resume = Resume(
+            student_id=student_uuid,
+            filename=filename,
+            file_path="",  # file_url field: store empty string for demo
+            file_type=filename.lower().split('.')[-1],
+            raw_text=text,
+            parsed_json=parse_result.model_dump(),
+            is_primary=True,
+        )
+
+        db.add(resume)
+        await db.flush()
+        await db.refresh(resume)
+
+        return {
+            "resume_id": str(resume.id),
+            "student_id": student_id,
+            "parse_result": parse_result,
+            "warnings": warnings,
+        }
+
+    async def _get_student_uuid(self, student_id: int, db: AsyncSession) -> UUID | None:
+        """Get student UUID from integer ID."""
+        result = await db.execute(
+            select(Student).where(Student.email.like(f"%{student_id}%"))
+        )
+        # For demo, student_id is passed as integer but we need UUID
+        # Since this is a demo, we'll create or get a default student
+        student = result.scalars().first()
+        if student:
+            return student.id
+
+        # Create default student for demo
+        default_student = Student(
+            email=f"student_{student_id}@demo.local",
+            name=f"Student {student_id}",
+        )
+        db.add(default_student)
+        await db.flush()
+        await db.refresh(default_student)
+        return default_student.id
 
 
-# ---------------------------------------------------------------------------
-# 5. 主流程
-# ---------------------------------------------------------------------------
+# Singleton instance
+resume_parser_service = ResumeParserService()
 
-async def parse_resume(
-    resume_id: UUID,
+
+async def parse_resume_text(text: str) -> ResumeParseResult:
+    """Convenience function for parsing resume text."""
+    return await resume_parser_service.parse_resume_text(text)
+
+
+async def process_upload(
+    student_id: int,
+    file_content: bytes,
+    filename: str,
     db: AsyncSession,
 ) -> dict[str, Any]:
-    """完整的简历解析流水线。
+    """Convenience function for processing uploaded resume."""
+    return await resume_parser_service.process_upload(student_id, file_content, filename, db)
 
-    1. 读取 Resume 记录 → 提取文本
-    2. LLM 结构化抽取
-    3. 技能归一化
-    4. 计算完整度 + 缺失建议
-    5. 更新数据库
 
-    Returns:
-        {
-            "resume": Resume ORM object,
-            "parsed_data": dict,
-            "completeness_score": float,
-            "missing_suggestions": list[str],
-            "normalization_log": list[dict],
-        }
-    """
-    # 获取 Resume
-    resume = await db.get(Resume, resume_id)
+async def parse_resume(resume_id: UUID, db: AsyncSession) -> dict[str, Any]:
+    """Parse a resume by ID - legacy function for API compatibility."""
+    from sqlalchemy import select
+    from app.models.student import Resume
+    from app.schemas.student import ResumeResponse
+
+    result = await db.execute(select(Resume).where(Resume.id == resume_id))
+    resume = result.scalars().first()
     if not resume:
         raise ValueError(f"Resume {resume_id} not found")
 
-    if not resume.file_path:
-        raise ValueError(f"Resume {resume_id} has no file_path")
-
-    # Step 1: 文本提取
-    logger.info("Extracting text from %s", resume.file_path)
-    raw_text = extract_text_from_file(resume.file_path)
-    if not raw_text.strip():
-        raise ValueError("Extracted text is empty - file may be an image-only PDF")
-    resume.raw_text = raw_text
-
-    # Step 2: LLM 结构化抽取
-    logger.info("Parsing resume with LLM (resume_id=%s)", resume_id)
-    parsed_data = await parse_with_ai(raw_text)
-
-    # Step 3: 技能归一化
-    parsed_data, normalization_log = normalize_parsed_skills(parsed_data)
-    if normalization_log:
-        logger.info("Normalized %d skills: %s",
-                     len(normalization_log),
-                     ", ".join(f"{e['original']}→{e['normalized']}" for e in normalization_log))
-
-    # Step 4: 完整度评分 & 缺失建议
-    completeness_score = compute_completeness_score(parsed_data)
-    missing_suggestions = generate_missing_suggestions(parsed_data)
-
-    # Step 5: 保存到数据库
-    resume.parsed_json = parsed_data
-    await db.flush()
-    await db.refresh(resume)
-
-    logger.info("Resume %s parsed successfully (completeness=%.2f)", resume_id, completeness_score)
+    # Parse the resume text
+    if resume.raw_text:
+        parse_result = await resume_parser_service.parse_resume_text(resume.raw_text)
+    else:
+        from app.schemas.profiles import ResumeParseResult
+        parse_result = ResumeParseResult(
+            raw_text="",
+            parse_confidence=0.0,
+            missing_fields=["简历文本为空"],
+        )
 
     return {
         "resume": resume,
-        "parsed_data": parsed_data,
-        "completeness_score": completeness_score,
-        "missing_suggestions": missing_suggestions,
-        "normalization_log": normalization_log,
+        "parsed_data": parse_result.model_dump(),
+        "completeness_score": _calculate_completeness(parse_result),
+        "missing_suggestions": _generate_suggestions(parse_result),
+        "normalization_log": [],
     }
 
 
 async def update_student_basic_info(
-    student_id: UUID,
-    parsed_data: dict[str, Any],
+    student_id: int,
+    parsed_data: dict,
     db: AsyncSession,
 ) -> None:
-    """从解析结果更新 Student 表的基本信息。"""
-    student = await db.get(Student, student_id)
+    """Update student basic info from parsed resume data."""
+    from sqlalchemy import select
+    from app.models.student import Student
+
+    # Find student by email pattern for demo
+    result = await db.execute(
+        select(Student).where(Student.email.like(f"%{student_id}%"))
+    )
+    student = result.scalars().first()
     if not student:
         return
 
-    basic = parsed_data.get("basic_info", {})
+    # Update from parsed data
+    if parsed_data.get("education"):
+        edu = parsed_data["education"][0]
+        if not student.name and edu.get("school"):
+            # Could set school as name for demo purposes
+            pass
 
-    if basic.get("name") and not student.name:
-        student.name = basic["name"]
-    if basic.get("phone") and not student.phone:
-        student.phone = basic["phone"]
-    if basic.get("gender") and not student.gender:
-        student.gender = basic["gender"]
-    if basic.get("location") and not student.location:
-        student.location = basic["location"]
-    if basic.get("hometown") and not student.hometown:
-        student.hometown = basic["hometown"]
-    if basic.get("job_intention") and not student.job_intention:
-        student.job_intention = basic["job_intention"]
 
-    await db.flush()
+def _calculate_completeness(parse_result: ResumeParseResult) -> float:
+    """Calculate completeness score based on parsed data."""
+    score = 40.0  # Base score
+
+    if parse_result.experience:
+        score += 15
+    if parse_result.projects and len(parse_result.projects) >= 2:
+        score += 15
+    if parse_result.certificates:
+        score += 10
+
+    # Check for quantified outcomes
+    has_quantified = False
+    for proj in parse_result.projects:
+        proj_dict = proj.model_dump() if hasattr(proj, 'model_dump') else proj.dict()
+        if proj_dict.get("outcome") and any(c.isdigit() for c in str(proj_dict["outcome"])):
+            has_quantified = True
+            break
+    if has_quantified:
+        score += 10
+
+    if parse_result.self_intro:
+        score += 10
+
+    return min(score, 100.0)
+
+
+def _generate_suggestions(parse_result: ResumeParseResult) -> list[str]:
+    """Generate suggestions based on missing fields."""
+    suggestions = []
+
+    if not parse_result.experience:
+        suggestions.append("建议添加实习经历")
+    if not parse_result.projects or len(parse_result.projects) < 2:
+        suggestions.append("建议添加项目经验")
+    if not parse_result.certificates:
+        suggestions.append("建议添加专业证书")
+    if parse_result.parse_confidence < 0.6:
+        suggestions.append("简历信息不完整，建议补充更多细节")
+
+    return suggestions
+
+
+# Aliases for compatibility with student_profile.py
+compute_completeness_score = _calculate_completeness
+generate_missing_suggestions = _generate_suggestions

@@ -1,0 +1,314 @@
+.container {
+  display: flex;
+  height: calc(100vh - 180px);
+  min-height: 600px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e8eef7 100%);
+  border-radius: 16px;
+  overflow: hidden;
+  position: relative;
+}
+
+.graphPane {
+  flex: 0 0 100%;
+  height: 100%;
+  min-height: 600px;
+  transition: flex-basis 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.graphPane.withDetail {
+  flex-basis: 60%;
+}
+
+.detailPane {
+  flex: 0 0 0%;
+  overflow: hidden;
+  transition: flex-basis 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-left: 1px solid rgba(255, 255, 255, 0.8);
+  display: flex;
+  flex-direction: column;
+}
+
+.detailPane.visible {
+  flex-basis: 40%;
+}
+
+.controlsBar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 40px;
+  padding: 6px 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
+
+.searchWrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.searchIcon {
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.searchInput {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 14px;
+  width: 120px;
+  color: #334155;
+}
+
+.searchInput::placeholder {
+  color: #94a3b8;
+}
+
+.categoryChips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: #64748b;
+}
+
+.chip:hover {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.chipActive {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: currentColor;
+}
+
+.rebuildBtn {
+  padding: 6px 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rebuildBtn:hover {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.rebuildLoading {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.graphCanvas {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.svgCanvas {
+  width: 100%;
+  height: 100%;
+}
+
+.hint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
+  padding: 6px 12px;
+  border-radius: 20px;
+  pointer-events: none;
+}
+
+/* Detail Panel */
+.detailHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.detailTitle h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.detailTags {
+  display: flex;
+  gap: 8px;
+}
+
+.closeBtn {
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #94a3b8;
+  font-size: 16px;
+}
+
+.closeBtn:hover {
+  color: #334155;
+}
+
+.detailContent {
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+}
+
+.loadingWrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+}
+
+/* Profile */
+.profileContent {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.profileStats {
+  display: flex;
+  gap: 16px;
+  padding: 12px;
+  background: #fff;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.profileCard {
+  border-radius: 8px;
+}
+
+.profileCard :global(.ant-card-head) {
+  padding: 8px 12px;
+  min-height: auto;
+}
+
+.profileCard :global(.ant-card-head-title) {
+  font-size: 13px;
+  padding: 0;
+}
+
+.profileCard :global(.ant-card-body) {
+  padding: 12px;
+}
+
+.skillList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skillItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.skillItem > span:first-child {
+  width: 80px;
+  color: #334155;
+}
+
+.skillBar {
+  flex: 1;
+  height: 6px;
+  background: #f1f5f9;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.skillBarFill {
+  height: 100%;
+  background: #6366f1;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.skillPct {
+  width: 36px;
+  text-align: right;
+  color: #94a3b8;
+}
+
+.tagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Jobs */
+.jobsList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jobItem {
+  padding: 10px;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.jobTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  margin-bottom: 6px;
+}
+
+.jobMeta {
+  display: flex;
+  gap: 6px;
+}

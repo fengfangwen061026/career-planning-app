@@ -107,3 +107,8 @@ class ResumeUploadResponse(BaseModel):
     completeness_score: float
     missing_suggestions: list[str]
     normalization_log: list[dict[str, str]]
+
+
+class ProfileGenerateRequest(BaseModel):
+    """Request to generate student profile from a resume."""
+    resume_id: UUID

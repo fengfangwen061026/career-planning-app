@@ -10,6 +10,7 @@ from uuid import UUID
 from app.database import get_db
 from app.models.graph import GraphNode, GraphEdge
 from app.services import graph as graph_service
+from app.services.graph_mindmap import get_graph_cache, build_and_cache_graph
 
 router = APIRouter()
 
@@ -307,3 +308,26 @@ async def get_job_requirements(
     包含技能、经验、学历要求等。
     """
     return await graph_service.get_job_requirements(job_id, db)
+
+
+# ── 思维导图接口（新增）──────────────────────────────────────────────
+
+
+@router.get("/mindmap")
+async def get_mindmap(db: AsyncSession = Depends(get_db)):
+    """获取思维导图数据（带缓存）。首次请求或缓存不存在时自动构建。"""
+    cached = await get_graph_cache(db)
+    if cached:
+        return cached
+    return await build_and_cache_graph(db)
+
+
+@router.post("/mindmap/rebuild")
+async def rebuild_mindmap(db: AsyncSession = Depends(get_db)):
+    """强制重建思维导图缓存。数据导入完成后可自动调用此函数，或由前端手动触发。"""
+    result = await build_and_cache_graph(db)
+    return {
+        "status": "ok",
+        "rebuilt_at": result["generated_at"],
+        "node_count": len(result["nodes"]),
+    }

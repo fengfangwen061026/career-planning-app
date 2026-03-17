@@ -124,6 +124,86 @@ ROLE_MAPPING = {
     r"(?i)(管培生|储备干部|储备经理人|储备)": {
         "role": "管培生", "category": "管培类", "level": "entry"
     },
+    # 质量管理
+    r"(?i)(质检|质量检测|品控|品质管理|质量工程师)": {
+        "role": "质量管理", "category": "质量类", "level": "entry"
+    },
+    # 数据分析（扩展）
+    r"(?i)(统计|数据分析|数据专员|bi)": {
+        "role": "数据分析", "category": "技术类", "level": "growing"
+    },
+    # 培训教育
+    r"(?i)(培训师|培训专员|课程顾问|教务)": {
+        "role": "培训", "category": "教育类", "level": "growing"
+    },
+    # 翻译（扩展）
+    r"(?i)(翻译|英语翻译|日语翻译|口译|笔译|外译)": {
+        "role": "翻译", "category": "语言类", "level": "growing"
+    },
+    # 司机/后勤
+    r"(?i)(司机|商务司机|驾驶员)": {
+        "role": "司机", "category": "职能类", "level": "entry"
+    },
+    # 美容/健身
+    r"(?i)(美容|化妆|健身|瑜伽|美容师|美发)": {
+        "role": "美容/健身", "category": "服务类", "level": "entry"
+    },
+    # 餐饮服务
+    r"(?i)(厨师|服务员|餐饮|店长|店助)": {
+        "role": "餐饮服务", "category": "服务类", "level": "entry"
+    },
+    # 零售
+    r"(?i)(导购|营业员|店长|零售|店员)": {
+        "role": "零售", "category": "销售类", "level": "entry"
+    },
+    # 仓储物流
+    r"(?i)(仓管|仓库|物流|仓储|快递|配送)": {
+        "role": "仓储物流", "category": "物流类", "level": "entry"
+    },
+    # 采购
+    r"(?i)(采购|供应商|采购专员)": {
+        "role": "采购", "category": "职能类", "level": "growing"
+    },
+    # 土木/建筑
+    r"(?i)(土木|建筑|施工|工程|造价)": {
+        "role": "建筑工程", "category": "工程类", "level": "growing"
+    },
+    # 机械
+    r"(?i)(机械|机电|设备|维修|装配)": {
+        "role": "机械工程", "category": "技术类", "level": "growing"
+    },
+    # 电气
+    r"(?i)(电气|电工|电气工程|自动化)": {
+        "role": "电气工程", "category": "技术类", "level": "growing"
+    },
+    # 化学/化工
+    r"(?i)(化学|化工|研发|实验)": {
+        "role": "化工研发", "category": "技术类", "level": "growing"
+    },
+    # 医药
+    r"(?i)(医药|药剂|临床|医疗|护士|医生)": {
+        "role": "医疗健康", "category": "医疗类", "level": "growing"
+    },
+    # 金融
+    r"(?i)(金融|银行|证券|投资|理财|保险)": {
+        "role": "金融", "category": "金融类", "level": "growing"
+    },
+    # 电商
+    r"(?i)(电商|淘宝|天猫|京东|拼多多|跨境)": {
+        "role": "电商运营", "category": "运营类", "level": "growing"
+    },
+    # 新媒体
+    r"(?i)(新媒体|抖音|短视频|直播|自媒体)": {
+        "role": "新媒体运营", "category": "运营类", "level": "growing"
+    },
+    # 教师
+    r"(?i)(教师|老师|家教|幼教|教员)": {
+        "role": "教师", "category": "教育类", "level": "growing"
+    },
+    # 研究院/科研
+    r"(?i)(研究院|研究员|科研|专家)": {
+        "role": "科研", "category": "科研类", "level": "growing"
+    },
 }
 
 
