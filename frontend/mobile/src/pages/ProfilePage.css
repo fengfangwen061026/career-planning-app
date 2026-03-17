@@ -1,0 +1,472 @@
+.profile-content {
+  overflow-y: auto;
+  padding: 10px 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  background: var(--color-background-secondary);
+  min-height: 100%;
+}
+
+/* 通用卡片样式 */
+.profile-card {
+  background: var(--color-background-primary);
+  border: 0.5px solid var(--color-border-primary);
+  border-radius: 11px;
+  padding: 11px;
+  animation: fadeInUp 0.3s ease-out both;
+}
+
+/* 卡片头部 */
+.profile-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.profile-card-indicator {
+  width: 2.5px;
+  height: 10px;
+  border-radius: 1px;
+}
+
+.profile-card-indicator.blue { background-color: #3B82F6; }
+.profile-card-indicator.green { background-color: #10B981; }
+.profile-card-indicator.orange { background-color: #D97706; }
+.profile-card-indicator.purple { background-color: #4F46E5; }
+.profile-card-indicator.red { background-color: #EF4444; }
+
+.profile-card-title {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--color-text-placeholder);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* 1. 顶部用户信息行 */
+.profile-header {
+  background: var(--color-background-primary);
+  padding: 12px 12px 8px;
+  display: flex;
+  align-items: center;
+  border-radius: 11px;
+  animation: fadeInUp 0.3s ease-out both;
+}
+
+.profile-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+  font-weight: 800;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.profile-info {
+  margin-left: 8px;
+}
+
+.profile-name {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  color: var(--color-text-primary);
+}
+
+.profile-subtitle {
+  font-size: 9px;
+  color: var(--color-text-tertiary);
+}
+
+.profile-completeness-tag {
+  margin-left: auto;
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  font-size: 8px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Updated badge styles */
+.updated-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--color-success-bg);
+  border-radius: 20px;
+  margin-left: 4px;
+}
+
+.updated-badge span {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--color-success-text);
+}
+
+.updated-tag-small {
+  margin-left: auto;
+  padding: 2px 6px;
+  background: var(--color-success-bg);
+  border-radius: 10px;
+  font-size: 7px;
+  font-weight: 700;
+  color: var(--color-success-text);
+}
+
+/* 2. 综合数据卡 */
+.profile-score-ring {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+}
+
+.profile-score-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.profile-score-value {
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--color-primary);
+}
+
+.profile-score-label {
+  font-size: 7px;
+  color: var(--color-text-placeholder);
+}
+
+.profile-card.comprehensive {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.profile-score-data {
+  flex: 1;
+}
+
+.profile-data-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.profile-data-label {
+  font-size: 9px;
+  color: var(--color-text-tertiary);
+}
+
+.profile-data-value {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.profile-data-value.warning {
+  color: var(--color-warning);
+}
+
+.profile-data-value.success {
+  color: var(--color-success);
+}
+
+.profile-data-progress {
+  height: 4px;
+  background: var(--color-background-tertiary);
+  border-radius: 2px;
+  margin-bottom: 7px;
+}
+
+.profile-data-progress-fill {
+  height: 100%;
+  background: var(--color-warning);
+  border-radius: 2px;
+}
+
+/* 3. 技术技能卡 */
+.skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.skill-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.skill-name {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  width: 36px;
+  flex-shrink: 0;
+}
+
+.skill-track {
+  flex: 1;
+  height: 4px;
+  background: var(--color-background-tertiary);
+  border-radius: 2px;
+}
+
+.skill-fill {
+  height: 100%;
+  border-radius: 2px;
+}
+
+.skill-value {
+  font-size: 9px;
+  color: var(--color-text-placeholder);
+  width: 22px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 4. 实习 & 项目卡 */
+.experience-item {
+  margin-bottom: 0;
+}
+
+.experience-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.experience-duration {
+  font-size: 9px;
+  color: var(--color-text-tertiary);
+  margin-bottom: 4px;
+}
+
+.experience-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.experience-divider {
+  height: 0.5px;
+  background: var(--color-border-primary);
+  margin: 7px 0;
+}
+
+.profile-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 7px 9px;
+  background: var(--color-warning-bg);
+  border-radius: 7px;
+  font-size: 9px;
+  color: var(--color-warning-text);
+  margin-top: 7px;
+}
+
+.profile-notice-icon {
+  flex-shrink: 0;
+}
+
+/* 通用 Tag 样式 */
+.tags-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.tag {
+  font-size: 8px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.tag-blue {
+  background: #EFF6FF;
+  color: #1D4ED8;
+}
+
+.tag-green {
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.tag-orange {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+}
+
+.tag-gray {
+  background: var(--color-background-tertiary);
+  color: var(--color-text-placeholder);
+}
+
+/* 7. 待补全项卡片 */
+.missing-items-desc {
+  font-size: 9px;
+  color: var(--color-text-tertiary);
+  margin-bottom: 8px;
+}
+
+.missing-item {
+  padding: 8px 0;
+}
+
+.missing-item-divider {
+  height: 0.5px;
+  background: var(--color-border-primary);
+}
+
+.missing-item-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.missing-item-name {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.missing-item-desc {
+  font-size: 9px;
+  color: var(--color-text-tertiary);
+  margin-top: 1px;
+}
+
+.missing-item-score {
+  font-size: 8px;
+  color: var(--color-danger);
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.missing-item-action {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--color-warning-bg);
+  border-radius: 8px;
+  padding: 7px 9px;
+  margin-top: 5px;
+}
+
+.missing-item-hint {
+  font-size: 9px;
+  color: var(--color-warning-text);
+  font-weight: 500;
+}
+
+.missing-item-btn {
+  padding: 4px 10px;
+  background: var(--color-warning);
+  color: white;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+}
+
+/* 8. 底部主操作按钮 */
+.profile-action-btn {
+  margin-top: 8px;
+  margin-bottom: 10px;
+  width: 100%;
+  padding: 9px;
+  background: var(--color-primary);
+  color: white;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  animation: fadeInUp 0.3s ease-out both;
+  animation-delay: 0.35s;
+}
+
+.profile-action-btn:hover {
+  opacity: 0.9;
+}
+
+/* Project highlight styles */
+.project-highlight {
+  background: var(--color-success-bg);
+  border-radius: 6px;
+  border-left: 2px solid var(--color-success);
+  padding: 5px 7px;
+  font-size: 9px;
+  color: var(--color-text-secondary);
+  line-height: 1.7;
+  margin-top: 4px;
+}
+
+.project-highlight strong {
+  color: var(--color-success-text);
+}
+
+/* Card highlight effect */
+.profile-card[data-highlight="true"] {
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.03);
+}
+
+/* Missing items prompt */
+.missing-items-prompt {
+  padding: 8px 10px;
+  background: var(--color-warning-bg);
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  animation: fadeInUp 0.3s ease-out both;
+  animation-delay: 0.3s;
+}
+
+.missing-title {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--color-warning-text);
+}
+
+.missing-subtitle {
+  font-size: 8px;
+  color: var(--color-warning-text);
+  margin-top: 1px;
+}
+
+.continue-btn {
+  padding: 5px 10px;
+  background: var(--color-warning);
+  color: white;
+  border-radius: 7px;
+  font-size: 9px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+}

@@ -43,7 +43,7 @@ export const resumeApi = {
   /**
    * Confirm and update the parsed resume result
    */
-  confirmResume: (studentId: string, resumeId: string, data: ResumeConfirmRequest) => {
-    return client.post<{ success: boolean }>(`/students/${studentId}/resumes/${resumeId}/confirm`, data);
+  confirmResume: (_studentId: string, resumeId: string, data: ResumeConfirmRequest) => {
+    return client.post<{ success: boolean }>(`/resumes/${resumeId}/confirm`, data);
   },
 };

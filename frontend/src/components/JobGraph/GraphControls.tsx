@@ -1,10 +1,11 @@
 import { SearchOutlined, ReloadOutlined } from "@ant-design/icons";
-import { JOB_CATEGORIES } from "../../constants";
+import type { CategoryNode } from "./types";
 import styles from "./JobGraph.module.css";
 
 interface GraphControlsProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  categories: CategoryNode[];
   selectedCategories: string[];
   onCategoryToggle: (category: string) => void;
   onRebuild: () => void;
@@ -14,6 +15,7 @@ interface GraphControlsProps {
 export function GraphControls({
   searchQuery,
   onSearchChange,
+  categories,
   selectedCategories,
   onCategoryToggle,
   onRebuild,
@@ -33,27 +35,27 @@ export function GraphControls({
       </div>
 
       <div className={styles.categoryChips}>
-        {Object.entries(JOB_CATEGORIES).map(([category, meta]) => {
+        {categories.map((category) => {
           const isSelected =
             selectedCategories.length === 0 ||
-            selectedCategories.includes(category);
+            selectedCategories.includes(category.label);
 
           return (
             <button
-              key={category}
+              key={category.id}
               className={`${styles.chip} ${isSelected ? styles.chipActive : ""}`}
-              onClick={() => onCategoryToggle(category)}
+              onClick={() => onCategoryToggle(category.label)}
               style={
                 isSelected
                   ? {
-                      backgroundColor: `${meta.color}18`,
-                      borderColor: `${meta.color}99`,
-                      color: meta.color,
+                      backgroundColor: `${category.color}18`,
+                      borderColor: `${category.color}99`,
+                      color: category.color,
                     }
                   : undefined
               }
             >
-              {meta.icon} {category}
+              {category.icon} {category.label}
             </button>
           );
         })}

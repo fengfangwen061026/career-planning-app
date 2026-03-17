@@ -33,8 +33,8 @@ class ResumeParserService:
         Returns:
             ResumeParseResult with parsed data
         """
-        logger.info("Resume parse start: text_length=%d", len(text))
-        logger.info("Resume text preview (first 500 chars): %s", text[:500])
+        print(f"[ResumeParser] 收到文本，长度={len(text)}")
+        print(f"[ResumeParser] 文本前300字: {text[:300]}")
 
         # Check text length
         if not text or len(text.strip()) < 50:
@@ -62,8 +62,8 @@ class ResumeParserService:
                     max_tokens=6000,
                 )
 
-                logger.info("Resume parse raw response length=%d", len(raw))
-                logger.info("Resume parse raw response preview (first 500 chars): %s", raw[:500])
+                print(f"[ResumeParser] LLM返回长度={len(raw)}")
+                print(f"[ResumeParser] LLM返回前500字: {raw[:500]}")
 
                 cleaned = raw.strip()
                 if "<think>" in cleaned:

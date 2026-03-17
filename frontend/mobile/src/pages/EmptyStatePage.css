@@ -1,0 +1,35 @@
+@import '../../styles/mobile-tokens.css';
+
+.empty-state-page {
+  padding: 16px;
+}
+
+.tab-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  justify-content: center;
+}
+
+.tab-btn {
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  background: var(--color-background-secondary);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.tab-btn.active {
+  color: white;
+  background: var(--color-primary);
+}
+
+.empty-state-container {
+  background: var(--color-background-primary);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}

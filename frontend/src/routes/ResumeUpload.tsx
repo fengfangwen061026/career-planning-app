@@ -22,7 +22,8 @@ import {
 } from '@ant-design/icons';
 import { Upload as UploadIcon, FileText, Loader2 } from 'lucide-react';
 import { studentsApi } from '../api/students';
-import type { StudentResponse, ResumeUploadResponse, StudentProfileCreate } from '../types/student';
+import { studentApi } from '../api/student';
+import type { StudentResponse, ResumeUploadResponse } from '../types/student';
 
 // 模块专属色 - 琥珀橙色系
 const MODULE_COLOR = '#CB8A4A';
@@ -68,6 +69,13 @@ interface ParsedResumeData {
     proficiency?: string;
     evidence?: string;
   }>;
+  awards?: Array<{
+    name: string;
+    level?: string;
+    date?: string;
+    evidence?: string;
+  }>;
+  self_intro?: string | null;
 }
 
 function extractNameFromRawText(rawText: string): string | undefined {
@@ -83,6 +91,20 @@ function extractNameFromRawText(rawText: string): string | undefined {
 
   const cleaned = firstLine.replace(/^(姓名|名字|Name)\s*[:：]?\s*/i, '').trim();
   return cleaned || undefined;
+}
+
+function extractContactFromRawText(rawText: string): ParsedResumeData['contact'] {
+  const email = rawText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
+  const phone = rawText.match(/1[3-9]\d{9}/)?.[0];
+  const location =
+    rawText.match(/(?:Address|地址)\s*[:：]?\s*([^\n]+)/i)?.[1]?.trim() ||
+    rawText.match(/(?:现居|所在地|住址)\s*[:：]?\s*([^\n]+)/i)?.[1]?.trim();
+
+  return {
+    email,
+    phone,
+    location,
+  };
 }
 
 type UploadStep = 'upload' | 'parsing' | 'preview' | 'complete';
@@ -183,7 +205,7 @@ export default function ResumeUpload() {
   }, []);
 
   useEffect(() => {
-    if (!parsedData) {
+    if (!parsedData || uploadStep !== 'preview') {
       return;
     }
 
@@ -195,9 +217,9 @@ export default function ResumeUpload() {
       education: parsedData.education,
       projects: parsedData.projects,
       experience: parsedData.experience,
-      skills: parsedData.skills,
+      skills: parsedData.skills?.map((skill) => skill.name) || [],
     });
-  }, [parsedData, profileForm]);
+  }, [parsedData, profileForm, uploadStep]);
 
   const fetchStudents = async () => {
     try {
@@ -283,6 +305,7 @@ export default function ResumeUpload() {
       // Extract name from raw_text (first line typically contains name)
       const rawText = (parsedRecord?.raw_text as string) || '';
       const extractedName = extractNameFromRawText(rawText);
+      const extractedContact = extractContactFromRawText(rawText);
 
       // Transform backend education format to form format
       const backendEducation = (parsedRecord?.education as Array<Record<string, unknown>>) || [];
@@ -314,10 +337,13 @@ export default function ResumeUpload() {
 
       const extractedData: ParsedResumeData = {
         name: extractedName,
+        contact: extractedContact,
         education: transformedEducation,
         projects: transformedProjects,
         experience: transformedExperience,
         skills: (parsedRecord?.skills as ParsedResumeData['skills']) || [],
+        awards: (parsedRecord?.awards as ParsedResumeData['awards']) || [],
+        self_intro: (parsedRecord?.self_intro as string | null | undefined) || null,
       };
       console.info('[ResumeUpload] extracted form data', extractedData);
 
@@ -377,25 +403,19 @@ export default function ResumeUpload() {
   }, []);
 
   const handleConfirmProfile = async () => {
-    if (!selectedStudent || !parsedData) return;
+    if (!selectedStudent || !parsedData || !resumeResponse?.resume?.id) return;
 
     try {
-      const values = await profileForm.validateFields();
-
-      const profileData: StudentProfileCreate = {
-        student_id: selectedStudent,
-        skills: values.skills,
-        education: values.education,
-        projects: values.projects,
-        experience: values.experience,
-      };
-
-      await studentsApi.createStudentProfile(selectedStudent, profileData);
+      await profileForm.validateFields();
+      await studentApi.generateProfile(selectedStudent, {
+        resume_id: resumeResponse.resume.id,
+      });
       message.success('学生画像创建成功');
       setProfileCreated(true);
       setUploadStep('complete');
-    } catch (error) {
-      message.error('创建画像失败，请重试');
+    } catch (error: any) {
+      const errorMessage = error?.response?.data?.detail || '创建画像失败，请重试';
+      message.error(errorMessage);
     }
   };
 
@@ -488,13 +508,13 @@ export default function ResumeUpload() {
 
   // Render preview step
   const renderPreviewPanel = () => (
-    <div className="w-full lg:w-[60%] space-y-4">
+    <Form form={profileForm} layout="vertical" className="w-full lg:w-[60%] space-y-4">
       <GlassCard>
         <div className="ds-section-title" style={{ color: MODULE_COLOR }}>
           <UserOutlined />
           基本信息
         </div>
-        <Form form={profileForm} layout="vertical">
+        <>
           <div className="grid grid-cols-2 gap-4">
             <Form.Item
               name="name"
@@ -526,7 +546,7 @@ export default function ResumeUpload() {
               <Input placeholder="请输入所在地" />
             </Form.Item>
           </div>
-        </Form>
+        </>
       </GlassCard>
 
       <GlassCard>
@@ -685,6 +705,48 @@ export default function ResumeUpload() {
         </div>
       </GlassCard>
 
+      <GlassCard>
+        <div className="ds-section-title" style={{ color: MODULE_COLOR }}>
+          <CheckCircleOutlined />
+          荣誉奖项
+        </div>
+        {parsedData?.awards && parsedData.awards.length > 0 ? (
+          <div className="space-y-3">
+            {parsedData.awards.map((award, index) => (
+              <div
+                key={`${award.name}-${index}`}
+                className={index > 0 ? 'pt-3 border-t border-[#E5E7EB]' : ''}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Text strong>{award.name}</Text>
+                  {award.level && <Tag color="gold">{award.level}</Tag>}
+                  {award.date && <Text type="secondary">{award.date}</Text>}
+                </div>
+                {award.evidence && (
+                  <Text type="secondary" className="block mt-1">
+                    {award.evidence}
+                  </Text>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Text type="secondary">未解析到荣誉奖项</Text>
+        )}
+      </GlassCard>
+
+      <GlassCard>
+        <div className="ds-section-title" style={{ color: MODULE_COLOR }}>
+          <FileText />
+          自我评价
+        </div>
+        {parsedData?.self_intro ? (
+          <Text style={{ whiteSpace: 'pre-wrap' }}>{parsedData.self_intro}</Text>
+        ) : (
+          <Text type="secondary">未解析到自我评价</Text>
+        )}
+      </GlassCard>
+
       <div className="flex justify-end space-x-4">
         <Button
           onClick={handleReset}
@@ -710,7 +772,7 @@ export default function ResumeUpload() {
           确认并创建画像
         </Button>
       </div>
-    </div>
+    </Form>
   );
 
   // Render complete step
@@ -750,7 +812,7 @@ export default function ResumeUpload() {
   );
 
   return (
-    <div className="ds-page">
+    <div data-module="resume" className="ds-page">
       {/* 页面标题区 */}
       <div style={{ marginBottom: 28 }}>
         <div

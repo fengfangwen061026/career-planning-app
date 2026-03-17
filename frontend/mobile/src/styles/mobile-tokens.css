@@ -1,0 +1,41 @@
+:root {
+  --color-primary: #4F46E5;
+  --color-primary-light: #EEF2FF;
+  --color-primary-dark: #1D4ED8;
+  --color-success: #10B981;
+  --color-success-text: #065F46;
+  --color-success-bg: #D1FAE5;
+  --color-warning: #D97706;
+  --color-warning-text: #92400E;
+  --color-warning-bg: #FEF3C7;
+  --color-danger: #EF4444;
+  --color-blue-mid: #3B82F6;
+  --color-text-primary: #0A0A0A;
+  --color-text-secondary: #374151;
+  --color-text-tertiary: #6B7280;
+  --color-text-placeholder: #9CA3AF;
+  --color-border-primary: #E5E7EB;
+  --color-border-secondary: rgba(0,0,0,0.08);
+  --color-border-tertiary: rgba(0,0,0,0.05);
+  --color-background-primary: #FFFFFF;
+  --color-background-secondary: #F9FAFB;
+  --color-background-tertiary: #F3F4F6;
+  --font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+@keyframes shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-4px); }
+}

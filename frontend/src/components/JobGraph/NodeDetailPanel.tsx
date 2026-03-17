@@ -4,8 +4,7 @@ import { ArrowRight, FileSearch, MapPin, Wallet, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { graphApi } from "../../api/graph";
 import { jobsApi } from "../../api/jobs";
-import { JOB_CATEGORIES } from "../../constants";
-import type { JobProfileResponse, RoleResponse } from "../../types/job";
+import type { JobProfileResponse } from "../../types/job";
 import type { JobNode, JobStats } from "./types";
 import styles from "./JobGraph.module.css";
 
@@ -16,7 +15,6 @@ interface NodeDetailPanelProps {
 
 interface DetailState {
   loading: boolean;
-  role: RoleResponse | null;
   profile: JobProfileResponse | null;
   stats: JobStats | null;
 }
@@ -25,13 +23,11 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
   const navigate = useNavigate();
   const [state, setState] = useState<DetailState>({
     loading: true,
-    role: null,
     profile: null,
     stats: null,
   });
 
-  const categoryMeta = JOB_CATEGORIES[node.category];
-  const accentColor = categoryMeta?.color ?? node.color ?? "#4F46E5";
+  const accentColor = node.color ?? "#4F46E5";
 
   useEffect(() => {
     let active = true;
@@ -39,35 +35,20 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
     const fetchDetail = async () => {
       setState({
         loading: true,
-        role: null,
         profile: null,
         stats: null,
       });
 
       try {
-        const [statsResponse, rolesResponse] = await Promise.all([
+        const [statsResponse, profileResponse] = await Promise.all([
           graphApi.getJobStats(node.label),
-          jobsApi.getRoles(true),
+          jobsApi.getRoleProfiles(node.role_id).catch(() => null),
         ]);
-
-        const role =
-          rolesResponse.data.find((item) => item.name === node.label) ?? null;
-
-        let profile: JobProfileResponse | null = null;
-        if (role) {
-          try {
-            const profileResponse = await jobsApi.getRoleProfiles(role.id);
-            profile = profileResponse.data.profiles?.[0] ?? null;
-          } catch {
-            profile = null;
-          }
-        }
 
         if (active) {
           setState({
             loading: false,
-            role,
-            profile,
+            profile: profileResponse?.data.profiles?.[0] ?? null,
             stats: statsResponse.data,
           });
         }
@@ -76,7 +57,6 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
         if (active) {
           setState({
             loading: false,
-            role: null,
             profile: null,
             stats: null,
           });
@@ -89,7 +69,7 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
     return () => {
       active = false;
     };
-  }, [node.label]);
+  }, [node.label, node.role_id]);
 
   const topSkills = useMemo(() => {
     const profileJson = state.profile?.profile_json as Record<string, unknown> | undefined;
@@ -115,18 +95,16 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
       <header className={styles.detailHeader}>
         <div className={styles.detailTitleWrap}>
           <h2 className={styles.detailTitle}>{node.label}</h2>
-          {categoryMeta ? (
-            <div
-              className={styles.categoryPill}
-              style={{
-                backgroundColor: `${accentColor}18`,
-                color: accentColor,
-              }}
-            >
-              <span>{categoryMeta.icon}</span>
-              <span>{node.category}</span>
-            </div>
-          ) : null}
+          <div
+            className={styles.categoryPill}
+            style={{
+              backgroundColor: `${accentColor}18`,
+              color: accentColor,
+            }}
+          >
+            <span>{node.icon ?? "📋"}</span>
+            <span>{node.category}</span>
+          </div>
         </div>
 
         <div className={styles.detailSummary}>
@@ -220,12 +198,8 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
 
       <button
         className={styles.profileAction}
-        disabled={!state.role}
-        onClick={() => {
-          if (state.role) {
-            navigate(`/jobs/profiles/${state.role.id}`);
-          }
-        }}
+        disabled={!node.role_id}
+        onClick={() => navigate(`/jobs/profiles/${node.role_id}`)}
       >
         <span>查看完整岗位画像</span>
         <ArrowRight size={16} />
@@ -348,9 +322,7 @@ function stringifyValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function extractTopSkills(
-  profileJson?: Record<string, unknown>
-): string[] {
+function extractTopSkills(profileJson?: Record<string, unknown>): string[] {
   if (!profileJson) {
     return [];
   }

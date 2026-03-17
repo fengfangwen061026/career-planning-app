@@ -243,7 +243,7 @@ export default function StudentProfile() {
   const radarData = getRadarData();
 
   return (
-    <div className="p-6">
+    <div data-module="students" className="p-6">
       {/* 页面标题区 */}
       <div style={{ marginBottom: 28 }}>
         <div

@@ -276,7 +276,7 @@ export default function JobManagement() {
   const stats = getStats(pagination.total, jobs);
 
   return (
-    <div className="ds-page">
+    <div data-module="jobs" className="ds-page">
       {/* 页面标题区 */}
       <div style={{ marginBottom: 28 }}>
         <div
@@ -421,24 +421,6 @@ export default function JobManagement() {
               showSizeChanger
               showQuickJumper
               showTotal={(total: number) => `共 ${total} 条`}
-              itemRender={(page, type, originalElement) => {
-                if (type === 'page') {
-                  return (
-                    <a style={{
-                      background: pagination.page === page ? '#5E8F6E' : 'transparent',
-                      color: pagination.page === page ? 'white' : '#4B5563',
-                      borderRadius: '8px',
-                      padding: '2px 8px',
-                      minWidth: '32px',
-                      display: 'inline-block',
-                      textAlign: 'center'
-                    }}>
-                      {page}
-                    </a>
-                  );
-                }
-                return originalElement;
-              }}
             />
           </div>
         </>

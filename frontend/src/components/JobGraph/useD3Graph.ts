@@ -328,25 +328,50 @@ export function useD3Graph({
       const color = node.data.color ?? graphStyles.primary;
       const selected = node.data.id === selectedJobId;
 
-      group
-        .append("circle")
-        .attr("r", graphStyles.jobNodeRadius)
-        .attr("fill", "rgba(255,255,255,0.88)")
-        .attr("stroke", selected ? color : `${color}66`)
-        .attr("stroke-width", selected ? 2.5 : 1)
+      const pill = group.append("g").attr("class", "job-pill");
+
+      pill
+        .append("rect")
+        .attr("rx", 11)
+        .attr("ry", 11)
+        .attr("fill", "rgba(255,255,255,0.92)")
+        .attr("stroke", selected ? color : `${color}80`)
+        .attr("stroke-width", selected ? 2 : 1)
         .style(
           "filter",
-          selected ? `drop-shadow(0 0 10px ${color}70)` : "drop-shadow(0 4px 10px rgba(15,23,42,0.05))"
+          selected
+            ? `drop-shadow(0 0 10px ${color}70)`
+            : "drop-shadow(0 6px 14px rgba(15,23,42,0.06))"
         );
 
-      group
+      pill
+        .append("circle")
+        .attr("r", 4)
+        .attr("cx", -18)
+        .attr("cy", 0)
+        .attr("fill", color);
+
+      const label = pill
         .append("text")
-        .attr("text-anchor", "middle")
-        .attr("dy", "0.35em")
+        .attr("x", -8)
+        .attr("y", 4)
+        .attr("text-anchor", "start")
         .attr("pointer-events", "none")
-        .attr("fill", graphStyles.gray500)
-        .attr("font-size", `${graphStyles.jobFontSize}px`)
-        .text(truncateLabel(node.data.label, 6));
+        .attr("fill", graphStyles.gray700)
+        .attr("font-size", "11px")
+        .attr("font-weight", 500)
+        .text(truncateLabel(node.data.label, 10));
+
+      const labelNode = label.node();
+      if (labelNode) {
+        const bbox = labelNode.getBBox();
+        pill
+          .select("rect")
+          .attr("x", bbox.x - 10)
+          .attr("y", bbox.y - 5)
+          .attr("width", bbox.width + 28)
+          .attr("height", bbox.height + 10);
+      }
 
       const jdCount = node.data.jd_count ?? 0;
       if (jdCount > 0) {
@@ -391,7 +416,7 @@ export function useD3Graph({
           .attr("transform", transformNode(node, 1.12));
 
         d3.select(this)
-          .select("circle")
+          .select("rect")
           .transition()
           .duration(graphStyles.interactionDuration)
           .attr("fill", "rgba(255,255,255,0.98)");
@@ -407,10 +432,10 @@ export function useD3Graph({
           .attr("transform", transformNode(node));
 
         d3.select(this)
-          .select("circle")
+          .select("rect")
           .transition()
           .duration(graphStyles.interactionDuration)
-          .attr("fill", "rgba(255,255,255,0.88)");
+          .attr("fill", "rgba(255,255,255,0.92)");
       });
 
     const bounds = layoutLayer.node()?.getBBox();

@@ -77,7 +77,7 @@ const SALARY_RANGES = [
   { label: '20K以上', min: 20000, max: Infinity },
 ];
 
-const COLORS = ['#4361EE', '#2EC4B6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+const COLORS = ['#5B6FD4', '#4B9AB3', '#CB8A4A', '#E07B6A', '#7C6DC8', '#C4758A'];
 
 // 解析行业字段
 const parseIndustry = (industry: string | string[] | null | undefined): { first: string; all: string } => {
@@ -136,9 +136,15 @@ const createCardTitleStyle = (accentColor: string) => ({
   },
 });
 
-export default function JobProfileDetail() {
-  const { roleId } = useParams<{ roleId: string }>();
+interface JobProfileDetailProps {
+  embeddedRoleId?: string;
+  onClose?: () => void;
+}
+
+export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfileDetailProps = {}) {
+  const params = useParams<{ roleId: string }>();
   const navigate = useNavigate();
+  const roleId = embeddedRoleId ?? params.roleId;
 
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<RoleResponse | null>(null);
@@ -375,7 +381,7 @@ export default function JobProfileDetail() {
       ellipsis: { showTitle: false },
       render: (name: string) => (
         <Tooltip title={name} placement="topLeft">
-          <span onClick={() => handleCompanyClick(name)} style={{ cursor: 'pointer', color: '#1890ff' }}>{name}</span>
+          <span onClick={() => handleCompanyClick(name)} style={{ cursor: 'pointer', color: '#7C6DC8' }}>{name}</span>
         </Tooltip>
       ),
     },
@@ -513,7 +519,7 @@ export default function JobProfileDetail() {
             {/* 软素养 */}
             <div style={{ ...cardStyle, marginBottom: 16 }} className="profile-card">
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ width: 4, height: 14, borderRadius: 2, background: '#F59E0B' }} />
+                <span style={{ width: 4, height: 14, borderRadius: 2, background: '#CB8A4A' }} />
                 软素养
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -525,22 +531,22 @@ export default function JobProfileDetail() {
                       alignItems: 'center',
                       gap: 6,
                       padding: '7px 14px',
-                      background: 'rgba(251, 191, 36, 0.12)',
-                      border: '1px solid rgba(251, 191, 36, 0.25)',
+                      background: 'rgba(203, 138, 74, 0.12)',
+                      border: '1px solid rgba(203, 138, 74, 0.22)',
                       borderRadius: 20,
                       fontSize: 13,
                       fontWeight: 500,
-                      color: '#92400E',
+                      color: '#7D4F1E',
                       cursor: 'default',
                       transition: 'all 0.15s ease',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(251, 191, 36, 0.22)';
+                      e.currentTarget.style.background = 'rgba(203, 138, 74, 0.22)';
                       e.currentTarget.style.transform = 'translateY(-1px)';
                       e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)';
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(251, 191, 36, 0.12)';
+                      e.currentTarget.style.background = 'rgba(203, 138, 74, 0.12)';
                       e.currentTarget.style.transform = 'translateY(0)';
                       e.currentTarget.style.boxShadow = 'none';
                     }}
@@ -567,7 +573,7 @@ export default function JobProfileDetail() {
             {/* 福利待遇 */}
             <div style={{ ...cardStyle }} className="profile-card">
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ width: 4, height: 14, borderRadius: 2, background: '#10B981' }} />
+                <span style={{ width: 4, height: 14, borderRadius: 2, background: '#5E8F6E' }} />
                 福利待遇
               </div>
 
@@ -583,16 +589,16 @@ export default function JobProfileDetail() {
                           alignItems: 'center',
                           gap: 6,
                           padding: '8px 16px',
-                          background: 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(5,150,105,0.08))',
-                          border: '1px solid rgba(16,185,129,0.25)',
+                          background: 'linear-gradient(135deg, rgba(94,143,110,0.10), rgba(94,143,110,0.08))',
+                          border: '1px solid rgba(94,143,110,0.22)',
                           borderRadius: 10,
                           fontSize: 13,
                           fontWeight: 600,
-                          color: '#065F46',
+                          color: '#2A5C3A',
                         }}
                       >
                         {b.name}
-                        <span style={{ background: '#10B981', color: 'white', borderRadius: 10, padding: '1px 7px', fontSize: 11, fontWeight: 700 }}>
+                        <span style={{ background: '#5E8F6E', color: 'white', borderRadius: 10, padding: '1px 7px', fontSize: 11, fontWeight: 700 }}>
                           {b.frequency}
                         </span>
                       </span>
@@ -605,15 +611,15 @@ export default function JobProfileDetail() {
                         key={i}
                         style={{
                           padding: '5px 12px',
-                          background: 'rgba(16,185,129,0.07)',
-                          border: '1px solid rgba(16,185,129,0.15)',
+                          background: 'rgba(94,143,110,0.07)',
+                          border: '1px solid rgba(94,143,110,0.15)',
                           borderRadius: 8,
                           fontSize: 12,
-                          color: '#047857',
+                          color: '#2A5C3A',
                         }}
                       >
                         {b.name}
-                        <span style={{ color: '#10B981', fontWeight: 600, marginLeft: 3 }}>{b.frequency}</span>
+                        <span style={{ color: '#5E8F6E', fontWeight: 600, marginLeft: 3 }}>{b.frequency}</span>
                       </span>
                     ))}
                   </div>
@@ -817,22 +823,24 @@ export default function JobProfileDetail() {
   ];
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      padding: 24,
+    <div data-module="profiles" style={{
+      minHeight: embeddedRoleId ? 'unset' : '100vh',
+      padding: embeddedRoleId ? '0' : '24px',
       fontFamily: FONTS.primary,
     }}>
-      {/* 返回按钮 */}
-      <div style={{ marginBottom: 16 }}>
-        <Button
-          type="link"
-          icon={<ArrowLeftOutlined />}
-          onClick={() => navigate('/jobs/profiles')}
-          style={{ padding: 0, color: 'var(--gray-500)' }}
-        >
-          返回画像库
-        </Button>
-      </div>
+      {/* 返回按钮 - embedded 模式下隐藏 */}
+      {!embeddedRoleId && (
+        <div style={{ marginBottom: 16 }}>
+          <Button
+            type="link"
+            icon={<ArrowLeftOutlined />}
+            onClick={() => navigate('/jobs/profiles')}
+            style={{ padding: 0, color: 'var(--gray-500)' }}
+          >
+            返回画像库
+          </Button>
+        </div>
+      )}
 
       {/* Header 卡片 - 压缩高度 */}
       <div
@@ -857,8 +865,9 @@ export default function JobProfileDetail() {
           <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 12 }}>
             <span
               style={{
-                background: 'linear-gradient(135deg, #667EEA 0%, #764BA2 100%)',
-                color: 'white',
+                background: 'rgba(124,109,200,0.12)',
+                color: '#5A4FA8',
+                border: '1px solid rgba(124,109,200,0.22)',
                 borderRadius: 20,
                 padding: '3px 12px',
                 fontSize: 12,
@@ -890,7 +899,7 @@ export default function JobProfileDetail() {
             {role.job_count}
           </div>
           <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 3 }}>个在招岗位</div>
-          <div style={{ fontSize: 11, color: '#C4B5FD', marginTop: 2 }}>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
             · {role.category} · v{profile?.version || '1'}
           </div>
         </div>

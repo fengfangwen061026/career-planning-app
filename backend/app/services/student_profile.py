@@ -8,13 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embedding import embedding
-from app.models.student import Resume, StudentProfile
+from app.models.student import Resume, Student, StudentProfile
 from app.services.resume_parser import compute_completeness_score, generate_missing_suggestions
 
 logger = logging.getLogger(__name__)
 
 
-def _build_profile_json(parsed_data: dict[str, Any]) -> dict[str, Any]:
+def _build_profile_json(parsed_data: dict[str, Any], student: Student | None = None) -> dict[str, Any]:
     """将简历解析结果组装为完整的四维学生画像 JSON。
 
     四维结构：
@@ -54,16 +54,67 @@ def _build_profile_json(parsed_data: dict[str, Any]) -> dict[str, Any]:
     degree_order = {"博士": 4, "硕士": 3, "本科": 2, "大专": 1}
     highest_edu = max(education, key=lambda e: degree_order.get(e.get("degree", ""), 0)) if education else {}
 
+    skill_aliases = [
+        {
+            "name": s.get("name", ""),
+            "category": s.get("category", ""),
+            "level": s.get("proficiency", "了解"),
+            "proficiency": s.get("proficiency", "了解"),
+            "evidence": s.get("evidence"),
+        }
+        for s in skills
+        if s.get("name")
+    ]
+    experience_aliases = [
+        {
+            "type": "internship" if e.get("is_internship", True) else "work",
+            "title": e.get("role") or e.get("company") or "",
+            "company": e.get("company"),
+            "duration": " - ".join(filter(None, [e.get("start_date"), e.get("end_date")])),
+            "description": e.get("description"),
+        }
+        for e in work_experience
+    ] + [
+        {
+            "type": "project",
+            "title": p.get("name") or "",
+            "company": p.get("role"),
+            "duration": p.get("duration"),
+            "description": p.get("description") or p.get("outcome"),
+        }
+        for p in project_experience
+    ]
+    soft_skill_aliases = {
+        key: (
+            value.get("score", 0.0)
+            if isinstance(value, dict)
+            else value
+        )
+        for key, value in soft_skills.items()
+    }
+
     return {
         "basic_info": {
-            "name": basic_info.get("name"),
+            "name": basic_info.get("name") or getattr(student, "name", None),
+            "email": getattr(student, "email", None),
+            "phone": getattr(student, "phone", None),
             "gender": basic_info.get("gender"),
-            "location": basic_info.get("location"),
+            "location": basic_info.get("location") or getattr(student, "location", None),
             "hometown": basic_info.get("hometown"),
-            "job_intention": basic_info.get("job_intention"),
+            "job_intention": basic_info.get("job_intention") or getattr(student, "job_intention", None),
             "expected_salary": basic_info.get("expected_salary"),
             "work_years": basic_info.get("work_years"),
+            "school": highest_edu.get("school"),
+            "degree": highest_edu.get("degree"),
+            "major": highest_edu.get("major"),
         },
+        "education": education,
+        "skills": skill_aliases,
+        "experiences": experience_aliases,
+        "certificates": certificates,
+        "awards": awards,
+        "soft_skills": soft_skill_aliases,
+        "self_intro": self_evaluation,
         "dimensions": {
             "basic_requirements": {
                 "degree": highest_edu.get("degree"),
@@ -148,6 +199,7 @@ def _build_profile_summary(profile_json: dict[str, Any]) -> str:
 async def generate_student_profile(
     student_id: UUID,
     db: AsyncSession,
+    resume_id: UUID | None = None,
 ) -> dict[str, Any]:
     """从学生的主简历解析结果生成学生画像。
 
@@ -155,12 +207,21 @@ async def generate_student_profile(
         {"profile": StudentProfile ORM, "completeness_score": float, "missing_suggestions": list}
     """
     # 获取主简历（或最新简历）
-    result = await db.execute(
-        select(Resume)
-        .where(Resume.student_id == student_id)
-        .order_by(Resume.is_primary.desc(), Resume.created_at.desc())
-    )
-    resume = result.scalars().first()
+    student = await db.get(Student, student_id)
+    if not student:
+        raise ValueError(f"Student {student_id} not found")
+
+    if resume_id:
+        resume = await db.get(Resume, resume_id)
+        if not resume or resume.student_id != student_id:
+            raise ValueError(f"Resume {resume_id} not found for student {student_id}")
+    else:
+        result = await db.execute(
+            select(Resume)
+            .where(Resume.student_id == student_id)
+            .order_by(Resume.is_primary.desc(), Resume.created_at.desc())
+        )
+        resume = result.scalars().first()
     if not resume:
         raise ValueError(f"No resume found for student {student_id}")
     if not resume.parsed_json:
@@ -169,7 +230,7 @@ async def generate_student_profile(
     parsed_data = resume.parsed_json
 
     # 组装画像
-    profile_json = _build_profile_json(parsed_data)
+    profile_json = _build_profile_json(parsed_data, student)
     completeness_score = compute_completeness_score(parsed_data)
     missing_suggestions = generate_missing_suggestions(parsed_data)
 

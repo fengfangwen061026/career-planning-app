@@ -1,0 +1,28 @@
+.mobile-shell-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: #E5E7EB;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.mobile-shell-container {
+  width: 210px;
+  height: 455px;
+  border-radius: 30px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  background: var(--color-background-primary);
+  display: flex;
+  flex-direction: column;
+}
+
+.mobile-shell-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}

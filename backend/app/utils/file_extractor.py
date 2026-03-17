@@ -1,17 +1,47 @@
 """File text extractor - extracts text from PDF and DOCX files with OCR fallback."""
 
 import io
+import io as _io
 import logging
 import os
 import shutil
-import zipfile
-from xml.etree import ElementTree as ET
 from typing import Optional, Tuple
 
 import docx
+import mammoth
 import pdfplumber
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_docx(content: bytes) -> str:
+    """使用 mammoth 提取 DOCX 文本，兜底用 python-docx"""
+    try:
+        result = mammoth.extract_raw_text(_io.BytesIO(content))
+        text = result.value.strip()
+        if text and len(text) >= 50:
+            return text
+    except Exception as e:
+        print(f"[FileExtractor] mammoth 失败: {e}")
+
+    # 兜底：python-docx 提取段落 + 表格
+    try:
+        from docx import Document
+
+        doc = Document(_io.BytesIO(content))
+        parts = []
+        for para in doc.paragraphs:
+            if para.text.strip():
+                parts.append(para.text.strip())
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text.strip():
+                        parts.append(cell.text.strip())
+        return "\n".join(parts)
+    except Exception as e:
+        print(f"[FileExtractor] python-docx 兜底也失败: {e}")
+        return ""
 
 
 class FileExtractor:
@@ -102,7 +132,7 @@ class FileExtractor:
         if suffix == "pdf":
             text = cls._extract_from_pdf(file_content)
         elif suffix in ("docx", "doc"):
-            text = cls._extract_from_docx(file_content)
+            text = _extract_docx(file_content)
         else:
             raise ValueError(f"Unsupported file type: .{suffix}")
 
@@ -142,83 +172,6 @@ class FileExtractor:
                 if text:
                     pages.append(text)
         return "\n".join(pages)
-
-    @staticmethod
-    def _extract_from_docx(file_content: bytes) -> str:
-        """Extract text from DOCX using python-docx.
-
-        Args:
-            file_content: DOCX file bytes
-
-        Returns:
-            Extracted text
-        """
-        doc = docx.Document(io.BytesIO(file_content))
-        parts: list[str] = []
-
-        for para in doc.paragraphs:
-            try:
-                text = para.text.strip()
-            except Exception as exc:
-                logger.warning("Skipping unreadable DOCX paragraph: %s", exc)
-                continue
-            if text:
-                parts.append(text)
-
-        for table in doc.tables:
-            for row in table.rows:
-                row_texts: list[str] = []
-                for cell in row.cells:
-                    try:
-                        cell_text = cell.text.strip()
-                    except Exception as exc:
-                        logger.warning("Skipping unreadable DOCX table cell: %s", exc)
-                        continue
-                    if cell_text:
-                        row_texts.append(cell_text)
-                if row_texts:
-                    parts.append("\t".join(row_texts))
-
-        textbox_text = FileExtractor._extract_docx_textboxes(file_content)
-        if textbox_text:
-            parts.extend(textbox_text)
-
-        return "\n".join(parts)
-
-    @staticmethod
-    def _extract_docx_textboxes(file_content: bytes) -> list[str]:
-        """Extract text from DOCX text boxes and shapes.
-
-        Some resume templates store nearly all visible text inside `w:txbxContent`,
-        which `python-docx` does not expose via `doc.paragraphs`.
-        """
-        namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-
-        try:
-            with zipfile.ZipFile(io.BytesIO(file_content)) as archive:
-                xml = archive.read("word/document.xml")
-        except Exception as exc:
-            logger.warning("Failed to read DOCX XML for textbox extraction: %s", exc)
-            return []
-
-        try:
-            root = ET.fromstring(xml)
-        except Exception as exc:
-            logger.warning("Failed to parse DOCX XML for textbox extraction: %s", exc)
-            return []
-
-        textbox_parts: list[str] = []
-        for textbox in root.findall(".//w:txbxContent", namespace):
-            for para in textbox.findall(".//w:p", namespace):
-                texts: list[str] = []
-                for text_node in para.findall(".//w:t", namespace):
-                    text = (text_node.text or "").strip()
-                    if text:
-                        texts.append(text)
-                if texts:
-                    textbox_parts.append("".join(texts))
-
-        return textbox_parts
 
     @classmethod
     def _extract_with_ocr(cls, file_content: bytes, filename: str) -> str:

@@ -50,6 +50,7 @@ export const graphApi = {
         id: string;
         label: string;
         type: string;
+        role_id?: string;
         color?: string;
         icon?: string;
         category?: string;

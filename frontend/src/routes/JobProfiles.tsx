@@ -42,6 +42,7 @@ import {
 import { jobsApi } from '../api/jobs';
 import type { RoleResponse, JobProfileResponse, JobProfileHistoryResponse } from '../types/job';
 import LoadingState from '../components/LoadingState';
+import JobProfileDetail from './JobProfileDetail';
 
 // 模块专属色 - 柔暗紫色系
 const MODULE_COLOR = '#7C6DC8';
@@ -231,6 +232,7 @@ export default function JobProfiles() {
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState(searchParams.get('keyword') || '');
   const [selectedRole, setSelectedRole] = useState<RoleWithProfile | null>(null);
+  const [detailModalRoleId, setDetailModalRoleId] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingProfile, setEditingProfile] = useState<JobProfileResponse | null>(null);
@@ -323,8 +325,8 @@ export default function JobProfiles() {
   };
 
   const handleCardClick = (role: RoleWithProfile) => {
-    // 跳转到详情页
-    navigate(`/jobs/profiles/${role.id}`);
+    // 打开详情 Modal
+    setDetailModalRoleId(role.id);
   };
 
   const handleEdit = (profile: JobProfileResponse) => {
@@ -851,7 +853,7 @@ export default function JobProfiles() {
   };
 
   return (
-    <div className="p-6">
+    <div data-module="profiles" className="p-6">
       {/* Page Title Area */}
       <div className="mb-8">
         <div
@@ -946,9 +948,15 @@ export default function JobProfiles() {
       {loading ? (
         <LoadingState />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+          gap: 16,
+        }}>
           {filteredRoles.length === 0 ? (
-            <Empty description="暂无角色数据" />
+            <div style={{ gridColumn: '1 / -1' }}>
+              <Empty description="暂无角色数据" />
+            </div>
           ) : (
             filteredRoles.map((role) => (
               <RoleCard
@@ -965,52 +973,34 @@ export default function JobProfiles() {
         </div>
       )}
 
-      {/* 详情面板 */}
+      {/* 岗位画像详情 Modal */}
       <Modal
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingRight: 48 }}>
-            <span style={{ fontSize: 16, fontWeight: 700, color: '#1E293B' }}>
-              {selectedRole?.name} · 岗位画像
-            </span>
-            {currentProfile && (
-              <span style={{
-                fontSize: 11, padding: '2px 8px', borderRadius: 4,
-                background: 'rgba(124,109,200,0.10)', color: '#5A4FA8',
-              }}>v{currentProfile.version}</span>
-            )}
-            {currentProfile && (
-              <Button
-                size="small"
-                icon={<EditOutlined />}
-                style={{ marginLeft: 'auto', color: '#7C6DC8', borderColor: '#7C6DC8' }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleEdit(currentProfile);
-                }}
-              >编辑</Button>
-            )}
-          </div>
-        }
-        open={!!selectedRole && !detailLoading}
-        onCancel={() => setSelectedRole(null)}
-        width={1200}
+        open={!!detailModalRoleId}
+        onCancel={() => setDetailModalRoleId(null)}
         footer={null}
-        bodyStyle={{
-          maxHeight: '82vh',
-          overflow: 'auto',
-          padding: '16px 20px',
-          background: '#F7F9FC',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
+        width="90vw"
+        style={{ top: 20, maxWidth: 1400 }}
+        styles={{
+          body: {
+            padding: 0,
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            borderRadius: 16,
+            background: 'linear-gradient(150deg, #FAF8FF 0%, #FFF0F5 25%, #FFFBF0 50%, #F0FBF5 75%, #F0F5FF 100%)',
+          },
+          content: {
+            borderRadius: 16,
+            overflow: 'hidden',
+            padding: 0,
+          },
         }}
-        className="profile-modal"
+        destroyOnClose
       >
-        {detailLoading ? (
-          <div className="flex justify-center py-12">
-            <Spin size="large" />
-          </div>
-        ) : (
-          renderProfileDetails()
+        {detailModalRoleId && (
+          <JobProfileDetail
+            embeddedRoleId={detailModalRoleId}
+            onClose={() => setDetailModalRoleId(null)}
+          />
         )}
       </Modal>
 

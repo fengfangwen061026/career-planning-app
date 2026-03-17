@@ -94,7 +94,13 @@ body {
   font-family: -apple-system, 'PingFang SC', 'SF Pro Display', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: linear-gradient(150deg, #FAFAF8 0%, #F5F3FF 30%, #FFF8F5 60%, #F0FFF8 100%);
+  background: linear-gradient(150deg,
+  #FAF8FF 0%,
+  #FFF0F5 25%,
+  #FFFBF0 50%,
+  #F0FBF5 75%,
+  #F0F5FF 100%
+);
   background-attachment: fixed;
   min-height: 100vh;
   color: var(--gray-700);
@@ -273,4 +279,149 @@ body {
 .skill-tag {
   animation: ds-fadeIn 200ms ease-out forwards;
   opacity: 0;
+}
+
+/* =============================================
+   MODULE-SCOPED ANT DESIGN OVERRIDES
+   data-module 属性驱动，各页面交互色独立
+   ============================================= */
+
+/* ── 通用 mixin（每个模块复用相同结构）── */
+/* Table hover */
+[data-module] .ant-table-tbody > tr.ant-table-row:hover > td,
+[data-module] .ant-table-tbody > tr > td.ant-table-cell-row-hover {
+  background: var(--module-hover-bg) !important;
+}
+
+/* Pagination */
+[data-module] .ant-pagination-item-active {
+  border-color: var(--module-color) !important;
+  background: var(--module-bg) !important;
+}
+[data-module] .ant-pagination-item-active a {
+  color: var(--module-color) !important;
+}
+[data-module] .ant-pagination-item:hover a {
+  color: var(--module-color) !important;
+}
+[data-module] .ant-pagination-prev:hover .ant-pagination-item-link,
+[data-module] .ant-pagination-next:hover .ant-pagination-item-link {
+  color: var(--module-color) !important;
+  border-color: var(--module-color) !important;
+}
+
+/* Tabs */
+[data-module] .ant-tabs-ink-bar {
+  background: var(--module-color) !important;
+}
+[data-module] .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--module-color) !important;
+}
+[data-module] .ant-tabs-tab:hover .ant-tabs-tab-btn {
+  color: var(--module-color) !important;
+}
+
+/* Select focus */
+[data-module] .ant-select-focused .ant-select-selector,
+[data-module] .ant-select-selector:focus,
+[data-module] .ant-select:not(.ant-select-disabled):hover .ant-select-selector {
+  border-color: var(--module-color) !important;
+  box-shadow: 0 0 0 2px rgba(var(--module-color-rgb), 0.12) !important;
+}
+
+/* Input focus */
+[data-module] .ant-input:focus,
+[data-module] .ant-input-focused {
+  border-color: var(--module-color) !important;
+  box-shadow: 0 0 0 2px rgba(var(--module-color-rgb), 0.12) !important;
+}
+[data-module] .ant-input:hover {
+  border-color: var(--module-color) !important;
+}
+
+/* Primary Button */
+[data-module] .ant-btn-primary {
+  background: var(--module-color) !important;
+  border-color: var(--module-color) !important;
+}
+[data-module] .ant-btn-primary:hover {
+  background: var(--module-color-dark) !important;
+  border-color: var(--module-color-dark) !important;
+}
+
+/* Checkbox checked */
+[data-module] .ant-checkbox-checked .ant-checkbox-inner {
+  background-color: var(--module-color) !important;
+  border-color: var(--module-color) !important;
+}
+
+/* Switch checked */
+[data-module] .ant-switch-checked {
+  background: var(--module-color) !important;
+}
+
+/* ── 各模块变量定义 ── */
+
+[data-module="dashboard"] {
+  --module-color:     #E07B6A;
+  --module-color-dark:#C4604F;
+  --module-color-rgb: 224,123,106;
+  --module-bg:        #FFF2EF;
+  --module-hover-bg:  rgba(224,123,106,0.04);
+}
+
+[data-module="jobs"] {
+  --module-color:     #5E8F6E;
+  --module-color-dark:#4A7559;
+  --module-color-rgb: 94,143,110;
+  --module-bg:        #EEF6F2;
+  --module-hover-bg:  rgba(94,143,110,0.04);
+}
+
+[data-module="profiles"] {
+  --module-color:     #7C6DC8;
+  --module-color-dark:#6355A8;
+  --module-color-rgb: 124,109,200;
+  --module-bg:        #F0EEFB;
+  --module-hover-bg:  rgba(124,109,200,0.04);
+}
+
+[data-module="graph"] {
+  --module-color:     #4B9AB3;
+  --module-color-dark:#38829A;
+  --module-color-rgb: 75,154,179;
+  --module-bg:        #EBF6FB;
+  --module-hover-bg:  rgba(75,154,179,0.04);
+}
+
+[data-module="resume"] {
+  --module-color:     #CB8A4A;
+  --module-color-dark:#B87235;
+  --module-color-rgb: 203,138,74;
+  --module-bg:        #FEF5E9;
+  --module-hover-bg:  rgba(203,138,74,0.04);
+}
+
+[data-module="students"] {
+  --module-color:     #C4758A;
+  --module-color-dark:#A85E73;
+  --module-color-rgb: 196,117,138;
+  --module-bg:        #FAECF0;
+  --module-hover-bg:  rgba(196,117,138,0.04);
+}
+
+[data-module="matching"] {
+  --module-color:     #5B6FD4;
+  --module-color-dark:#4455B8;
+  --module-color-rgb: 91,111,212;
+  --module-bg:        #ECEDFC;
+  --module-hover-bg:  rgba(91,111,212,0.04);
+}
+
+[data-module="reports"] {
+  --module-color:     #5E8A7C;
+  --module-color-dark:#4A7568;
+  --module-color-rgb: 94,138,124;
+  --module-bg:        #EDF5F2;
+  --module-hover-bg:  rgba(94,138,124,0.04);
 }

@@ -8,6 +8,7 @@ export interface GraphNode {
   id: string;
   label: string;
   type: "root" | "category" | "job";
+  role_id?: string;
   color?: string;
   icon?: string;
   category?: string;
@@ -39,6 +40,7 @@ export interface JobStats {
 
 export interface JobNode extends GraphNode {
   type: "job";
+  role_id: string;
   category: string;
   jd_count: number;
 }

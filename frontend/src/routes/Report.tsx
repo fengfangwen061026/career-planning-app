@@ -48,8 +48,16 @@ const MODULE_BG = '#EDF5F2';
 const GlassCard = ({ children, className = '', style = {}, id = '' }: { children: React.ReactNode; className?: string; style?: React.CSSProperties; id?: string }) => (
   <div
     id={id}
-    className={`bg-white/85 backdrop-blur-xl rounded-2xl border border-gray-200 ${className}`}
-    style={style}
+    className={className}
+    style={{
+      background: 'rgba(255,255,255,0.82)',
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
+      borderRadius: 16,
+      border: '1px solid rgba(255,255,255,0.88)',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.04)',
+      ...style,
+    }}
   >
     {children}
   </div>
@@ -57,8 +65,14 @@ const GlassCard = ({ children, className = '', style = {}, id = '' }: { children
 
 const GlassPanel = ({ children, className = '', style = {} }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) => (
   <div
-    className={`bg-white/85 backdrop-blur-xl border border-gray-200 ${className}`}
-    style={style}
+    className={className}
+    style={{
+      background: 'rgba(255,255,255,0.82)',
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
+      border: '1px solid rgba(255,255,255,0.88)',
+      ...style,
+    }}
   >
     {children}
   </div>
@@ -572,7 +586,7 @@ export default function Report() {
   );
 
   return (
-    <div className="p-6">
+    <div data-module="reports" className="p-6">
       {pageHeader}
       <div className="h-full flex flex-col">
       {/* 顶部工具栏 */}

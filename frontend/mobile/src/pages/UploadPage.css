@@ -1,0 +1,197 @@
+.upload-page {
+  padding: 16px;
+  background: var(--color-background-primary);
+  min-height: 100%;
+}
+
+/* 上传拖拽区 */
+.upload-zone {
+  border: 1.5px dashed var(--color-border-primary);
+  border-radius: 11px;
+  padding: 24px 12px;
+  text-align: center;
+  margin-bottom: 10px;
+  background: white;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.upload-zone:active {
+  border-color: var(--color-primary);
+}
+
+.upload-icon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.upload-main-text {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0A0A0A;
+  margin-bottom: 3px;
+  margin-top: 0;
+}
+
+.upload-hint-text {
+  font-size: 9px;
+  color: #6B7280;
+  margin-bottom: 10px;
+  margin-top: 0;
+}
+
+.upload-select-btn {
+  padding: 6px 18px;
+  background: #4F46E5;
+  color: white;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.upload-select-btn:hover {
+  background: #4338CA;
+}
+
+/* 分隔线 */
+.upload-divider {
+  display: flex;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.upload-divider-line {
+  flex: 1;
+  height: 0.5px;
+  background: #E5E7EB;
+}
+
+.upload-divider-text {
+  font-size: 9px;
+  color: #9CA3AF;
+  margin: 0 12px;
+}
+
+/* 手动填写链接 */
+.upload-manual-link {
+  font-size: 10px;
+  color: #4F46E5;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 14px;
+  cursor: pointer;
+  display: block;
+  text-decoration: none;
+}
+
+.upload-manual-link:active {
+  color: #4338CA;
+}
+
+/* 解析内容展示卡片 */
+.upload-preview-card {
+  background: white;
+  border: 0.5px solid var(--color-border-primary);
+  border-radius: 10px;
+  padding: 11px;
+}
+
+.preview-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.preview-card-indicator {
+  width: 2.5px;
+  height: 10px;
+  background: #4F46E5;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+
+.preview-card-title {
+  font-size: 9px;
+  font-weight: 700;
+  color: #9CA3AF;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* 网格布局 */
+.preview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.preview-item {
+  border-radius: 7px;
+  padding: 5px 7px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.preview-item-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.preview-item-text {
+  font-size: 9px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 蓝色 */
+.preview-item-blue {
+  background: #EFF6FF;
+}
+
+.preview-item-blue .preview-item-dot {
+  background: #1D4ED8;
+}
+
+.preview-item-blue .preview-item-text {
+  color: #1D4ED8;
+}
+
+/* 绿色 */
+.preview-item-green {
+  background: #D1FAE5;
+}
+
+.preview-item-green .preview-item-dot {
+  background: #059669;
+}
+
+.preview-item-green .preview-item-text {
+  color: #065F46;
+}
+
+/* 橙色 */
+.preview-item-orange {
+  background: #FEF3C7;
+}
+
+.preview-item-orange .preview-item-dot {
+  background: #D97706;
+}
+
+.preview-item-orange .preview-item-text {
+  color: #92400E;
+}
+
+.preview-item-full {
+  grid-column: 1 / -1;
+}

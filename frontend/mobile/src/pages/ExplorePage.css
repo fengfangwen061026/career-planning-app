@@ -1,0 +1,326 @@
+.explore-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-background-secondary);
+}
+
+/* 顶部栏 */
+.explore-header {
+  background: var(--color-background-primary);
+  padding: 10px 12px 0;
+}
+
+.explore-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 8px;
+}
+
+.explore-title {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  color: #0A0A0A;
+}
+
+.explore-count {
+  font-size: 8px;
+  color: #6B7280;
+  align-self: flex-end;
+}
+
+/* 搜索框 */
+.explore-search-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  margin-bottom: 8px;
+  background: var(--color-background-secondary);
+  border-radius: 20px;
+  cursor: text;
+  transition: border-color 0.2s ease;
+}
+
+.explore-search-container.inactive {
+  border: 0.5px solid var(--color-border-secondary);
+}
+
+.explore-search-container.active {
+  border: 1px solid #4F46E5;
+}
+
+.explore-search-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.explore-search-container.inactive .explore-search-icon {
+  stroke: #9CA3AF;
+}
+
+.explore-search-container.active .explore-search-icon {
+  stroke: #4F46E5;
+}
+
+.explore-search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 10px;
+}
+
+.explore-search-container.inactive .explore-search-input::placeholder {
+  color: #9CA3AF;
+}
+
+.explore-search-container.active .explore-search-input {
+  color: #4F46E5;
+  font-weight: 600;
+}
+
+.explore-search-clear {
+  width: 10px;
+  height: 10px;
+  stroke: #9CA3AF;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* 行业筛选栏 */
+.explore-filter-bar {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+  margin-bottom: 8px;
+}
+
+.explore-filter-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.explore-filter-chip {
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.explore-filter-chip.inactive {
+  border: 0.5px solid #E5E7EB;
+  color: #6B7280;
+  background: transparent;
+}
+
+.explore-filter-chip.active {
+  border: none;
+  background: #4F46E5;
+  color: white;
+  font-weight: 700;
+}
+
+/* Segment Control */
+.explore-segment {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--color-background-secondary);
+  border-radius: 9px;
+  margin-bottom: 8px;
+}
+
+.explore-segment-btn {
+  flex: 1;
+  padding: 4px;
+  text-align: center;
+  font-size: 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.explore-segment-btn.active {
+  background: white;
+  border: 0.5px solid var(--color-border-tertiary);
+  color: #4F46E5;
+  font-weight: 700;
+}
+
+.explore-segment-btn.inactive {
+  background: transparent;
+  color: #6B7280;
+}
+
+/* 搜索结果提示条 */
+.explore-search-result-bar {
+  padding: 6px 10px;
+  background: #EEF2FF;
+  border-bottom: 0.5px solid rgba(79, 70, 229, 0.15);
+  margin-bottom: 6px;
+  border-radius: 8px;
+}
+
+.explore-search-result-text {
+  font-size: 8px;
+  color: #4F46E5;
+}
+
+/* 岗位卡片列表 */
+.explore-job-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 0 0 8px;
+}
+
+/* 岗位卡片 */
+.explore-job-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 9px 10px;
+  background: white;
+  border: 0.5px solid var(--color-border-primary);
+  border-radius: 10px;
+  margin-bottom: 7px;
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.explore-job-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.explore-job-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.explore-job-icon-text {
+  font-size: 9px;
+  font-weight: 800;
+  color: white;
+}
+
+.explore-job-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.explore-job-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0A0A0A;
+  margin-bottom: 1px;
+}
+
+.explore-job-subtitle {
+  font-size: 8px;
+  color: #6B7280;
+  margin-bottom: 4px;
+}
+
+/* Tags */
+.explore-job-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.explore-job-tag {
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 7px;
+}
+
+/* 四维迷你条 */
+.explore-job-dims {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.explore-dim-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.explore-dim-label {
+  font-size: 7px;
+  color: #9CA3AF;
+  width: 10px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.explore-dim-track {
+  flex: 1;
+  height: 2.5px;
+  background: #F3F4F6;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.explore-dim-fill {
+  height: 100%;
+  border-radius: 2px;
+}
+
+/* 综合分 */
+.explore-job-score {
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: -0.8px;
+  flex-shrink: 0;
+  align-self: center;
+  margin-left: auto;
+  margin-right: 12px;
+}
+
+/* 右箭头 */
+.explore-job-arrow {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: #9CA3AF;
+}
+
+/* 底部提示 */
+.explore-more-hint {
+  font-size: 8px;
+  color: #9CA3AF;
+  text-align: center;
+  padding: 6px 0;
+}
+
+/* 动画 */
+.explore-job-card {
+  animation: fadeInUp 0.3s ease forwards;
+  opacity: 0;
+}
+
+.explore-job-card:nth-child(1) { animation-delay: 0s; }
+.explore-job-card:nth-child(2) { animation-delay: 0.05s; }
+.explore-job-card:nth-child(3) { animation-delay: 0.1s; }
+.explore-job-card:nth-child(4) { animation-delay: 0.15s; }
+.explore-job-card:nth-child(5) { animation-delay: 0.2s; }
+.explore-job-card:nth-child(6) { animation-delay: 0.25s; }

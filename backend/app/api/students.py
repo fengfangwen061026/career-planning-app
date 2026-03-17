@@ -198,7 +198,7 @@ async def upload_resume(
     try:
         if raw_text:
             parse_result = await parse_resume_text(raw_text)
-            resume.parsed_json = parse_result.model_dump()
+            resume.parsed_json = parse_result.model_dump(mode="json")
         else:
             from app.schemas.profiles import ResumeParseResult
             parse_result = ResumeParseResult(
@@ -353,7 +353,7 @@ async def generate_profile(
 
     # 生成画像
     try:
-        result = await generate_student_profile(student_id, db)
+        result = await generate_student_profile(student_id, db, request.resume_id)
         profile = result["profile"]
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Spin, message } from "antd";
 import { GraphCanvas } from "./GraphCanvas";
 import { GraphControls } from "./GraphControls";
 import { NodeDetailPanel } from "./NodeDetailPanel";
 import { useGraphData } from "./useGraphData";
-import type { GraphEdge, GraphNode, JobNode } from "./types";
+import type { CategoryNode, GraphEdge, GraphNode, JobNode } from "./types";
 import styles from "./JobGraph.module.css";
 
 export function JobGraph() {
@@ -15,13 +15,11 @@ export function JobGraph() {
   const [selectedJob, setSelectedJob] = useState<JobNode | null>(null);
 
   const handleCategoryToggle = useCallback((category: string) => {
-    setSelectedCategories((prev) => {
-      const next = prev.includes(category)
+    setSelectedCategories((prev) =>
+      prev.includes(category)
         ? prev.filter((item) => item !== category)
-        : [...prev, category];
-
-      return next;
-    });
+        : [...prev, category]
+    );
   }, []);
 
   useEffect(() => {
@@ -85,53 +83,47 @@ export function JobGraph() {
 
   const allNodes = data.nodes as GraphNode[];
   const allEdges = data.edges as GraphEdge[];
-  const searchLower = searchQuery.trim().toLowerCase();
-  const searching = Boolean(searchLower);
+  const searching = Boolean(searchQuery.trim());
 
-  const visibleNodes = useMemo(() => {
-    const nodesByType = {
-      root: allNodes.find((node) => node.type === "root"),
-      categories: allNodes.filter((node) => node.type === "category"),
-      jobs: allNodes.filter((node) => node.type === "job"),
-    };
+  const rootNode = allNodes.find((node) => node.type === "root");
+  const categoryNodes = allNodes.filter(
+    (node): node is CategoryNode => node.type === "category"
+  );
+  const jobNodes = allNodes.filter((node): node is JobNode => node.type === "job");
 
-    const visibleCategoryNames =
-      !searching && selectedCategories.length > 0
-        ? new Set(selectedCategories)
-        : null;
+  const visibleCategoryNames =
+    !searching && selectedCategories.length > 0
+      ? new Set(selectedCategories)
+      : null;
 
-    const categoryNodes = nodesByType.categories.filter((node) =>
-      visibleCategoryNames ? visibleCategoryNames.has(node.label) : true
+  const visibleCategories = categoryNodes.filter((node) =>
+    visibleCategoryNames ? visibleCategoryNames.has(node.label) : true
+  );
+
+  const visibleNodes: GraphNode[] = [];
+  if (rootNode) {
+    visibleNodes.push(rootNode);
+  }
+  visibleNodes.push(...visibleCategories);
+
+  if (searching) {
+    visibleNodes.push(...jobNodes);
+  } else if (expandedCategory) {
+    visibleNodes.push(
+      ...jobNodes.filter((node) => node.category === expandedCategory)
     );
-
-    const nodes: GraphNode[] = [];
-    if (nodesByType.root) {
-      nodes.push(nodesByType.root);
-    }
-    nodes.push(...categoryNodes);
-
-    if (searching) {
-      nodes.push(...nodesByType.jobs);
-      return nodes;
-    }
-
-    if (expandedCategory) {
-      nodes.push(
-        ...nodesByType.jobs.filter((node) => node.category === expandedCategory)
-      );
-    }
-
-    return nodes;
-  }, [allNodes, expandedCategory, searching, selectedCategories]);
+  }
 
   const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
-  const visibleEdges = useMemo(
-    () =>
-      allEdges.filter(
-        (edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)
-      ),
-    [allEdges, visibleNodeIds]
+  const visibleEdges = allEdges.filter(
+    (edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)
   );
+
+  const totals = data.totals ?? {
+    role_count: jobNodes.length,
+    jd_count: 0,
+    category_count: categoryNodes.length,
+  };
 
   return (
     <div className={styles.container}>
@@ -141,6 +133,7 @@ export function JobGraph() {
         <GraphControls
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          categories={categoryNodes}
           selectedCategories={selectedCategories}
           onCategoryToggle={handleCategoryToggle}
           onRebuild={handleRebuild}
@@ -148,7 +141,7 @@ export function JobGraph() {
         />
 
         <div className={styles.statsStrip}>
-          共 {data.totals.role_count} 个岗位类型 · {data.totals.jd_count.toLocaleString()} 条招聘数据 · 覆盖 {data.totals.category_count} 大行业领域
+          共 {totals.role_count} 个岗位类型 · {totals.jd_count.toLocaleString()} 条招聘数据 · 覆盖 {totals.category_count} 大行业领域
         </div>
 
         <GraphCanvas
@@ -167,10 +160,7 @@ export function JobGraph() {
         className={`${styles.detailPane} ${selectedJob ? styles.visible : ""}`}
       >
         {selectedJob ? (
-          <NodeDetailPanel
-            node={selectedJob}
-            onClose={() => handleJobSelect(null)}
-          />
+          <NodeDetailPanel node={selectedJob} onClose={() => handleJobSelect(null)} />
         ) : null}
       </aside>
     </div>

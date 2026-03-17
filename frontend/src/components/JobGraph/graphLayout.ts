@@ -5,6 +5,7 @@ export interface TreeNode {
   id: string;
   label: string;
   type: "root" | "category" | "job";
+  role_id?: string;
   color?: string;
   icon?: string;
   category?: string;

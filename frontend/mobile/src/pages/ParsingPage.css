@@ -1,0 +1,106 @@
+.parsing-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 16px;
+  text-align: center;
+  min-height: 100%;
+  background: white;
+}
+
+/* 顶部动画进度圈 */
+.parsing-progress-container {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 16px;
+}
+
+.parsing-document-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* 标题 */
+.parsing-title {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  color: #0A0A0A;
+  margin: 0 0 4px 0;
+}
+
+.parsing-subtitle {
+  font-size: 9px;
+  color: #6B7280;
+  margin: 0 0 20px 0;
+}
+
+/* 五步流程列表 */
+.parsing-steps {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.parsing-step {
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.parsing-step-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.parsing-step-text {
+  font-size: 10px;
+}
+
+/* 已完成 */
+.step-completed {
+  background: #D1FAE5;
+}
+
+.step-completed .parsing-step-text {
+  font-weight: 600;
+  color: #065F46;
+}
+
+/* 进行中 */
+.step-active {
+  background: #EEF2FF;
+  border: 0.5px solid rgba(79, 70, 229, 0.2);
+}
+
+.step-active .parsing-step-text {
+  font-weight: 700;
+  color: #4F46E5;
+}
+
+/* 待执行 */
+.step-pending {
+  background: var(--color-background-tertiary);
+}
+
+.step-pending .parsing-step-text {
+  color: #9CA3AF;
+}
+
+/* 底部提示 */
+.parsing-hint {
+  font-size: 9px;
+  color: #9CA3AF;
+  margin-top: 16px;
+}

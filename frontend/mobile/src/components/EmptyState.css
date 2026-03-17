@@ -1,0 +1,47 @@
+@import '../../styles/mobile-tokens.css';
+
+.empty-state {
+  height: 280px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  text-align: center;
+}
+
+.empty-state-icon {
+  margin-bottom: 0;
+}
+
+.empty-state-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-bottom: 6px;
+  margin-top: 12px;
+}
+
+.empty-state-description {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  line-height: 1.7;
+  margin-bottom: 16px;
+  white-space: pre-line;
+}
+
+.empty-state-button {
+  padding: 8px 20px;
+  background: var(--color-primary);
+  color: white;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.empty-state-button:hover {
+  background: var(--color-primary-dark);
+}

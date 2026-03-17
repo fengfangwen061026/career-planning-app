@@ -189,7 +189,7 @@ export default function Dashboard() {
   ];
 
   return (
-    <div style={{ padding: '0 0 24px 0' }}>
+    <div data-module="dashboard" style={{ padding: '0 0 24px 0' }}>
       {/* 页面标题区 */}
       <div style={{ marginBottom: 28 }}>
         <div

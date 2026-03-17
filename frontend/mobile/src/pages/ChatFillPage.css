@@ -1,0 +1,394 @@
+/* ChatFillPage Styles */
+.chat-fill-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-background-secondary);
+}
+
+/* 1. Top Navigation Bar */
+.top-nav {
+  height: auto;
+  padding: 10px 12px;
+  background-color: white;
+  border-bottom: 0.5px solid var(--color-border-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.back-area {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.back-dot {
+  width: 8px;
+  height: 8px;
+  background-color: var(--color-primary);
+  border-radius: 50%;
+}
+
+.back-text {
+  font-size: 9px;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.nav-title {
+  font-size: 11px;
+  font-weight: 700;
+  flex: 1;
+  text-align: center;
+}
+
+.progress-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.progress-dots .dot {
+  width: 6px;
+  height: 4px;
+  background-color: #E5E7EB;
+  border-radius: 2px;
+  transition: background-color 0.3s;
+}
+
+.progress-dots .dot.active {
+  width: 18px;
+  background-color: var(--color-primary);
+}
+
+/* Done title addition */
+.done-title {
+  font-size: 8px;
+  color: var(--color-success);
+  text-align: right;
+  padding: 0 12px 6px;
+  background-color: white;
+}
+
+/* 2. Sub Progress Bar */
+.sub-progress {
+  padding: 6px 10px;
+  background-color: white;
+  border-bottom: 0.5px solid var(--color-border-primary);
+  flex-shrink: 0;
+}
+
+.progress-text {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+
+.progress-text span:first-child {
+  font-size: 8px;
+  color: var(--color-text-tertiary);
+}
+
+.progress-status {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.progress-bar {
+  height: 3px;
+  background-color: var(--color-background-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background-color: var(--color-primary);
+  transition: width 0.3s;
+}
+
+/* 3. Messages Area */
+.messages-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background-color: var(--color-background-secondary);
+}
+
+.message-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.message-wrapper.ai {
+  align-self: flex-start;
+  max-width: 80%;
+}
+
+.message-wrapper.user {
+  align-self: flex-end;
+  max-width: 80%;
+}
+
+/* AI Bubble */
+.ai-bubble {
+  background-color: white;
+  border: 0.5px solid var(--color-border-primary);
+  border-radius: 4px 12px 12px 12px;
+  padding: 8px 10px;
+}
+
+.bubble-text {
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+.timestamp {
+  font-size: 8px;
+  color: var(--color-text-placeholder);
+  margin-top: 3px;
+}
+
+/* Options Row */
+.options-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.option-btn {
+  padding: 5px 10px;
+  border: 1px solid var(--color-primary);
+  border-radius: 20px;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--color-primary);
+  background-color: var(--color-primary-light);
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.option-btn:hover {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+.option-btn.primary {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+/* User Bubble */
+.user-bubble {
+  background-color: var(--color-primary);
+  border-radius: 12px 4px 12px 12px;
+  padding: 8px 10px;
+}
+
+.user-bubble .bubble-text {
+  color: white;
+}
+
+.user-bubble .timestamp {
+  text-align: right;
+}
+
+/* Typing Indicator */
+.typing-dots {
+  display: flex;
+  gap: 5px;
+  padding: 2px;
+}
+
+.typing-dots span {
+  width: 5px;
+  height: 5px;
+  background-color: var(--color-text-placeholder);
+  border-radius: 50%;
+  animation: bounce 1s infinite;
+}
+
+.typing-dots span:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.typing-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+/* Generated Card */
+.generated-card {
+  background-color: white;
+  border: 1px solid var(--color-primary);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 0 0 6px 0;
+}
+
+.card-title {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.card-content {
+  font-size: 9px;
+  color: var(--color-text-secondary);
+  line-height: 1.8;
+}
+
+.card-content .highlight {
+  color: var(--color-primary-dark);
+  font-weight: 700;
+}
+
+/* Effect Prediction Box */
+.effect-prediction {
+  background-color: var(--color-success-bg);
+  border: 0.5px solid rgba(16, 185, 129, 0.2);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.prediction-title {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--color-success-text);
+  margin-bottom: 6px;
+}
+
+.prediction-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.prediction-row span:first-child {
+  color: var(--color-text-secondary);
+}
+
+.prediction-row .old-value {
+  color: var(--color-warning);
+}
+
+.prediction-row .new-value {
+  color: var(--color-success-text);
+  font-weight: 700;
+}
+
+.prediction-row .increase {
+  color: var(--color-success);
+}
+
+/* 4. Bottom Input Area (Chatting State) */
+.input-area {
+  padding: 8px 10px;
+  background-color: white;
+  border-top: 0.5px solid var(--color-border-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.message-input {
+  flex: 1;
+  height: 30px;
+  border: 0.5px solid var(--color-border-secondary);
+  border-radius: 15px;
+  padding: 0 10px;
+  font-size: 10px;
+  background-color: var(--color-background-secondary);
+  outline: none;
+}
+
+.message-input::placeholder {
+  color: var(--color-text-placeholder);
+}
+
+.message-input:focus {
+  border-color: var(--color-primary);
+}
+
+.send-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none;
+  transition: background-color 0.2s;
+}
+
+.send-btn:hover {
+  background-color: var(--color-primary-dark);
+}
+
+/* 4. Action Buttons (Done State) */
+.action-buttons {
+  padding: 8px 10px;
+  background-color: white;
+  border-top: 0.5px solid var(--color-border-primary);
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.action-btn {
+  flex: 1;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.action-btn.secondary {
+  border: 0.5px solid var(--color-border-primary);
+  background-color: transparent;
+  color: var(--color-text-secondary);
+}
+
+.action-btn.secondary:hover {
+  background-color: var(--color-background-secondary);
+}
+
+.action-btn.primary {
+  background-color: var(--color-primary);
+  color: white;
+  border: none;
+  font-weight: 700;
+}
+
+.action-btn.primary:hover {
+  background-color: var(--color-primary-dark);
+}

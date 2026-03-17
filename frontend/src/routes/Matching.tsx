@@ -925,7 +925,7 @@ export default function Matching() {
   );
 
   return (
-    <div className="p-6">
+    <div data-module="matching" className="p-6">
       {renderPageHeader()}
 
       {loading ? (

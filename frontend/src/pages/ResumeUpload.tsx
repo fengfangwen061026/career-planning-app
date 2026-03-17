@@ -20,6 +20,7 @@ import {
   EyeOutlined,
 } from '@ant-design/icons';
 import { resumeApi } from '../api/resume';
+import { studentApi } from '../api/student';
 import type { ResumeParseResult } from '../types/profiles';
 import type { ResumeUploadResponse } from '../types/student';
 
@@ -117,6 +118,9 @@ export default function ResumeUpload() {
         self_intro: parsedData.self_intro,
         parse_confidence: parsedData.parse_confidence,
         missing_fields: parsedData.missing_fields,
+      });
+      await studentApi.generateProfile(studentId, {
+        resume_id: uploadResponse.resume.id,
       });
 
       message.success('简历确认成功');
