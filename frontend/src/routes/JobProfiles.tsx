@@ -16,6 +16,9 @@ import {
   Space,
   Select,
 } from 'antd';
+
+const { Panel } = Collapse;
+import { ChevronDown, BookOpen } from 'lucide-react';
 import client from '../api/client';
 import {
   SearchOutlined,
@@ -40,7 +43,9 @@ import { jobsApi } from '../api/jobs';
 import type { RoleResponse, JobProfileResponse, JobProfileHistoryResponse } from '../types/job';
 import LoadingState from '../components/LoadingState';
 
-const { Panel } = Collapse;
+// 模块专属色 - 柔暗紫色系
+const MODULE_COLOR = '#7C6DC8';
+const MODULE_BG = '#F0EEFB';
 
 interface RoleWithProfile extends RoleResponse {
   profiles?: JobProfileResponse[];
@@ -57,14 +62,166 @@ interface ProfileData {
 }
 
 const categoryColors: Record<string, string> = {
-  技术: 'blue',
-  产品: 'purple',
-  设计: 'orange',
-  运营: 'green',
-  市场: 'red',
-  销售: 'cyan',
-  职能: 'gold',
-  其他: 'default',
+  技术: '#7C6DC8',
+  产品: '#C4758A',
+  设计: '#CB8A4A',
+  运营: '#5E8F6E',
+  市场: '#E07B6A',
+  销售: '#4B9AB3',
+  职能: '#9CA3AF',
+  其他: '#9CA3AF',
+};
+
+// ========== New Components ==========
+
+// Profile Mini Card
+const ProfileCard = ({ profile, onClick }: { profile: JobProfileResponse; onClick: () => void }) => {
+  const createdAt = profile.created_at ? new Date(profile.created_at).toLocaleDateString('zh-CN') : '-';
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: 'rgba(249,250,251,0.8)',
+        borderRadius: 12,
+        padding: 16,
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'rgba(255,255,255,0.95)';
+        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'rgba(249,250,251,0.8)';
+        e.currentTarget.style.boxShadow = 'none';
+      }}
+    >
+      {/* Top: Version + Date */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontSize: 12, color: '#6B7280' }}>v{profile.version}</span>
+        <span style={{ fontSize: 12, color: '#6B7280' }}>{createdAt}</span>
+      </div>
+
+      {/* Bottom: Click to view details */}
+      <div style={{ color: '#7C6DC8', fontSize: 13, fontWeight: 500 }}>
+        查看详情 →
+      </div>
+    </div>
+  );
+};
+
+// Role Glass Card with Expandable Profiles
+const RoleCard = ({
+  role,
+  isExpanded,
+  detailLoading,
+  onToggle,
+  onCardClick,
+  profiles,
+}: {
+  role: RoleWithProfile;
+  isExpanded: boolean;
+  detailLoading: boolean;
+  onToggle: () => void;
+  onCardClick: () => void;
+  profiles?: JobProfileResponse[];
+}) => {
+  return (
+    <div style={{
+      background: 'rgba(255,255,255,0.7)',
+      backdropFilter: 'blur(10px)',
+      borderRadius: 16,
+      border: '1px solid rgba(255,255,255,0.5)',
+      boxShadow: '0 4px 24px rgba(0,0,0,0.04)',
+      overflow: 'hidden',
+    }}>
+      {/* Card Header */}
+      <div
+        onClick={onToggle}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '16px 20px',
+          cursor: 'pointer',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#1F2937' }}>
+            {role.name}
+          </span>
+          <Tag style={{
+            background: 'rgba(124,109,200,0.10)',
+            color: '#5A4FA8',
+            border: '1px solid rgba(124,109,200,0.20)',
+            borderRadius: '6px',
+          }}>
+            {role.category}
+          </Tag>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{
+            background: 'rgba(124,109,200,0.10)',
+            color: '#5A4FA8',
+            borderRadius: 20,
+            padding: '4px 12px',
+            fontSize: 12,
+            fontWeight: 700,
+            border: '1px solid rgba(124,109,200,0.20)',
+          }}>
+            {role.job_count} 个岗位
+          </span>
+          <ChevronDown
+            size={20}
+            style={{
+              color: '#7C6DC8',
+              transition: 'transform 0.2s',
+              transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Expandable Content: Profile Grid */}
+      {isExpanded && (
+        <div style={{
+          padding: '0 20px 20px 20px',
+          borderTop: '1px solid #F3F4F6',
+        }}>
+          {detailLoading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+              <Spin />
+            </div>
+          ) : profiles && profiles.length > 0 ? (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+              gap: 12,
+              marginTop: 16,
+            }}>
+              {profiles.map((profile) => (
+                <ProfileCard
+                  key={profile.id}
+                  profile={profile}
+                  onClick={onCardClick}
+                />
+              ))}
+            </div>
+          ) : (
+            <div style={{
+              padding: 20,
+              textAlign: 'center',
+              color: '#9CA3AF',
+              fontSize: 14,
+            }}>
+              暂无画像数据
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default function JobProfiles() {
@@ -364,12 +521,12 @@ export default function JobProfiles() {
     const displaySkills = allSkills.slice(0, displayCount);
 
     const COLORS: Record<string, string> = {
-      programming_languages: '#6366F1',
-      frameworks_and_libraries: '#8B5CF6',
-      tools_and_platforms: '#0EA5E9',
-      domain_skills: '#4361EE',
-      databases: '#2EC4B6',
-      methodologies: '#F59E0B',
+      programming_languages: '#7C6DC8',
+      frameworks_and_libraries: '#9D91D8',
+      tools_and_platforms: '#4B9AB3',
+      domain_skills: '#5A4FA8',
+      databases: '#4B9AB3',
+      methodologies: '#CB8A4A',
     };
 
     if (allSkills.length === 0) {
@@ -389,7 +546,7 @@ export default function JobProfiles() {
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           marginBottom: 10, paddingBottom: 8,
-          borderBottom: '2px solid #EEF1FF',
+          borderBottom: '2px solid #F0EEFB',
         }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: '#1E293B' }}>
             🔬 技术技能
@@ -403,7 +560,7 @@ export default function JobProfiles() {
           {nonEmptyCategories.map(cat => (
             <span key={cat.key} style={{
               fontSize: 11, padding: '2px 8px', borderRadius: 10,
-              background: `${COLORS[cat.key]}10`,
+              background: `${COLORS[cat.key]}15`,
               color: COLORS[cat.key],
               border: `1px solid ${COLORS[cat.key]}25`,
             }}>
@@ -418,7 +575,7 @@ export default function JobProfiles() {
           gap: '3px 16px',
         }}>
           {displaySkills.map((skill, i) => {
-            const barColor = COLORS[skill.category] || '#4361EE';
+            const barColor = COLORS[skill.category] || '#7C6DC8';
             return (
               <div key={`${skill.name}-${i}`} style={{
                 display: 'flex', alignItems: 'center', gap: 6,
@@ -448,7 +605,7 @@ export default function JobProfiles() {
                 {skill.isRequired && skill.weight >= 0.6 ? (
                   <span style={{
                     fontSize: 9, padding: '0 4px', borderRadius: 3,
-                    background: '#FEE2E2', color: '#DC2626', flexShrink: 0,
+                    background: '#7C6DC8', color: '#fff', flexShrink: 0,
                     lineHeight: '16px',
                   }}>必备</span>
                 ) : (
@@ -464,7 +621,7 @@ export default function JobProfiles() {
             onClick={() => setManualExpanded(!manualExpanded)}
             style={{
               textAlign: 'center', padding: '8px 0', marginTop: 4,
-              fontSize: 12, color: '#4361EE', cursor: 'pointer',
+              fontSize: 12, color: '#7C6DC8', cursor: 'pointer',
               borderTop: '1px dashed #E2E8F0',
             }}
           >
@@ -493,7 +650,7 @@ export default function JobProfiles() {
           <div style={{
             fontSize: 13, fontWeight: 600, color: '#1E293B',
             marginBottom: 8, paddingBottom: 6,
-            borderBottom: '2px solid #EEF1FF',
+            borderBottom: '2px solid #F0EEFB',
           }}>
             💡 软素养
           </div>
@@ -504,13 +661,13 @@ export default function JobProfiles() {
               }))}>
                 <PolarGrid stroke="#E2E8F0" />
                 <PolarAngleAxis dataKey="subject" tick={{ fontSize: 10, fill: '#64748B' }} />
-                <Radar dataKey="value" stroke="#4361EE" fill="#4361EE" fillOpacity={0.12} strokeWidth={2} dot={{ r: 2, fill: '#4361EE' }} />
+                <Radar dataKey="value" stroke="#7C6DC8" fill="#7C6DC8" fillOpacity={0.12} strokeWidth={2} dot={{ r: 2, fill: '#7C6DC8' }} />
               </RadarChart>
             </ResponsiveContainer>
           ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {softSkills.map((s: any) => (
-                <span key={s.name} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: '#EEF1FF', color: '#4361EE' }}>
+                <span key={s.name} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(124,109,200,0.10)', color: '#5A4FA8' }}>
                   {s.name}
                 </span>
               ))}
@@ -527,7 +684,7 @@ export default function JobProfiles() {
             <div style={{
               fontSize: 13, fontWeight: 600, color: '#1E293B',
               marginBottom: 8, paddingBottom: 6,
-              borderBottom: '2px solid #EEF1FF',
+              borderBottom: '2px solid #F0EEFB',
             }}>
               📜 证书资质
             </div>
@@ -535,8 +692,8 @@ export default function JobProfiles() {
               {certifications.map((c: any) => (
                 <span key={c.name} style={{
                   fontSize: 11, padding: '3px 10px', borderRadius: 12,
-                  background: c.importance === 'required' ? '#4361EE' : '#E8FAF8',
-                  color: c.importance === 'required' ? '#fff' : '#0D9488',
+                  background: c.importance === 'required' ? '#7C6DC8' : '#EDF5F2',
+                  color: c.importance === 'required' ? '#fff' : '#3A6B60',
                   fontWeight: c.importance === 'required' ? 600 : 400,
                 }}>
                   {c.name}
@@ -555,7 +712,7 @@ export default function JobProfiles() {
             background: '#fff', borderRadius: 10, padding: '12px 14px',
             boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#1E293B', marginBottom: 8, paddingBottom: 6, borderBottom: '2px solid #EEF1FF' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#1E293B', marginBottom: 8, paddingBottom: 6, borderBottom: '2px solid #F0EEFB' }}>
               🎓 专业方向
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
@@ -582,14 +739,14 @@ export default function JobProfiles() {
         background: '#fff', borderRadius: 10, padding: '12px 14px',
         boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
       }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#1E293B', marginBottom: 8, paddingBottom: 6, borderBottom: '2px solid #EEF1FF' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#1E293B', marginBottom: 8, paddingBottom: 6, borderBottom: '2px solid #F0EEFB' }}>
           📋 工作职责
         </div>
         {display.map((item: string, i: number) => (
           <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 5, alignItems: 'flex-start' }}>
             <span style={{
               width: 16, height: 16, borderRadius: '50%', flexShrink: 0, marginTop: 1,
-              background: 'linear-gradient(135deg, #4361EE, #2EC4B6)',
+              background: 'linear-gradient(135deg, #7C6DC8, #9D91D8)',
               color: '#fff', fontSize: 9, fontWeight: 600,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>{i + 1}</span>
@@ -598,7 +755,7 @@ export default function JobProfiles() {
         ))}
         {jobResponsibilities.length > SHOW && (
           <div onClick={() => setExpanded(!expanded)}
-            style={{ fontSize: 11, color: '#4361EE', cursor: 'pointer', textAlign: 'center', paddingTop: 4 }}>
+            style={{ fontSize: 11, color: '#7C6DC8', cursor: 'pointer', textAlign: 'center', paddingTop: 4 }}>
             {expanded ? '收起 ▲' : `展开更多 (${jobResponsibilities.length - SHOW}条) ▼`}
           </div>
         )}
@@ -615,7 +772,7 @@ export default function JobProfiles() {
         background: '#fff', borderRadius: 10, padding: '12px 14px',
         boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
       }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#1E293B', marginBottom: 8, paddingBottom: 6, borderBottom: '2px solid #EEF1FF' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#1E293B', marginBottom: 8, paddingBottom: 6, borderBottom: '2px solid #EDF5F2' }}>
           🎁 福利待遇
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
@@ -624,10 +781,10 @@ export default function JobProfiles() {
             return (
               <span key={item.name} style={{
                 fontSize: 11, padding: '3px 10px', borderRadius: 14,
-                background: isTop ? '#E8FAF8' : '#F1F5F9',
-                color: isTop ? '#0D9488' : '#64748B',
+                background: isTop ? '#EDF5F2' : '#F1F5F9',
+                color: isTop ? '#3A6B60' : '#64748B',
                 fontWeight: isTop ? 500 : 400,
-                border: isTop ? '1px solid #B2DFDB' : 'none',
+                border: isTop ? '1px solid rgba(94,138,124,0.18)' : 'none',
               }}>
                 {item.name}
               </span>
@@ -695,81 +852,117 @@ export default function JobProfiles() {
 
   return (
     <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">岗位画像库</h1>
-        <Space>
-          <Button
-            icon={<ThunderboltOutlined />}
-            onClick={handleBatchGenerate}
-            loading={batchGenerating}
-          >
-            批量生成画像
-          </Button>
-          <Button icon={<ReloadOutlined />} onClick={fetchRoles}>
-            刷新
-          </Button>
-        </Space>
+      {/* Page Title Area */}
+      <div className="mb-8">
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            background: 'rgba(124,109,200,0.10)',
+            padding: '4px 12px',
+            borderRadius: 20,
+            fontSize: 12,
+            fontWeight: 600,
+            color: MODULE_COLOR,
+            marginBottom: 10,
+          }}
+        >
+          <BookOpen size={12} /> 岗位画像库
+        </div>
+        <h1 style={{
+          fontSize: 28,
+          fontWeight: 800,
+          letterSpacing: '-0.8px',
+          color: '#0A0A0A',
+          marginBottom: 4,
+        }}>
+          岗位画像库
+        </h1>
+        <p style={{ fontSize: 14, color: '#6B7280' }}>
+          基于智联招聘 JD 数据生成的岗位画像
+        </p>
       </div>
 
-      <div className="flex gap-4 mb-6">
-        <Input
-          placeholder="搜索角色名称或类别"
-          prefix={<SearchOutlined />}
-          value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
-          style={{ width: 300 }}
+      {/* Search and Filter Area */}
+      <div className="flex items-center gap-4 mb-6">
+        {/* Custom Search Box */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px',
+          background: '#fff',
+          borderRadius: 8,
+          border: '1px solid #E5E7EB',
+          width: 280,
+        }}>
+          <SearchOutlined style={{ color: '#9CA3AF', fontSize: 14 }} />
+          <input
+            type="text"
+            placeholder="搜索角色名称..."
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              outline: 'none',
+              fontSize: 14,
+              width: '100%',
+              color: '#374151',
+            }}
+          />
+        </div>
+
+        {/* Role Filter Select */}
+        <Select
+          placeholder="筛选角色"
+          style={{ width: 160 }}
           allowClear
+          onChange={(value) => {
+            if (value) {
+              const role = roles.find(r => r.id === value);
+              if (role) fetchRoleProfile(role);
+            }
+          }}
+          options={roles.map(r => ({ label: r.name, value: r.id }))}
         />
+
+        <Button
+          type="primary"
+          icon={<ThunderboltOutlined />}
+          onClick={handleBatchGenerate}
+          loading={batchGenerating}
+          style={{ background: '#7C6DC8', borderColor: '#7C6DC8' }}
+        >
+          生成画像
+        </Button>
+
+        <Button icon={<ReloadOutlined />} onClick={fetchRoles}>
+          刷新
+        </Button>
       </div>
 
       {loading ? (
         <LoadingState />
       ) : (
-        <Row gutter={[16, 16]}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {filteredRoles.length === 0 ? (
-            <Col span={24}>
-              <Empty description="暂无角色数据" />
-            </Col>
+            <Empty description="暂无角色数据" />
           ) : (
             filteredRoles.map((role) => (
-              <Col xs={24} sm={12} lg={8} xl={6} key={role.id}>
-                <Card
-                  hoverable
-                  className={`h-full transition-all ${
-                    selectedRole?.id === role.id
-                      ? 'border-2 border-blue-500 shadow-lg'
-                      : ''
-                  }`}
-                  onClick={() => handleCardClick(role)}
-                  title={
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium truncate">{role.name}</span>
-                      <Tag color={categoryColors[role.category] || 'default'}>
-                        {role.category}
-                      </Tag>
-                    </div>
-                  }
-                  extra={
-                    <div className="text-xs text-gray-400">
-                      {role.job_count} 个 JD
-                    </div>
-                  }
-                >
-                  {role.description && (
-                    <p className="text-sm text-gray-500 line-clamp-2 mb-3">
-                      {role.description}
-                    </p>
-                  )}
-                  {selectedRole?.id === role.id && detailLoading && (
-                    <div className="flex justify-center py-4">
-                      <Spin />
-                    </div>
-                  )}
-                </Card>
-              </Col>
+              <RoleCard
+                key={role.id}
+                role={role}
+                isExpanded={selectedRole?.id === role.id}
+                detailLoading={selectedRole?.id === role.id && detailLoading}
+                onToggle={() => fetchRoleProfile(role)}
+                onCardClick={() => handleCardClick(role)}
+                profiles={selectedRole?.id === role.id ? selectedRole.profiles : []}
+              />
             ))
           )}
-        </Row>
+        </div>
       )}
 
       {/* 详情面板 */}
@@ -782,14 +975,14 @@ export default function JobProfiles() {
             {currentProfile && (
               <span style={{
                 fontSize: 11, padding: '2px 8px', borderRadius: 4,
-                background: '#EEF1FF', color: '#4361EE',
+                background: 'rgba(124,109,200,0.10)', color: '#5A4FA8',
               }}>v{currentProfile.version}</span>
             )}
             {currentProfile && (
               <Button
                 size="small"
                 icon={<EditOutlined />}
-                style={{ marginLeft: 'auto' }}
+                style={{ marginLeft: 'auto', color: '#7C6DC8', borderColor: '#7C6DC8' }}
                 onClick={(e) => {
                   e.stopPropagation();
                   handleEdit(currentProfile);
@@ -830,6 +1023,7 @@ export default function JobProfiles() {
         width={600}
         okText="保存"
         cancelText="取消"
+        okButtonProps={{ style: { background: '#7C6DC8', borderColor: '#7C6DC8' } }}
       >
         <Form form={editForm} layout="vertical">
           <Form.Item

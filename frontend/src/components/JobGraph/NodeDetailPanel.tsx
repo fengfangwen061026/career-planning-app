@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
-import { Spin, Empty, Card, Tag, Row, Col, Tabs } from "antd";
-import { CloseOutlined } from "@ant-design/icons";
+import { useEffect, useMemo, useState } from "react";
+import { Spin } from "antd";
+import { FileSearch, X } from "lucide-react";
 import { jobsApi } from "../../api/jobs";
 import { JOB_CATEGORIES } from "../../constants";
+import type { JobProfileResponse, RoleResponse } from "../../types/job";
 import type { JobNode } from "./types";
 import styles from "./JobGraph.module.css";
 
@@ -11,185 +12,267 @@ interface NodeDetailPanelProps {
   onClose: () => void;
 }
 
+interface DetailState {
+  loading: boolean;
+  role: RoleResponse | null;
+  profile: JobProfileResponse | null;
+  hasProfile: boolean;
+}
+
 export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
-  const [loading, setLoading] = useState(true);
-  const [roleData, setRoleData] = useState<{
-    role: { id: string; name: string; category: string; job_count: number } | null;
-    profile: any;
-    jobs: any[];
-  }>({
+  const [state, setState] = useState<DetailState>({
+    loading: true,
     role: null,
     profile: null,
-    jobs: [],
+    hasProfile: false,
   });
 
+  const categoryMeta = JOB_CATEGORIES[node.category];
+  const accentColor = categoryMeta?.color ?? node.color ?? "#4F46E5";
+  const accentTint = `${accentColor}18`;
+
   useEffect(() => {
-    fetchRoleData();
+    let active = true;
+
+    const fetchProfile = async () => {
+      setState({
+        loading: true,
+        role: null,
+        profile: null,
+        hasProfile: false,
+      });
+
+      try {
+        const rolesResponse = await jobsApi.getRoles(true);
+        const role =
+          rolesResponse.data.find((item) => item.name === node.label) ?? null;
+
+        if (!role) {
+          if (active) {
+            setState({
+              loading: false,
+              role: null,
+              profile: null,
+              hasProfile: false,
+            });
+          }
+          return;
+        }
+
+        try {
+          const profileResponse = await jobsApi.getRoleProfiles(role.id);
+          const latestProfile = profileResponse.data.profiles?.[0] ?? null;
+
+          if (active) {
+            setState({
+              loading: false,
+              role,
+              profile: latestProfile,
+              hasProfile: Boolean(latestProfile),
+            });
+          }
+        } catch {
+          if (active) {
+            setState({
+              loading: false,
+              role,
+              profile: null,
+              hasProfile: false,
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch job profile:", error);
+        if (active) {
+          setState({
+            loading: false,
+            role: null,
+            profile: null,
+            hasProfile: false,
+          });
+        }
+      }
+    };
+
+    void fetchProfile();
+
+    return () => {
+      active = false;
+    };
   }, [node.label]);
 
-  const fetchRoleData = async () => {
-    setLoading(true);
-    try {
-      // Get roles to find matching role
-      const rolesRes = await jobsApi.getRoles(true);
-      const role = rolesRes.data.find(
-        (r) => r.name === node.label || node.label.includes(r.name)
-      );
-
-      if (role) {
-        const [profileRes, jobsRes] = await Promise.all([
-          jobsApi.getRoleProfiles(role.id),
-          jobsApi.getJobsByRole(role.id).catch(() => ({ data: [] })),
-        ]);
-
-        setRoleData({
-          role,
-          profile: profileRes.data.profiles?.[0] || null,
-          jobs: jobsRes.data || [],
-        });
-      } else {
-        setRoleData({
-          role: null,
-          profile: null,
-          jobs: [],
-        });
-      }
-    } catch (error) {
-      console.error("Failed to fetch role data:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const categoryMeta = JOB_CATEGORIES[node.category];
+  const profileJson = useMemo(
+    () => (state.profile?.profile_json as Record<string, unknown> | undefined) ?? null,
+    [state.profile]
+  );
 
   return (
-    <div className={styles.detailPane}>
-      <div className={styles.detailHeader}>
-        <div className={styles.detailTitle}>
-          <h3>{node.label}</h3>
-          <div className={styles.detailTags}>
-            {categoryMeta && (
-              <Tag color={categoryMeta.color}>{node.category}</Tag>
-            )}
-            <Tag>{node.jd_count} 个 JD</Tag>
-          </div>
-        </div>
-        <button className={styles.closeBtn} onClick={onClose}>
-          <CloseOutlined />
-        </button>
-      </div>
+    <div className={styles.detailPanel}>
+      <button className={styles.closeBtn} onClick={onClose} aria-label="关闭详情面板">
+        <X size={16} />
+      </button>
 
-      <div className={styles.detailContent}>
-        {loading ? (
-          <div className={styles.loadingWrapper}>
-            <Spin />
+      <header className={styles.detailHeader}>
+        <div className={styles.detailTitleWrap}>
+          <h2 className={styles.detailTitle}>{node.label}</h2>
+          {categoryMeta ? (
+            <div
+              className={styles.categoryPill}
+              style={{
+                backgroundColor: accentTint,
+                color: accentColor,
+              }}
+            >
+              <span>{categoryMeta.icon}</span>
+              <span>{node.category}</span>
+            </div>
+          ) : null}
+        </div>
+
+        <div className={styles.statCard}>
+          <div className={styles.statNumber} style={{ color: accentColor }}>
+            {node.jd_count ?? 0}
           </div>
-        ) : roleData.profile ? (
-          <Tabs
-            defaultActiveKey="profile"
-            items={[
-              {
-                key: "profile",
-                label: "画像分析",
-                children: <ProfileTab profile={roleData.profile} />,
-              },
-              {
-                key: "jobs",
-                label: `关联公司 (${roleData.jobs.length})`,
-                children: (
-                  <JobsTab jobs={roleData.jobs.slice(0, 20)} />
-                ),
-              },
-            ]}
+          <div className={styles.statLabel}>条招聘数据</div>
+        </div>
+      </header>
+
+      <section className={styles.detailSection}>
+        <div className={styles.sectionHeading}>
+          <span
+            className={styles.sectionBar}
+            style={{ backgroundColor: accentColor }}
           />
-        ) : (
-          <Empty description="暂无画像数据" />
-        )}
-      </div>
+          <span className={styles.sectionTitle}>岗位画像</span>
+        </div>
+
+        <div className={styles.sectionBody}>
+          {state.loading ? (
+            <div className={styles.loadingWrapper}>
+              <Spin />
+            </div>
+          ) : state.hasProfile && profileJson ? (
+            <ProfileContent profile={profileJson} accentColor={accentColor} />
+          ) : (
+            <div className={styles.emptyState}>
+              <FileSearch size={48} color="#D1D5DB" strokeWidth={1.6} />
+              <p className={styles.emptyText}>暂无岗位画像</p>
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
 
-function ProfileTab({ profile }: { profile: any }) {
-  const profileData = profile?.profile_json || {};
-  const techSkills = profileData?.technical_skills || [];
-  const softSkills = profileData?.soft_skills || [];
-  const benefits = profileData?.benefits || [];
-  const totalJds = profileData?.total_jds_analyzed || 0;
-
+function ProfileContent({
+  profile,
+  accentColor,
+}: {
+  profile: Record<string, unknown>;
+  accentColor: string;
+}) {
   return (
-    <div className={styles.profileContent}>
-      <div className={styles.profileStats}>
-        <span>{totalJds} 条 JD</span>
-      </div>
-
-      <Card title="技术技能" size="small" className={styles.profileCard}>
-        {techSkills.length > 0 ? (
-          <div className={styles.skillList}>
-            {techSkills.slice(0, 10).map((skill: any, i: number) => (
-              <div key={i} className={styles.skillItem}>
-                <span>{skill.name}</span>
-                <div className={styles.skillBar}>
-                  <div
-                    className={styles.skillBarFill}
-                    style={{ width: `${(skill.frequency_pct || 0)}%` }}
-                  />
-                </div>
-                <span className={styles.skillPct}>
-                  {skill.frequency_pct?.toFixed(0) || 0}%
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        )}
-      </Card>
-
-      <Card title="软素养" size="small" className={styles.profileCard}>
-        <div className={styles.tagList}>
-          {softSkills.map((skill: any, i: number) => (
-            <Tag key={i} color="blue">
-              {skill.name}
-            </Tag>
-          ))}
-        </div>
-      </Card>
-
-      <Card title="福利待遇" size="small" className={styles.profileCard}>
-        <div className={styles.tagList}>
-          {benefits.slice(0, 8).map((b: any, i: number) => (
-            <Tag key={i} color="green">
-              {b.name} ({b.frequency})
-            </Tag>
-          ))}
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-function JobsTab({ jobs }: { jobs: any[] }) {
-  if (jobs.length === 0) {
-    return <Empty description="暂无岗位数据" />;
-  }
-
-  return (
-    <div className={styles.jobsList}>
-      {jobs.map((job, i) => (
-        <div key={i} className={styles.jobItem}>
-          <div className={styles.jobTitle}>{job.title}</div>
-          <div className={styles.jobMeta}>
-            <Tag>{job.city}</Tag>
-            <Tag color="green">
-              {job.salary_min
-                ? `${Math.round(job.salary_min / 1000)}K-${Math.round(job.salary_max / 1000)}K`
-                : "面议"}
-            </Tag>
-          </div>
-        </div>
+    <div className={styles.profileBlocks}>
+      {Object.entries(profile).map(([key, value]) => (
+        <section key={key} className={styles.profileBlock}>
+          <h3 className={styles.profileBlockTitle} style={{ color: accentColor }}>
+            {formatKey(key)}
+          </h3>
+          <div className={styles.profileBlockBody}>{renderProfileValue(value)}</div>
+        </section>
       ))}
     </div>
   );
+}
+
+function renderProfileValue(value: unknown): JSX.Element {
+  if (value == null) {
+    return <div className={styles.profileMuted}>暂无数据</div>;
+  }
+
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return <div className={styles.profileParagraph}>{String(value)}</div>;
+  }
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return <div className={styles.profileMuted}>暂无数据</div>;
+    }
+
+    if (value.every((item) => typeof item === "string" || typeof item === "number")) {
+      return (
+        <div className={styles.profileTagList}>
+          {value.map((item, index) => (
+            <span key={`${item}-${index}`} className={styles.profileTag}>
+              {String(item)}
+            </span>
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <div className={styles.profileList}>
+        {value.map((item, index) => (
+          <div key={index} className={styles.profileListItem}>
+            {renderObjectOrPrimitive(item)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (typeof value === "object") {
+    return (
+      <div className={styles.profileKvList}>
+        {Object.entries(value as Record<string, unknown>).map(([subKey, subValue]) => (
+          <div key={subKey} className={styles.profileKvRow}>
+            <span className={styles.profileKvKey}>{formatKey(subKey)}</span>
+            <div className={styles.profileKvValue}>{renderObjectOrPrimitive(subValue)}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <div className={styles.profileParagraph}>{String(value)}</div>;
+}
+
+function renderObjectOrPrimitive(value: unknown): JSX.Element {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return (
+      <div className={styles.profileInlineGrid}>
+        {Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => (
+          <div key={key} className={styles.profileInlineItem}>
+            <span className={styles.profileInlineKey}>{formatKey(key)}</span>
+            <span className={styles.profileInlineValue}>{stringifyValue(nestedValue)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (Array.isArray(value)) {
+    return <div className={styles.profileParagraph}>{value.map(stringifyValue).join(" · ")}</div>;
+  }
+
+  return <div className={styles.profileParagraph}>{stringifyValue(value)}</div>;
+}
+
+function stringifyValue(value: unknown): string {
+  if (value == null) return "暂无";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(stringifyValue).join(" · ");
+  }
+  return JSON.stringify(value);
+}
+
+function formatKey(key: string): string {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }

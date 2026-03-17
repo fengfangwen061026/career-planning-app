@@ -21,7 +21,9 @@ RESUME_PARSE_SYSTEM_PROMPT = """你是专业的简历解析器。
 - award level 只能是以下之一：国家级、省级、校级、其他
 """
 
-RESUME_PARSE_USER_TEMPLATE = """请解析以下简历，严格按照 Schema 输出 JSON：
+RESUME_PARSE_USER_TEMPLATE = """简历格式可能不规范，请从任意格式中尽力提取，哪怕零散关键词也要填入对应字段，不要返回空数组。
+
+请解析以下简历，严格按照 Schema 输出 JSON：
 
 简历原文：
 {resume_text}

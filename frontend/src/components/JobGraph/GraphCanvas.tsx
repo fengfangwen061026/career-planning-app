@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useD3Graph } from "./useD3Graph";
-import type { GraphNode } from "./types";
+import type { GraphNode, JobNode } from "./types";
 import styles from "./JobGraph.module.css";
 
 interface GraphCanvasProps {
@@ -9,7 +9,8 @@ interface GraphCanvasProps {
   searchQuery: string;
   selectedCategories: string[];
   collapsedCategories: Set<string>;
-  onNodeClick: (node: GraphNode) => void;
+  selectedJob: JobNode | null;
+  onJobSelect: (job: JobNode | null) => void;
   onCategoryClick: (category: string) => void;
 }
 
@@ -19,7 +20,8 @@ export function GraphCanvas({
   searchQuery,
   selectedCategories,
   collapsedCategories,
-  onNodeClick,
+  selectedJob,
+  onJobSelect,
   onCategoryClick,
 }: GraphCanvasProps) {
   const [dimensions, setDimensions] = useState({ width: 900, height: 700 });
@@ -34,7 +36,6 @@ export function GraphCanvas({
     }
   }, []);
 
-  // Set up resize observer
   useEffect(() => {
     updateDimensions();
     const container = document.getElementById("graph-container");
@@ -53,7 +54,8 @@ export function GraphCanvas({
     searchQuery,
     selectedCategories,
     collapsedCategories,
-    onNodeClick,
+    selectedJobId: selectedJob?.id,
+    onJobSelect,
     onCategoryClick,
   });
 
@@ -69,9 +71,7 @@ export function GraphCanvas({
         height={dimensions.height}
         className={styles.svgCanvas}
       />
-      <div className={styles.hint}>
-        滚轮缩放 · 拖拽平移 · 双击重置
-      </div>
+      <div className={styles.hint}>滚轮缩放 · 拖拽平移 · 双击重置</div>
     </div>
   );
 }

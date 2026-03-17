@@ -35,6 +35,7 @@ export const studentsApi = {
     formData.append('file', file);
     return client.post<ResumeUploadResponse>(`/students/${studentId}/upload-resume`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
     });
   },
 

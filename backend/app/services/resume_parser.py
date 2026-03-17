@@ -33,9 +33,12 @@ class ResumeParserService:
         Returns:
             ResumeParseResult with parsed data
         """
+        logger.info("Resume parse start: text_length=%d", len(text))
+        logger.info("Resume text preview (first 500 chars): %s", text[:500])
+
         # Check text length
         if not text or len(text.strip()) < 50:
-            print("[ResumeParser] 文本太短，返回空结果")
+            logger.warning("Resume text too short, returning empty parse result")
             return ResumeParseResult(
                 raw_text=text,
                 parse_confidence=0.0,
@@ -46,21 +49,23 @@ class ResumeParserService:
 
         for attempt in range(2):
             try:
-                print(f"[ResumeParser] 第{attempt+1}次调用LLM，文本长度={len(text)}")
+                logger.info(
+                    "Calling resume parse LLM: attempt=%d, text_length=%d",
+                    attempt + 1,
+                    len(text),
+                )
 
-                # 直接调用 generate，自己处理 JSON 解析
                 raw = await llm.generate(
                     prompt=prompt,
                     system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
-                    temperature=0.1,
-                    max_tokens=4000,
+                    temperature=0.3,
+                    max_tokens=6000,
                 )
 
-                print(f"[ResumeParser] LLM返回长度={len(raw)}，前200字: {raw[:200]}")
+                logger.info("Resume parse raw response length=%d", len(raw))
+                logger.info("Resume parse raw response preview (first 500 chars): %s", raw[:500])
 
-                # 剥离可能的 markdown 代码块和思考内容
                 cleaned = raw.strip()
-                # 移除思考内容
                 if "<think>" in cleaned:
                     cleaned = cleaned.split("</think>")[-1]
                 if cleaned.startswith("```"):
@@ -69,9 +74,8 @@ class ResumeParserService:
                 cleaned = cleaned.strip()
 
                 data = json.loads(cleaned)
-                print(f"[ResumeParser] JSON解析成功，keys: {data.keys()}")
+                logger.info("Resume parse JSON keys: %s", list(data.keys()))
 
-                # 只保留 ResumeParseResult 需要的字段
                 allowed_fields = {
                     'education', 'experience', 'projects', 'skills',
                     'certificates', 'awards', 'self_intro', 'parse_confidence', 'missing_fields'
@@ -79,19 +83,29 @@ class ResumeParserService:
                 filtered_data = {k: v for k, v in data.items() if k in allowed_fields}
 
                 result = ResumeParseResult(raw_text=text, **filtered_data)
-                print(f"[ResumeParser] 解析成功，skills数量={len(result.skills)}，education数量={len(result.education)}")
+                logger.info(
+                    "Resume parse success: skills=%d, education=%d, experience=%d, projects=%d",
+                    len(result.skills),
+                    len(result.education),
+                    len(result.experience),
+                    len(result.projects),
+                )
                 return result
 
             except Exception as e:
-                import traceback
-                print(f"[ResumeParser] 第{attempt+1}次失败: {e}")
-                print(f"[ResumeParser] Traceback: {traceback.format_exc()}")
+                logger.exception("Resume parse failed on attempt %d: %s", attempt + 1, e)
                 if attempt == 0:
-                    # 第二次用更简单的 prompt 重试
-                    prompt = f"解析这份简历，只输出JSON，不要其他内容：\n{text[:4000]}\n输出格式：{{\"skills\":[{{\"name\":\"技能\",\"category\":\"编程语言\",\"proficiency\":\"掌握\",\"evidence\":\"\"}}],\"education\":[],\"experience\":[],\"projects\":[],\"certificates\":[],\"awards\":[],\"self_intro\":null,\"parse_confidence\":0.5,\"missing_fields\":[]}}"
+                    prompt = (
+                        "简历格式可能不规范，请尽力提取其中的教育、经历、项目、技能、证书、奖项等信息，"
+                        "哪怕只有零散关键词也要填入对应字段，不要返回空数组。"
+                        f"\n解析这份简历，只输出JSON，不要其他内容：\n{text[:4000]}"
+                        '\n输出格式：{"skills":[{"name":"技能","category":"编程语言","proficiency":"掌握","evidence":""}],'
+                        '"education":[],"experience":[],"projects":[],"certificates":[],"awards":[],'
+                        '"self_intro":null,"parse_confidence":0.5,"missing_fields":[]}'
+                    )
                     continue
 
-        print("[ResumeParser] 两次均失败，返回空结果")
+        logger.error("Resume parse failed after 2 attempts, returning empty result")
         return ResumeParseResult(
             raw_text=text,
             parse_confidence=0.0,

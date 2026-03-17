@@ -25,16 +25,16 @@ import LoadingState from '../components/LoadingState';
 // ========== Apple/Silicon Valley 风格样式系统 ==========
 
 const FONTS = {
-  primary: "-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif",
+  primary: "-apple-system, 'PingFang SC', 'SF Pro Display', 'Helvetica Neue', sans-serif",
   mono: "'SF Mono', 'Fira Code', 'Consolas', monospace",
 };
 
-// 进度条颜色映射（高对比度）
-const getBarColor = (pct: number) => {
-  if (pct >= 80) return { fill: '#1D4ED8', bg: '#DBEAFE' };
-  if (pct >= 60) return { fill: '#2563EB', bg: '#EFF6FF' };
-  if (pct >= 40) return { fill: '#3B82F6', bg: '#F0F9FF' };
-  return { fill: '#60A5FA', bg: '#F0F9FF' };
+// 进度条颜色映射（按权重区分深浅）
+const getBarStyle = (pct: number) => {
+  if (pct >= 80) return { fill: 'var(--primary-dark)', label: { fontWeight: 600, color: 'var(--gray-900)' } };
+  if (pct >= 60) return { fill: 'var(--blue-mid)', label: { fontWeight: 500, color: 'var(--gray-700)' } };
+  if (pct >= 40) return { fill: 'var(--blue-light)', label: { fontWeight: 500, color: 'var(--gray-500)' } };
+  return { fill: 'var(--blue-light)', label: { fontWeight: 400, color: 'var(--gray-400)', opacity: 0.6 } };
 };
 
 // 软素养图标映射
@@ -112,7 +112,7 @@ const cardStyle = {
   border: '1px solid rgba(255, 255, 255, 0.9)',
   borderRadius: 16,
   padding: 24,
-  boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04)',
+  boxShadow: 'var(--card-shadow)',
   transition: 'transform 0.2s ease, box-shadow 0.2s ease',
 } as const;
 
@@ -120,7 +120,7 @@ const cardStyle = {
 const createCardTitleStyle = (accentColor: string) => ({
   fontSize: 11,
   fontWeight: 600,
-  color: '#9CA3AF',
+  color: 'var(--gray-400)',
   textTransform: 'uppercase' as const,
   letterSpacing: '0.08em',
   marginBottom: 20,
@@ -317,7 +317,7 @@ export default function JobProfileDetail() {
   // 福利标签组件
   const BenefitTags = ({ benefits }: { benefits: string[] }) => {
     if (!benefits || benefits.length === 0) {
-      return <span style={{ color: '#bbb' }}>—</span>;
+      return <span style={{ color: 'var(--gray-400)' }}>—</span>;
     }
     return (
       <Space size={4} wrap>
@@ -460,45 +460,46 @@ export default function JobProfileDetail() {
     }
     allSkills.sort((a, b) => b.weight - a.weight);
 
+    const jdCount = role?.job_count || allJobs.length;
     const topBenefits = allJobsBenefitStats.slice(0, 3);
     const restBenefits = allJobsBenefitStats.slice(3, 10);
 
     return (
       <div style={{ padding: '0 8px' }}>
         <Row gutter={[16, 16]}>
-          {/* 技术技能 - 占满左侧两行高度 */}
-          <Col span={24} lg={12}>
+          {/* 技术技能 - 占满左侧两行高度 (58%) */}
+          <Col span={24} lg={14}>
             <div
-              style={{ ...cardStyle, gridRow: '1 / 3' }}
+              style={{ ...cardStyle, minHeight: 400 }}
               className="profile-card"
             >
               {/* 卡片标题 */}
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ width: 4, height: 14, borderRadius: 2, background: '#3B82F6' }} />
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 4, height: 14, borderRadius: 2, background: 'var(--blue-mid)' }} />
                 技术技能
               </div>
 
               {/* 技能列表 */}
               {allSkills.slice(0, 15).map((s, i) => {
                 const percentage = Math.round(s.weight * 100);
-                const colors = getBarColor(percentage);
+                const barStyle = getBarStyle(percentage);
                 return (
                   <div key={i} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 44px', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                    <span style={{ fontSize: 13, color: '#374151', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span style={{ fontSize: 13, ...barStyle.label, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {s.name}
                     </span>
-                    <div style={{ height: 8, background: '#F3F4F6', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: 8, background: 'var(--gray-100)', borderRadius: 4, overflow: 'hidden' }}>
                       <div
                         style={{
                           height: '100%',
                           borderRadius: 4,
                           width: animated ? `${percentage}%` : '0%',
-                          background: colors.fill,
-                          transition: animated ? `width 0.9s cubic-bezier(0.34, 1.56, 0.64, ${i * 0.03})` : 'none',
+                          background: barStyle.fill,
+                          transition: animated ? `width 0.9s cubic-bezier(0.34, 1.56, 0.64, 1)` : 'none',
                         }}
                       />
                     </div>
-                    <span style={{ fontSize: 12, color: '#9CA3AF', fontWeight: 500, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    <span style={{ fontSize: 12, color: 'var(--gray-400)', fontWeight: 500, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                       {percentage}%
                     </span>
                   </div>
@@ -507,10 +508,11 @@ export default function JobProfileDetail() {
             </div>
           </Col>
 
-          {/* 软素养 */}
-          <Col span={24} lg={12}>
-            <div style={{ ...cardStyle }} className="profile-card">
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
+          {/* 右侧：软素养 + 福利待遇 (42%) */}
+          <Col span={24} lg={10}>
+            {/* 软素养 */}
+            <div style={{ ...cardStyle, marginBottom: 16 }} className="profile-card">
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ width: 4, height: 14, borderRadius: 2, background: '#F59E0B' }} />
                 软素养
               </div>
@@ -535,24 +537,36 @@ export default function JobProfileDetail() {
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = 'rgba(251, 191, 36, 0.22)';
                       e.currentTarget.style.transform = 'translateY(-1px)';
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)';
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = 'rgba(251, 191, 36, 0.12)';
                       e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
                     }}
                   >
                     {getSoftSkillIcon(s.name)}
                     {s.name}
                   </span>
-                )) : <span style={{ color: '#bbb' }}>暂无数据</span>}
+                )) : <span style={{ color: 'var(--gray-400)' }}>暂无数据</span>}
               </div>
+              {/* 底部 tagline */}
+              {softSkills.length > 0 && (
+                <p style={{
+                  marginTop: 20,
+                  fontSize: 12,
+                  color: 'var(--gray-400)',
+                  lineHeight: 1.6,
+                  fontStyle: 'italic'
+                }}>
+                  以上素养来源于 {jdCount} 条真实 JD 的结构化分析
+                </p>
+              )}
             </div>
-          </Col>
 
-          {/* 福利待遇 */}
-          <Col span={24} lg={12}>
+            {/* 福利待遇 */}
             <div style={{ ...cardStyle }} className="profile-card">
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ width: 4, height: 14, borderRadius: 2, background: '#10B981' }} />
                 福利待遇
               </div>
@@ -605,7 +619,7 @@ export default function JobProfileDetail() {
                   </div>
                 </div>
               ) : (
-                <span style={{ color: '#bbb' }}>暂无福利数据</span>
+                <span style={{ color: 'var(--gray-400)' }}>暂无福利数据</span>
               )}
             </div>
           </Col>
@@ -615,7 +629,7 @@ export default function JobProfileDetail() {
         <style>{`
           .profile-card:hover {
             transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.08), 0 8px 32px rgba(0,0,0,0.06);
+            box-shadow: var(--card-shadow-hover);
           }
         `}</style>
       </div>
@@ -630,9 +644,9 @@ export default function JobProfileDetail() {
     return (
       <div style={{ padding: '0 8px' }}>
         {hasFilters && (
-          <div style={{ marginBottom: 16, padding: 12, background: '#f6f8fa', borderRadius: 8 }}>
+          <div style={{ marginBottom: 16, padding: 12, background: 'var(--gray-100)', borderRadius: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ color: '#666' }}>已筛选:</span>
+              <span style={{ color: 'var(--gray-500)' }}>已筛选:</span>
               {filters.salaryRange && (
                 <Tag color="blue" closable onClose={() => removeFilter('salaryRange')} style={{ cursor: 'pointer' }}>
                   薪资: {filters.salaryRange}
@@ -649,7 +663,7 @@ export default function JobProfileDetail() {
                 </Tag>
               ))}
               <Button type="link" size="small" icon={<ClearOutlined />} onClick={clearAllFilters}>清除全部</Button>
-              <span style={{ marginLeft: 'auto', color: '#666' }}>
+              <span style={{ marginLeft: 'auto', color: 'var(--gray-500)' }}>
                 已筛选 <strong>{filteredJobs.length}</strong> 个JD / 共 <strong>{allJobs.length}</strong> 个JD
               </span>
             </div>
@@ -675,7 +689,7 @@ export default function JobProfileDetail() {
               ) : (
                 <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               )}
-              <div style={{ fontSize: 12, color: '#888', marginTop: 8 }}>点击柱子筛选</div>
+              <div style={{ fontSize: 12, color: 'var(--gray-400)', marginTop: 8 }}>点击柱子筛选</div>
             </Card>
           </Col>
           <Col span={12}>
@@ -683,12 +697,12 @@ export default function JobProfileDetail() {
               {cityDist.length > 0 ? (
                 <div style={{ maxHeight: 220, overflow: 'auto' }}>
                   {cityDist.slice(0, 10).map((c, i) => (
-                    <div key={i} onClick={() => handleCityClick(c.city)} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', borderBottom: '1px dashed #f0f0f0', cursor: 'pointer', background: filters.city === c.city ? '#e6f7ff' : 'transparent', borderRadius: 4 }}>
+                    <div key={i} onClick={() => handleCityClick(c.city)} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', borderBottom: '1px dashed var(--gray-200)', cursor: 'pointer', background: filters.city === c.city ? 'var(--blue-bg)' : 'transparent', borderRadius: 4 }}>
                       <span>{c.city}</span>
                       <span>
                         <Tag color={filters.city === c.city ? 'blue' : ''}>{c.count} 个岗位</Tag>
                         {c.avg_salary_min && c.avg_salary_max && (
-                          <span style={{ fontSize: 11, color: '#666' }}>{Math.round(c.avg_salary_min / 1000)}K-{Math.round(c.avg_salary_max / 1000)}K</span>
+                          <span style={{ fontSize: 11, color: 'var(--gray-500)' }}>{Math.round(c.avg_salary_min / 1000)}K-{Math.round(c.avg_salary_max / 1000)}K</span>
                         )}
                       </span>
                     </div>
@@ -729,7 +743,7 @@ export default function JobProfileDetail() {
         <Drawer title={selectedCompany?.name} placement="right" width={600} open={drawerOpen} onClose={() => setDrawerOpen(false)}>
           {selectedCompany && selectedCompany.jobs.length > 0 ? (
             <div>
-              <div style={{ marginBottom: 16, color: '#666' }}>共 {selectedCompany.jobs.length} 个在招岗位</div>
+              <div style={{ marginBottom: 16, color: 'var(--gray-500)' }}>共 {selectedCompany.jobs.length} 个在招岗位</div>
               <Space direction="vertical" style={{ width: '100%' }} size="middle">
                 {selectedCompany.jobs.map(job => (
                   <Card key={job.id} size="small" hoverable onClick={() => handleJobClick(job)} style={{ cursor: 'pointer' }}>
@@ -775,7 +789,7 @@ export default function JobProfileDetail() {
                 </Space>
               </div>
               {selectedJob.description && (
-                <div style={{ whiteSpace: 'pre-wrap', maxHeight: 400, overflow: 'auto', padding: 12, background: '#f6f8fa', borderRadius: 8, lineHeight: 1.8 }}>
+                <div style={{ whiteSpace: 'pre-wrap', maxHeight: 400, overflow: 'auto', padding: 12, background: 'var(--gray-100)', borderRadius: 8, lineHeight: 1.8 }}>
                   {selectedJob.description}
                 </div>
               )}
@@ -805,7 +819,6 @@ export default function JobProfileDetail() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #F8F9FF 0%, #F0F4FF 50%, #F8FFF8 100%)',
       padding: 24,
       fontFamily: FONTS.primary,
     }}>
@@ -815,20 +828,22 @@ export default function JobProfileDetail() {
           type="link"
           icon={<ArrowLeftOutlined />}
           onClick={() => navigate('/jobs/profiles')}
-          style={{ padding: 0, color: '#6B7280' }}
+          style={{ padding: 0, color: 'var(--gray-500)' }}
         >
           返回画像库
         </Button>
       </div>
 
-      {/* Header 卡片 */}
+      {/* Header 卡片 - 压缩高度 */}
       <div
         style={{
-          background: '#FFFFFF',
-          borderRadius: 20,
-          padding: '32px 40px',
-          marginBottom: 24,
-          boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 8px 32px rgba(0,0,0,0.04)',
+          background: 'rgba(255, 255, 255, 0.85)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderRadius: 16,
+          padding: '16px 40px',
+          marginBottom: 16,
+          boxShadow: 'var(--card-shadow)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'flex-start',
@@ -836,10 +851,10 @@ export default function JobProfileDetail() {
       >
         {/* 左侧 */}
         <div>
-          <h2 style={{ margin: 0, fontSize: 32, fontWeight: 700, color: '#0A0A0A', letterSpacing: -1, fontFamily: FONTS.primary }}>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--gray-900)', letterSpacing: -0.5, fontFamily: FONTS.primary }}>
             {role.name}
           </h2>
-          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 12 }}>
             <span
               style={{
                 background: 'linear-gradient(135deg, #667EEA 0%, #764BA2 100%)',
@@ -855,8 +870,8 @@ export default function JobProfileDetail() {
             {profile && (
               <span
                 style={{
-                  background: '#F3F4F6',
-                  color: '#6B7280',
+                  background: 'var(--gray-100)',
+                  color: 'var(--gray-500)',
                   borderRadius: 6,
                   padding: '2px 8px',
                   fontSize: 11,
@@ -869,39 +884,20 @@ export default function JobProfileDetail() {
           </div>
         </div>
 
-        {/* 右侧统计区 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 36, fontWeight: 800, color: '#0A0A0A', letterSpacing: -1.5, fontVariantNumeric: 'tabular-nums', fontFamily: FONTS.primary }}>
-              {role.job_count}
-            </div>
-            <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 500, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              个在招岗位
-            </div>
+        {/* 右侧 - 只保留 JD 大数字 */}
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 32, fontWeight: 900, color: 'var(--primary)', letterSpacing: -1, lineHeight: 1, fontFamily: FONTS.primary }}>
+            {role.job_count}
           </div>
-          <div style={{ width: 1, height: 40, background: '#E5E7EB', alignSelf: 'center' }} />
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 20, fontWeight: 600, color: '#0A0A0A', fontFamily: FONTS.primary }}>
-              {role.category}
-            </div>
-            <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 500, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              职位类别
-            </div>
-          </div>
-          <div style={{ width: 1, height: 40, background: '#E5E7EB', alignSelf: 'center' }} />
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 20, fontWeight: 600, color: '#0A0A0A', fontFamily: FONTS.mono }}>
-              v{profile?.version || '1'}
-            </div>
-            <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 500, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              版本
-            </div>
+          <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 3 }}>个在招岗位</div>
+          <div style={{ fontSize: 11, color: '#C4B5FD', marginTop: 2 }}>
+            · {role.category} · v{profile?.version || '1'}
           </div>
         </div>
       </div>
 
       {/* Tab 区域 */}
-      <Card style={{ borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: 'none' }}>
+      <Card style={{ borderRadius: 16, boxShadow: 'var(--card-shadow)', border: 'none' }}>
         <Tabs
           type="line"
           items={items}

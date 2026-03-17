@@ -2,34 +2,275 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =============================================
+   DESIGN SYSTEM — LOW-SATURATION DOPAMINE
+   ============================================= */
+
+:root {
+  /* ── 全局主色（降饱和靛蓝） ── */
+  --primary:       #5B6FD4;
+  --primary-light: #ECEDFC;
+  --primary-dark:  #4455B8;
+
+  /* ── 模块专属色 ── */
+  --color-dashboard:    #E07B6A;
+  --color-dashboard-bg: #FFF2EF;
+
+  --color-jobs:    #5E8F6E;
+  --color-jobs-bg: #EEF6F2;
+
+  --color-profiles:    #7C6DC8;
+  --color-profiles-bg: #F0EEFB;
+
+  --color-graph:    #4B9AB3;
+  --color-graph-bg: #EBF6FB;
+
+  --color-resume:    #CB8A4A;
+  --color-resume-bg: #FEF5E9;
+
+  --color-students:    #C4758A;
+  --color-students-bg: #FAECF0;
+
+  --color-matching:    #5B6FD4;
+  --color-matching-bg: #ECEDFC;
+
+  --color-reports:    #5E8A7C;
+  --color-reports-bg: #EDF5F2;
+
+  /* ── 语义色（技术/人文/收益 三套，不混用）── */
+  --blue-fill:   #4B7EC8;
+  --blue-mid:    #6494D4;
+  --blue-light:  #8AB0E0;
+  --blue-bg:     #EEF4FC;
+
+  --amber-fill:   #CB8A4A;
+  --amber-text:   #7D4F1E;
+  --amber-bg:     rgba(203, 138, 74, 0.10);
+  --amber-border: rgba(203, 138, 74, 0.22);
+
+  --green-fill:   #5E8F6E;
+  --green-text:   #2A5C3A;
+  --green-bg:     rgba(94, 143, 110, 0.08);
+  --green-border: rgba(94, 143, 110, 0.20);
+
+  /* ── 中性色（骨架） ── */
+  --gray-900: #0A0A0A;
+  --gray-700: #374151;
+  --gray-500: #6B7280;
+  --gray-400: #9CA3AF;
+  --gray-200: #E5E7EB;
+  --gray-100: #F3F4F6;
+  --gray-50:  #F9FAFB;
+
+  /* ── Sidebar ── */
+  --sidebar-bg:          #1A1A2E;
+  --sidebar-text:        rgba(255,255,255,0.52);
+  --sidebar-text-active: #FFFFFF;
+  --sidebar-hover:       rgba(255,255,255,0.06);
+  --sidebar-active-bg:   rgba(255,255,255,0.10);
+
+  /* ── 卡片 ── */
+  --card-bg:           rgba(255,255,255,0.82);
+  --card-border:       rgba(255,255,255,0.88);
+  --card-shadow:       0 1px 3px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.04);
+  --card-shadow-hover: 0 4px 8px rgba(0,0,0,0.07), 0 8px 32px rgba(0,0,0,0.05);
+
+  /* ── 间距 ── */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+
+  /* ── 圆角 ── */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+}
+
+/* ── Reset & Base ── */
+*, *::before, *::after { box-sizing: border-box; }
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: -apple-system, 'PingFang SC', 'SF Pro Display', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(150deg, #FAFAF8 0%, #F5F3FF 30%, #FFF8F5 60%, #F0FFF8 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+  color: var(--gray-700);
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+/* ── 通用卡片 ── */
+.ds-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--card-shadow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.ds-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--card-shadow-hover);
 }
 
-/* 技能标签云 staggered 动画 */
-.skill-tag {
-  animation: tagFadeIn 200ms ease-out forwards;
+/* ── 页面容器 ── */
+.ds-page {
+  padding: 24px 40px;
+}
+
+/* ── 大标题 ── */
+.ds-page-title {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--gray-900);
+  letter-spacing: -0.8px;
+  margin: 0 0 24px 0;
+}
+
+/* ── Section 标题（卡片内用） ── */
+.ds-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gray-400);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Pill 标签 ── */
+.ds-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  cursor: default;
+}
+.ds-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+}
+
+/* ── 数字气泡 ── */
+.ds-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+}
+
+/* ── 入场动画 ── */
+@keyframes ds-fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ds-fade-in {
+  animation: ds-fadeIn 0.3s ease forwards;
+  animation-delay: calc(var(--index, 0) * 0.05s);
   opacity: 0;
-  transform: translateY(4px);
 }
 
-@keyframes tagFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* ── Ant Design 全局覆盖 ── */
+.ant-layout,
+.ant-layout-content {
+  background: transparent !important;
+}
+.ant-card {
+  background: var(--card-bg) !important;
+  backdrop-filter: blur(20px) !important;
+  border: 1px solid var(--card-border) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--card-shadow) !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+}
+.ant-card:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: var(--card-shadow-hover) !important;
+}
+.ant-card-head {
+  border-bottom: 1px solid var(--gray-100) !important;
+  background: transparent !important;
+}
+.ant-card-head-title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--gray-700) !important;
+}
+.ant-statistic-title {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: var(--gray-400) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.08em !important;
+}
+.ant-statistic-content-value {
+  font-size: 36px !important;
+  font-weight: 800 !important;
+  color: var(--gray-900) !important;
+  letter-spacing: -1px !important;
+}
+.ant-btn-primary {
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+  border-radius: var(--radius-sm) !important;
+  font-weight: 500 !important;
+}
+.ant-btn-primary:hover {
+  background: var(--primary-dark) !important;
+  border-color: var(--primary-dark) !important;
+}
+.ant-select-selector {
+  border-radius: var(--radius-sm) !important;
+  border-color: var(--gray-200) !important;
+}
+.ant-input {
+  border-radius: var(--radius-sm) !important;
+  border-color: var(--gray-200) !important;
+}
+.ant-table {
+  background: transparent !important;
+}
+.ant-table-thead > tr > th {
+  background: rgba(249,250,251,0.8) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: var(--gray-400) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  border-bottom: 1px solid var(--gray-200) !important;
+}
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--gray-100) !important;
+  font-size: 14px !important;
+  color: var(--gray-700) !important;
+}
+.ant-tabs-tab { font-size: 13px !important; color: var(--gray-500) !important; }
+.ant-tabs-tab-active .ant-tabs-tab-btn { color: var(--primary) !important; font-weight: 600 !important; }
+.ant-tabs-ink-bar { background: var(--primary) !important; }
+.ant-tag {
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  border: none !important;
+}
+
+/* 技能标签云入场 */
+.skill-tag {
+  animation: ds-fadeIn 200ms ease-out forwards;
+  opacity: 0;
 }

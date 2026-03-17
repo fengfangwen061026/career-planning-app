@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import {
-  Card,
   Select,
   Space,
   Tag,
@@ -32,30 +31,34 @@ import {
   PolarAngleAxis,
   PolarRadiusAxis,
 } from 'recharts';
+import { User } from 'lucide-react';
 import { studentsApi } from '../api/students';
 import type { StudentResponse, StudentProfileResponse } from '../types/student';
+
+// 模块专属色 - 玫瑰粉色系
+const MODULE_COLOR = '#C4758A';
+const MODULE_BG = '#FAECF0';
 
 const { Title, Text } = Typography;
 
 // 技能等级颜色映射
-const getLevelColor = (level?: string): string => {
+const getLevelColor = (level?: string): { bg: string; color: string; border: string } => {
   switch (level) {
     case '精通':
-      return 'red';
+      return { bg: 'rgba(196,117,138,0.12)', color: '#8A3A50', border: 'rgba(196,117,138,0.22)' };
     case '熟练':
-      return 'orange';
+      return { bg: 'rgba(203,138,74,0.10)', color: '#7D4F1E', border: 'rgba(203,138,74,0.20)' };
     case '了解':
-      return 'blue';
     default:
-      return 'default';
+      return { bg: '#F3F4F6', color: '#6B7280', border: '#E5E7EB' };
   }
 };
 
 // 评分颜色编码
 const getScoreColor = (score: number): string => {
-  if (score >= 80) return '#52c41a';
-  if (score >= 60) return '#faad14';
-  return '#ff4d4f';
+  if (score >= 80) return '#5E8F6E';
+  if (score >= 60) return '#CB8A4A';
+  return '#E07B6A';
 };
 
 // 评分状态
@@ -65,10 +68,53 @@ const getScoreStatus = (score: number): 'success' | 'normal' | 'exception' => {
   return 'exception';
 };
 
+// Glass-morphism Card 组件
+const GlassCard: React.FC<{ children: React.ReactNode; className?: string; style?: React.CSSProperties }> = ({
+  children,
+  className = '',
+  style = {},
+}) => (
+  <div
+    className={`glass-card ${className}`}
+    style={{
+      background: 'rgba(255,255,255,0.82)',
+      backdropFilter: 'blur(12px)',
+      borderRadius: '16px',
+      border: '1px solid rgba(255,255,255,0.88)',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.04)',
+      padding: '20px',
+      ...style,
+    }}
+  >
+    {children}
+  </div>
+);
+
+// 获取姓名首字母
+const getInitials = (name: string): string => {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) {
+    return parts[0].charAt(0).toUpperCase();
+  }
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+};
+
 interface PieChartData {
   name: string;
   value: number;
 }
+
+// 四维能力数据（用于雷达图）
+const defaultRadarData = [
+  { subject: '基础要求', A: 0, fullMark: 100 },
+  { subject: '技术技能', A: 0, fullMark: 100 },
+  { subject: '软技能', A: 0, fullMark: 100 },
+  { subject: '发展潜力', A: 0, fullMark: 100 },
+];
+
+// 饼图颜色
+const PIE_COLORS = ['#C4758A', '#CB8A4A', '#5B6FD4', '#5E8F6E'];
 
 export default function StudentProfile() {
   const [students, setStudents] = useState<StudentResponse[]>([]);
@@ -108,6 +154,8 @@ export default function StudentProfile() {
 
   const currentProfile = selectedStudentId ? profiles.get(selectedStudentId) : null;
   const profileJson = currentProfile?.profile_json;
+  const studentName = profileJson?.basic_info?.name || students.find(s => s.id === selectedStudentId)?.name || '未知';
+  const studentEmail = profileJson?.basic_info?.email || students.find(s => s.id === selectedStudentId)?.email || '';
 
   // 计算完整度饼图数据
   const completenessData: PieChartData[] = [
@@ -136,8 +184,17 @@ export default function StudentProfile() {
     .map((exp) => ({
       dot: exp.type === 'project' ? <ProjectOutlined /> : <BookOutlined />,
       children: (
-        <Card size="small" className="mb-2">
-          <Text strong>{exp.title}</Text>
+        <div
+          className="project-card"
+          style={{
+            background: 'rgba(249,250,251,0.8)',
+            borderRadius: '10px',
+            padding: '12px 16px',
+            borderLeft: '3px solid #C4758A',
+            marginBottom: '8px',
+          }}
+        >
+          <Text strong style={{ fontSize: '15px' }}>{exp.title}</Text>
           {exp.company && <Text type="secondary"> - {exp.company}</Text>}
           {exp.duration && (
             <div>
@@ -151,7 +208,7 @@ export default function StudentProfile() {
               <Text type="secondary">{exp.description}</Text>
             </div>
           )}
-        </Card>
+        </div>
       ),
     })) || [];
 
@@ -163,24 +220,101 @@ export default function StudentProfile() {
     fullMark: 100,
   }));
 
-  // 雷达图数据（如果没有软技能数据，生成默认四维能力数据）
-  const radarData = softSkillsData.length > 0
-    ? softSkillsData
-    : [
-        { subject: '技术能力', A: 0, fullMark: 100 },
-        { subject: '沟通能力', A: 0, fullMark: 100 },
-        { subject: '团队协作', A: 0, fullMark: 100 },
-        { subject: '学习能力', A: 0, fullMark: 100 },
-      ];
+  // 四维能力数据 - 使用软技能或默认值
+  const getRadarData = () => {
+    if (softSkillsData.length > 0) {
+      // 如果有软技能数据，填充到四维
+      const mapped = softSkillsData.slice(0, 4);
+      while (mapped.length < 4) {
+        mapped.push({ subject: defaultRadarData[mapped.length].subject, A: 0, fullMark: 100 });
+      }
+      return mapped;
+    }
+    // 使用默认四维数据，但如果有completeness_score可以展示
+    const avgScore = currentProfile?.completeness_score || 0;
+    return [
+      { subject: '基础要求', A: avgScore, fullMark: 100 },
+      { subject: '技术技能', A: avgScore * 0.9, fullMark: 100 },
+      { subject: '软技能', A: avgScore * 0.85, fullMark: 100 },
+      { subject: '发展潜力', A: avgScore * 0.8, fullMark: 100 },
+    ];
+  };
+
+  const radarData = getRadarData();
 
   return (
     <div className="p-6">
-      <Title level={2} className="mb-6">学生画像</Title>
+      {/* 页面标题区 */}
+      <div style={{ marginBottom: 28 }}>
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            background: 'rgba(196,117,138,0.10)',
+            padding: '4px 12px',
+            borderRadius: 20,
+            fontSize: 12,
+            fontWeight: 600,
+            color: MODULE_COLOR,
+            marginBottom: 10,
+          }}
+        >
+          <User size={12} /> 学生画像
+        </div>
+        <h1
+          style={{
+            fontSize: 28,
+            fontWeight: 800,
+            color: '#0A0A0A',
+            letterSpacing: '-0.8px',
+            margin: 0,
+          }}
+        >
+          学生画像
+        </h1>
+        <p style={{ fontSize: 14, color: '#6B7280', margin: '6px 0 0 0' }}>
+          查看和管理学生职业画像
+        </p>
+      </div>
+
+      {/* 顶部 Avatar Banner */}
+      <GlassCard className="mb-6" style={{ padding: '16px 24px' }}>
+        <div className="flex items-center gap-4">
+          {/* 圆形头像 */}
+          <div
+            style={{
+              width: '60px',
+              height: '60px',
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #C4758A, #E07B6A)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              fontSize: '24px',
+              fontWeight: 700,
+              flexShrink: 0,
+            }}
+          >
+            {getInitials(studentName)}
+          </div>
+          {/* 姓名和信息 */}
+          <div>
+            <div style={{ fontSize: '24px', fontWeight: 800, color: '#0A0A0A', lineHeight: 1.3 }}>
+              {studentName}
+            </div>
+            <div style={{ fontSize: '14px', color: '#6B7280', marginTop: '2px' }}>
+              {studentEmail || '暂无邮箱'}
+            </div>
+          </div>
+        </div>
+      </GlassCard>
 
       {/* 学生选择器 */}
-      <Card className="mb-6">
+      <GlassCard className="mb-6" style={{ padding: '16px 24px' }}>
         <Space direction="vertical" style={{ width: '100%' }}>
-          <Text>选择学生查看画像</Text>
+          <Text strong style={{ color: '#374151' }}>选择学生查看画像</Text>
           <Select
             placeholder="请选择学生"
             style={{ width: '100%', maxWidth: 400 }}
@@ -203,7 +337,12 @@ export default function StudentProfile() {
                     <UserOutlined />
                     <span>{student.name || student.email}</span>
                     {hasProfile ? (
-                      <Tag color="green">已画像</Tag>
+                      <Tag style={{
+                        background: 'rgba(94,143,110,0.10)',
+                        color: '#3A6B4D',
+                        border: '1px solid rgba(94,143,110,0.20)',
+                        borderRadius: '6px',
+                      }}>已画像</Tag>
                     ) : (
                       <Tag>未画像</Tag>
                     )}
@@ -213,17 +352,17 @@ export default function StudentProfile() {
             })}
           </Select>
         </Space>
-      </Card>
+      </GlassCard>
 
       {selectedStudentId ? (
         currentProfile ? (
           <div>
-            {/* 顶部：基本信息卡片 + 完整度评分 */}
-            <Card className="mb-6">
+            {/* 基本信息卡片 + 完整度评分 */}
+            <GlassCard className="mb-6">
               <Row gutter={24}>
                 <Col xs={24} md={14}>
-                  <Title level={4}>
-                    <UserOutlined className="mr-2" />
+                  <Title level={4} style={{ color: '#0A0A0A', marginBottom: '16px' }}>
+                    <UserOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
                     基本信息
                   </Title>
                   <Descriptions column={{ xs: 1, sm: 2 }} bordered size="small">
@@ -245,8 +384,8 @@ export default function StudentProfile() {
                   </Descriptions>
                 </Col>
                 <Col xs={24} md={10}>
-                  <Title level={4} className="text-center">
-                    <CrownOutlined className="mr-2" />
+                  <Title level={4} className="text-center" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
+                    <CrownOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
                     完整度评分
                   </Title>
                   <div className="flex justify-center items-center" style={{ height: 180 }}>
@@ -264,7 +403,7 @@ export default function StudentProfile() {
                           endAngle={-270}
                         >
                           <Cell
-                            fill={getScoreColor(currentProfile.completeness_score)}
+                            fill={PIE_COLORS[0]}
                             key="complete"
                           />
                           <Cell fill="#f0f0f0" key="missing" />
@@ -293,98 +432,117 @@ export default function StudentProfile() {
                   </div>
                 </Col>
               </Row>
-            </Card>
+            </GlassCard>
 
             {/* 三栏布局 */}
             <Row gutter={24} className="mb-6">
               {/* 左侧栏：技能栈可视化 */}
               <Col xs={24} lg={6}>
-                <Card
-                  title={
-                    <Title level={4} className="m-0">
-                      <BookOutlined className="mr-2" />
-                      技能栈
-                    </Title>
-                  }
-                  className="h-full"
-                >
+                <GlassCard className="h-full">
+                  <Title level={4} className="m-0" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
+                    <BookOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
+                    技能栈
+                  </Title>
                   {Object.keys(skillsByCategory).length > 0 ? (
                     Object.entries(skillsByCategory).map(([category, skills]) => (
                       <div key={category} className="mb-4">
-                        <Text strong type="secondary">
+                        <Text strong type="secondary" style={{ color: '#6B7280' }}>
                           {category}
                         </Text>
                         <div className="flex flex-wrap gap-2 mt-2">
-                          {skills.map((skill, index) => (
-                            <Tag
-                              key={index}
-                              color={getLevelColor(skill.level)}
-                              className="m-1"
-                            >
-                              {skill.name}
-                              {skill.level && (
-                                <span className="ml-1 text-xs opacity-70">
-                                  ({skill.level})
-                                </span>
-                              )}
-                            </Tag>
-                          ))}
+                          {skills.map((skill, index) => {
+                            const colors = getLevelColor(skill.level);
+                            return (
+                              <span
+                                key={index}
+                                style={{
+                                  background: colors.bg,
+                                  color: colors.color,
+                                  border: `1px solid ${colors.border}`,
+                                  borderRadius: '8px',
+                                  padding: '4px 10px',
+                                  fontSize: '13px',
+                                  fontWeight: 500,
+                                }}
+                              >
+                                {skill.name}
+                                {skill.level && (
+                                  <span className="ml-1 text-xs opacity-70">
+                                    ({skill.level})
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })}
                         </div>
                       </div>
                     ))
                   ) : (
                     <Empty description="暂无技能数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   )}
-                </Card>
+                </GlassCard>
               </Col>
 
               {/* 中间栏：项目/实习经历时间线 */}
               <Col xs={24} lg={10}>
-                <Card
-                  title={
-                    <Title level={4} className="m-0">
-                      <ProjectOutlined className="mr-2" />
-                      项目与实习经历
-                    </Title>
-                  }
-                  className="h-full"
-                >
-                  {timelineItems.length > 0 ? (
-                    <Timeline mode="left" items={timelineItems} />
-                  ) : (
-                    <Empty description="暂无经历数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                  )}
-                </Card>
+                <GlassCard className="h-full">
+                  <Title level={4} className="m-0" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
+                    <ProjectOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
+                    项目与实习经历
+                  </Title>
+                  <div className="timeline-custom">
+                    <style>{`
+                      .timeline-custom .ant-timeline-item-tail {
+                        border-left-color: #E5E7EB;
+                      }
+                      .timeline-custom .ant-timeline-item-head {
+                        color: #C4758A;
+                        border-color: #C4758A;
+                        background: #FAECF0;
+                      }
+                    `}</style>
+                    {timelineItems.length > 0 ? (
+                      <Timeline mode="left" items={timelineItems} />
+                    ) : (
+                      <Empty description="暂无经历数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    )}
+                  </div>
+                </GlassCard>
               </Col>
 
               {/* 右侧栏：证书和软素养评估 */}
               <Col xs={24} lg={8}>
-                <Card
-                  title={
-                    <Title level={4} className="m-0">
-                      <TrophyOutlined className="mr-2" />
-                      证书与软素养
-                    </Title>
-                  }
-                  className="h-full"
-                >
+                <GlassCard className="h-full">
+                  <Title level={4} className="m-0" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
+                    <TrophyOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
+                    证书与软素养
+                  </Title>
                   {/* 证书列表 */}
                   <div className="mb-6">
-                    <Text strong type="secondary">
+                    <Text strong type="secondary" style={{ color: '#6B7280' }}>
                       证书
                     </Text>
                     {profileJson?.certificates && profileJson.certificates.length > 0 ? (
                       <div className="mt-3">
                         {profileJson.certificates.map((cert, index) => (
-                          <Card key={index} size="small" className="mb-2">
-                            <Text strong>{cert.name}</Text>
+                          <div
+                            key={index}
+                            style={{
+                              background: 'rgba(249,250,251,0.8)',
+                              borderRadius: '10px',
+                              padding: '12px 16px',
+                              marginBottom: '8px',
+                              borderLeft: '3px solid #C4758A',
+                            }}
+                          >
+                            <Text strong style={{ color: '#0A0A0A' }}>{cert.name}</Text>
                             <div>
                               <Text type="secondary" className="text-sm">
                                 {cert.issuer}
                                 {cert.date && ` - ${cert.date}`}
                               </Text>
                             </div>
-                          </Card>
+                          </div>
                         ))}
                       </div>
                     ) : (
@@ -394,7 +552,7 @@ export default function StudentProfile() {
 
                   {/* 软素养评估 */}
                   <div>
-                    <Text strong type="secondary">
+                    <Text strong type="secondary" style={{ color: '#6B7280' }}>
                       软素养评估
                     </Text>
                     {Object.keys(softSkills).length > 0 ? (
@@ -402,7 +560,7 @@ export default function StudentProfile() {
                         {Object.entries(softSkills).map(([key, value]) => (
                           <div key={key} className="mb-3">
                             <Space>
-                              <Text>{key}</Text>
+                              <Text style={{ color: '#374151' }}>{key}</Text>
                               <Progress
                                 percent={value}
                                 size="small"
@@ -418,7 +576,7 @@ export default function StudentProfile() {
                       <Text type="secondary">暂无软素养数据</Text>
                     )}
                   </div>
-                </Card>
+                </GlassCard>
               </Col>
             </Row>
 
@@ -426,44 +584,37 @@ export default function StudentProfile() {
             <Row gutter={24}>
               {/* 左侧：竞争力综合评分（雷达图） */}
               <Col xs={24} lg={12}>
-                <Card
-                  title={
-                    <Title level={4} className="m-0">
-                      竞争力综合评分
-                    </Title>
-                  }
-                >
+                <GlassCard>
+                  <Title level={4} className="m-0" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
+                    竞争力综合评分
+                  </Title>
                   <ResponsiveContainer width="100%" height={300}>
                     <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-                      <PolarGrid />
-                      <PolarAngleAxis dataKey="subject" />
-                      <PolarRadiusAxis angle={30} domain={[0, 100]} />
+                      <PolarGrid stroke="#E5E7EB" />
+                      <PolarAngleAxis
+                        dataKey="subject"
+                        tick={{ fill: '#6B7280', fontSize: 13 }}
+                      />
+                      <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: '#9CA3AF', fontSize: 11 }} />
                       <Radar
                         name="能力值"
                         dataKey="A"
-                        stroke={getScoreColor(
-                          radarData.reduce((sum, item) => sum + item.A, 0) / radarData.length
-                        )}
-                        fill={getScoreColor(
-                          radarData.reduce((sum, item) => sum + item.A, 0) / radarData.length
-                        )}
-                        fillOpacity={0.6}
+                        stroke="#C4758A"
+                        fill="rgba(196,117,138,0.12)"
+                        fillOpacity={1}
                       />
                     </RadarChart>
                   </ResponsiveContainer>
-                </Card>
+                </GlassCard>
               </Col>
 
               {/* 右侧：缺失项建议 */}
               <Col xs={24} lg={12}>
-                <Card
-                  title={
-                    <Title level={4} className="m-0">
-                      <WarningOutlined className="mr-2" />
-                      缺失项建议
-                    </Title>
-                  }
-                >
+                <GlassCard>
+                  <Title level={4} className="m-0" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
+                    <WarningOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
+                    缺失项建议
+                  </Title>
                   {currentProfile.missing_suggestions &&
                   currentProfile.missing_suggestions.length > 0 ? (
                     <Space direction="vertical" style={{ width: '100%' }}>
@@ -483,25 +634,25 @@ export default function StudentProfile() {
                       image={Empty.PRESENTED_IMAGE_SIMPLE}
                     />
                   )}
-                </Card>
+                </GlassCard>
               </Col>
             </Row>
           </div>
         ) : (
-          <Card>
+          <GlassCard>
             <Empty
               description="暂无画像，请先上传简历"
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
-          </Card>
+          </GlassCard>
         )
       ) : (
-        <Card>
+        <GlassCard>
           <Empty
-            description="请先选择学生查看画像"
+            description="请先选择学生"
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
-        </Card>
+        </GlassCard>
       )}
     </div>
   );

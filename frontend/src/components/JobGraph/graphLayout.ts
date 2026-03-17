@@ -19,28 +19,29 @@ export function buildTree(
   nodes: GraphNode[],
   edges: GraphEdge[]
 ): TreeNode | null {
-  // Build adjacency list
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
   const childrenMap = new Map<string, TreeNode[]>();
 
   for (const edge of edges) {
-    const source = edge.source;
-    const target = edge.target;
-
-    if (!childrenMap.has(source)) {
-      childrenMap.set(source, []);
+    const childNode = nodeMap.get(edge.target);
+    if (!childNode) {
+      continue;
     }
-    childrenMap.get(source)!.push(
-      nodes.find((n) => n.id === target)!
-    );
+
+    if (!childrenMap.has(edge.source)) {
+      childrenMap.set(edge.source, []);
+    }
+
+    childrenMap.get(edge.source)!.push(childNode);
   }
 
-  // Find root node
-  const rootNode = nodes.find((n) => n.type === "root");
-  if (!rootNode) return null;
+  const rootNode = nodes.find((node) => node.type === "root");
+  if (!rootNode) {
+    return null;
+  }
 
-  // Build tree recursively
   function buildNode(node: GraphNode): TreeNode {
-    const children = childrenMap.get(node.id) || [];
+    const children = childrenMap.get(node.id) ?? [];
     return {
       ...node,
       children: children.map(buildNode),
@@ -50,20 +51,25 @@ export function buildTree(
   return buildNode(rootNode);
 }
 
-export function radialPoint(x: number, y: number): [number, number] {
-  return [Math.cos(x - Math.PI / 2) * y, Math.sin(x - Math.PI / 2) * y];
+export function radialPoint(angle: number, radius: number): [number, number] {
+  return [
+    Math.cos(angle - Math.PI / 2) * radius,
+    Math.sin(angle - Math.PI / 2) * radius,
+  ];
 }
 
 export function createTreeLayout(
   treeData: TreeNode,
   radius: number
 ): d3.HierarchyPointNode<TreeNode> {
-  const tree = d3
+  const hierarchy = d3.hierarchy(treeData);
+
+  return d3
     .tree<TreeNode>()
     .size([2 * Math.PI, radius])
-    .separation((a, b) => (a.parent === b.parent ? 1 : 2) / a.depth);
-
-  return d3.hierarchy(treeData) as d3.HierarchyPointNode<TreeNode>;
+    .separation((a, b) => (a.parent === b.parent ? 1 : 2) / Math.max(a.depth, 1))(
+    hierarchy
+  );
 }
 
 export function getNodeRadius(node: d3.HierarchyPointNode<TreeNode>): number {
@@ -81,5 +87,5 @@ export function getNodeRadius(node: d3.HierarchyPointNode<TreeNode>): number {
 
 export function truncateLabel(label: string, maxLength: number = 4): string {
   if (label.length <= maxLength) return label;
-  return label.slice(0, maxLength - 1) + "…";
+  return `${label.slice(0, maxLength - 1)}...`;
 }

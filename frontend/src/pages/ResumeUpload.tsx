@@ -77,8 +77,12 @@ export default function ResumeUpload() {
       }
 
       setCurrentStep('preview');
-    } catch (error) {
-      message.error('上传失败，请重试');
+    } catch (error: any) {
+      const errorMessage =
+        error?.code === 'ECONNABORTED'
+          ? '简历解析耗时较长，请稍后重试'
+          : error?.response?.data?.detail || '上传失败，请重试';
+      message.error(errorMessage);
     } finally {
       setLoading(false);
     }

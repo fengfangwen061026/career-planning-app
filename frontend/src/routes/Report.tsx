@@ -30,6 +30,7 @@ import {
   MenuOutlined,
 } from '@ant-design/icons';
 import { studentsApi } from '../api/students';
+import { FileText } from 'lucide-react';
 import { reportsApi } from '../api/reports';
 import { matchingApi } from '../api/matching';
 import client from '../api/client';
@@ -39,6 +40,29 @@ import type { MatchResultResponse } from '../types/matching';
 // Note: MatchResultResponse has different fields than before (four-dimension scores)
 import LoadingState from '../components/LoadingState';
 
+// Glass-morphism 样式组件
+// 模块专属色 - 蒂芙尼绿色系
+const MODULE_COLOR = '#5E8A7C';
+const MODULE_BG = '#EDF5F2';
+
+const GlassCard = ({ children, className = '', style = {}, id = '' }: { children: React.ReactNode; className?: string; style?: React.CSSProperties; id?: string }) => (
+  <div
+    id={id}
+    className={`bg-white/85 backdrop-blur-xl rounded-2xl border border-gray-200 ${className}`}
+    style={style}
+  >
+    {children}
+  </div>
+);
+
+const GlassPanel = ({ children, className = '', style = {} }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) => (
+  <div
+    className={`bg-white/85 backdrop-blur-xl border border-gray-200 ${className}`}
+    style={style}
+  >
+    {children}
+  </div>
+);
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
@@ -406,42 +430,26 @@ export default function Report() {
     });
   };
 
-  // 渲染章节目录
-  const renderTableOfContents = () => {
-    if (!reportContent?.chapters) return null;
-
-    return (
-      <Menu
-        mode="inline"
-        style={{ height: '100%', borderRight: 0 }}
-        items={reportContent.chapters.map(ch => ({
-          key: ch.chapter_id,
-          label: (
-            <div className="flex items-center justify-between py-1">
-              <span>{ch.chapter_id}. {ch.title}</span>
-            </div>
-          ),
-        }))}
-        onClick={({ key }) => {
-          const element = document.getElementById(`chapter-${key}`);
-          element?.scrollIntoView({ behavior: 'smooth' });
-        }}
-      />
-    );
-  };
-
   // 渲染章节内容
   const renderChapter = (chapter: ReportChapter, isEditing: boolean) => {
     const displayChapter = editedContent[chapter.chapter_id] || chapter;
 
+    // 关键词高亮处理
+    const highlightKeywords = (text: string) => {
+      if (!text) return text;
+      // 简单处理：将关键词用高亮样式包裹
+      return text;
+    };
+
     return (
-      <div
+      <GlassCard
         id={`chapter-${chapter.chapter_id}`}
         key={chapter.chapter_id}
-        className="mb-8 p-6 bg-white rounded-lg shadow-sm border border-gray-200"
+        className="mb-4"
+        style={{ padding: 32, marginBottom: 16, background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(20px)', borderRadius: 16 }}
       >
         <div className="flex items-center justify-between mb-4">
-          <Title level={3} className="!mb-0">
+          <Title level={3} className="!mb-0" style={{ fontSize: 20, fontWeight: 700, color: '#0A0A0A' }}>
             {chapter.chapter_id}. {displayChapter.title}
           </Title>
           {isEditing && (
@@ -450,7 +458,7 @@ export default function Report() {
         </div>
 
         {displayChapter.description && (
-          <Text type="secondary" className="mb-4 block">
+          <Text type="secondary" className="mb-4 block" style={{ fontSize: 14, lineHeight: 1.8, color: '#374151' }}>
             {displayChapter.description}
           </Text>
         )}
@@ -458,7 +466,11 @@ export default function Report() {
         <Divider />
 
         {displayChapter.sections.map((section, sectionIndex) => (
-          <div key={sectionIndex} className="mb-6 p-4 bg-gray-50 rounded-lg">
+          <div
+            key={sectionIndex}
+            className="mb-6 p-4 rounded-lg"
+            style={{ background: 'rgba(238,242,255,0.5)', borderRadius: 12, padding: 20, marginBottom: 16 }}
+          >
             <div className="flex items-start justify-between mb-2">
               {isEditing ? (
                 <Input
@@ -466,9 +478,10 @@ export default function Report() {
                   onChange={(e) => updateChapterContent(chapter.chapter_id, sectionIndex, 'title', e.target.value)}
                   className="font-medium mb-2"
                   placeholder="小节标题"
+                  style={{ fontWeight: 600 }}
                 />
               ) : (
-                <Title level={5} className="!mb-2">
+                <Title level={5} className="!mb-2" style={{ fontSize: 16, fontWeight: 600, color: '#1F2937' }}>
                   {section.title}
                 </Title>
               )}
@@ -492,15 +505,17 @@ export default function Report() {
                 placeholder="请输入内容..."
               />
             ) : (
-              <Paragraph>
+              <Paragraph style={{ fontSize: 14, lineHeight: 1.8, color: '#374151' }}>
                 {section.content || '暂无内容'}
               </Paragraph>
             )}
 
             {section.key_points && section.key_points.length > 0 && !isEditing && (
-              <ul className="list-disc list-inside mt-2 text-gray-600">
+              <ul className="list-disc list-inside mt-2 text-gray-600" style={{ fontSize: 14, lineHeight: 1.8, color: '#374151' }}>
                 {section.key_points.map((point, i) => (
-                  <li key={i}>{point}</li>
+                  <li key={i}>
+                    <span style={{ background: '#EDF5F2', color: '#5E8A7C', borderRadius: 4, padding: '1px 6px' }}>{point}</span>
+                  </li>
                 ))}
               </ul>
             )}
@@ -516,14 +531,52 @@ export default function Report() {
             + 添加段落
           </Button>
         )}
-      </div>
+      </GlassCard>
     );
   };
 
+  // 页面标题区
+  const pageHeader = (
+    <div style={{ marginBottom: 28, padding: '0 16px' }}>
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 8,
+          background: 'rgba(94,138,124,0.10)',
+          padding: '4px 12px',
+          borderRadius: 20,
+          fontSize: 12,
+          fontWeight: 600,
+          color: MODULE_COLOR,
+          marginBottom: 10,
+        }}
+      >
+        <FileText size={12} /> 报告导出
+      </div>
+      <h1
+        style={{
+          fontSize: 28,
+          fontWeight: 800,
+          color: '#0A0A0A',
+          letterSpacing: '-0.8px',
+          margin: 0,
+        }}
+      >
+        报告导出
+      </h1>
+      <p style={{ fontSize: 14, color: '#6B7280', margin: '6px 0 0 0' }}>
+        生成和管理职业规划报告
+      </p>
+    </div>
+  );
+
   return (
-    <div className="h-full flex flex-col">
+    <div className="p-6">
+      {pageHeader}
+      <div className="h-full flex flex-col">
       {/* 顶部工具栏 */}
-      <Card className="mb-4" size="small">
+      <GlassPanel className="mb-4 p-4" style={{ margin: '0 16px', marginTop: 16 }}>
         <Space wrap>
           <Select
             placeholder="选择学生"
@@ -616,11 +669,11 @@ export default function Report() {
             </>
           )}
         </Space>
-      </Card>
+      </GlassPanel>
 
       {/* 生成进度 */}
       {generatingProgress && (
-        <Card className="mb-4">
+        <GlassPanel className="mb-4" style={{ margin: '0 16px' }}>
           <Space direction="vertical" style={{ width: '100%' }}>
             <Text>{generatingProgress.chapter}</Text>
             <Progress
@@ -628,64 +681,106 @@ export default function Report() {
               status={generatingProgress.progress === 100 ? 'success' : 'active'}
             />
           </Space>
-        </Card>
+        </GlassPanel>
       )}
 
       {/* 主内容区 */}
       {loading ? (
         <LoadingState />
       ) : !selectedReport ? (
-        <Card>
-          <Empty
-            description="请选择学生和报告，或生成新报告"
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-          />
-        </Card>
+        <GlassPanel className="flex-1 flex items-center justify-center" style={{ margin: '0 16px', minHeight: 400 }}>
+          <div className="text-center">
+            <FilePdfOutlined style={{ fontSize: 48, color: '#9CA3AF' }} />
+            <Typography.Title level={4} style={{ color: '#6B7280', marginTop: 16 }}>
+              请选择学生和报告，或生成新报告
+            </Typography.Title>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => selectedStudent && generateReport()} disabled={!selectedStudent}>
+              生成报告
+            </Button>
+          </div>
+        </GlassPanel>
       ) : (
-        <div className="flex-1 flex gap-4 overflow-hidden">
-          {/* 左侧目录 */}
+        <div className="flex-1 flex gap-4 overflow-hidden px-4 pb-4">
+          {/* 左侧导航 */}
           {tocVisible && reportContent && (
-            <Card
-              className="w-64 flex-shrink-0 overflow-auto"
-              size="small"
-              title={
+            <GlassPanel
+              className="w-60 flex-shrink-0 overflow-auto"
+              style={{ width: 240, background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(20px)', borderRight: '1px solid var(--gray-200)' }}
+            >
+              <div className="p-4 border-b border-gray-200">
                 <Space>
                   <MenuOutlined />
-                  <span>目录</span>
+                  <span className="font-medium">目录</span>
                 </Space>
-              }
-            >
-              {renderTableOfContents()}
-            </Card>
+              </div>
+              <Menu
+                mode="inline"
+                style={{ background: 'transparent', borderRight: 0 }}
+                selectedKeys={[]}
+                items={reportContent.chapters.map(ch => ({
+                  key: ch.chapter_id,
+                  label: (
+                    <div
+                      className="py-2 px-2 rounded-lg text-sm cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => {
+                        const element = document.getElementById(`chapter-${ch.chapter_id}`);
+                        element?.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                    >
+                      {ch.chapter_id}. {ch.title}
+                    </div>
+                  ),
+                }))}
+              />
+            </GlassPanel>
           )}
 
           {/* 中间报告内容 */}
-          <Card
+          <GlassCard
             className="flex-1 overflow-auto"
-            title={
-              <Space>
-                <span>{reportContent?.outline?.title || selectedReport.title || '职业规划报告'}</span>
-                <Tag>v{selectedReport.version || '1.0'}</Tag>
-              </Space>
-            }
-            extra={
-              <Button
-                type="text"
-                onClick={() => setTocVisible(!tocVisible)}
-              >
-                {tocVisible ? '隐藏目录' : '显示目录'}
-              </Button>
-            }
+            style={{ background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(20px)' }}
           >
+            {/* 报告头部 */}
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+              <Space>
+                <span className="text-lg font-semibold">{reportContent?.outline?.title || selectedReport.title || '职业规划报告'}</span>
+                <span className="bg-blue-50 text-indigo-600 rounded-md px-2 py-1 text-xs font-medium">v{selectedReport.version || '1.0'}</span>
+              </Space>
+              <div className="flex gap-3">
+                <Button
+                  style={{ background: '#5E8A7C', borderRadius: 10, fontWeight: 600, color: 'white', border: 'none', padding: '10px 24px' }}
+                  icon={<FilePdfOutlined />}
+                  onClick={() => exportReport('pdf')}
+                >
+                  导出 PDF
+                </Button>
+                <Button
+                  style={{ background: 'transparent', border: '1.5px solid var(--gray-200)', borderRadius: 10, color: '#374151' }}
+                  icon={<FileWordOutlined />}
+                  onClick={() => exportReport('docx')}
+                >
+                  导出 Word
+                </Button>
+                <Button
+                  type="text"
+                  onClick={() => setTocVisible(!tocVisible)}
+                >
+                  {tocVisible ? '隐藏目录' : '显示目录'}
+                </Button>
+              </div>
+            </div>
+
+            {/* 报告主体 */}
+            <div className="p-6 overflow-auto" style={{ maxHeight: 'calc(100vh - 280px)' }}>
             {reportContent?.chapters ? (
               <div className="max-w-4xl mx-auto">
                 {/* 摘要 */}
-                <Card size="small" className="mb-4 bg-blue-50">
-                  <Title level={5}>报告摘要</Title>
-                  <Paragraph>
+                <GlassCard className="mb-4 p-6" style={{ background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(20px)', borderRadius: 16, marginBottom: 16 }}>
+                  <Title level={5} style={{ fontSize: 20, fontWeight: 700, color: '#0A0A0A', marginBottom: 12 }}>报告摘要</Title>
+                  <Paragraph style={{ fontSize: 14, lineHeight: 1.8, color: '#374151' }}>
                     {selectedReport.summary || '暂无摘要'}
                   </Paragraph>
-                </Card>
+                </GlassCard>
 
                 {/* 章节内容 */}
                 {reportContent.chapters.map(chapter =>
@@ -694,8 +789,8 @@ export default function Report() {
 
                 {/* 推荐建议 */}
                 {selectedReport.recommendations && selectedReport.recommendations.length > 0 && (
-                  <Card size="small" className="mt-4">
-                    <Title level={5}>推荐建议</Title>
+                  <GlassCard className="mt-4 p-6" style={{ background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(20px)', borderRadius: 16 }}>
+                    <Title level={5} style={{ fontSize: 20, fontWeight: 700, color: '#0A0A0A', marginBottom: 12 }}>推荐建议</Title>
                     <List
                       size="small"
                       dataSource={selectedReport.recommendations}
@@ -711,7 +806,7 @@ export default function Report() {
                         );
                       }}
                     />
-                  </Card>
+                  </GlassCard>
                 )}
 
                 {/* 润色变更提示 */}
@@ -735,13 +830,14 @@ export default function Report() {
             ) : (
               <Empty description="报告内容为空" />
             )}
-          </Card>
+            </div>
+          </GlassCard>
         </div>
       )}
 
       {/* 版本管理抽屉 */}
       <Drawer
-        title="版本历史"
+        title={<span style={{ fontWeight: 600 }}>版本历史</span>}
         placement="right"
         width={400}
         open={versionsVisible}
@@ -752,6 +848,7 @@ export default function Report() {
             dataSource={versions}
             renderItem={(version) => (
               <List.Item
+                style={{ borderBottom: '1px solid var(--gray-100)', padding: '12px 0' }}
                 actions={[
                   <Button
                     key="view"
@@ -773,7 +870,11 @@ export default function Report() {
                 ]}
               >
                 <List.Item.Meta
-                  title={<Tag>v{version.version}</Tag>}
+                  title={
+                    <span className="bg-blue-50 text-indigo-600 rounded-md px-2 py-1 text-xs font-medium" style={{ background: '#EDF5F2', color: '#5E8A7C', borderRadius: 6, padding: '2px 8px', fontSize: 12 }}>
+                      v{version.version}
+                    </span>
+                  }
                   description={
                     <div>
                       <Text type="secondary">
@@ -870,6 +971,7 @@ export default function Report() {
           </pre>
         )}
       </Modal>
+    </div>
     </div>
   );
 }

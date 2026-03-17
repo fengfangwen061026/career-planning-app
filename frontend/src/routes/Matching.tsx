@@ -1,12 +1,8 @@
 import { useState, useEffect } from 'react';
 import {
-  Card,
   Button,
-  Row,
-  Col,
   Empty,
   message,
-  Progress,
   Badge,
   Tabs,
   Tag,
@@ -25,6 +21,7 @@ import {
   ToolOutlined,
   ClockCircleOutlined,
 } from '@ant-design/icons';
+import { BarChart2 } from 'lucide-react';
 import {
   Radar,
   RadarChart,
@@ -47,24 +44,78 @@ import type { RoleResponse } from '../types/job';
 import type { MatchResultResponse, GapItem } from '../types/matching';
 import LoadingState from '../components/LoadingState';
 
-// Score color helper
+// 模块专属色 - 靛蓝色系
+const MODULE_COLOR = '#5B6FD4';
+const MODULE_BG = '#ECEDFC';
+
+// Score color helper (语义色：绿=优，琥珀=良，珊瑚=差)
 const getScoreColor = (score: number): string => {
-  if (score >= 80) return '#52c41a'; // green
-  if (score >= 60) return '#faad14'; // yellow
-  return '#ff4d4f'; // red;
+  if (score >= 80) return '#5E8F6E';
+  if (score >= 60) return '#CB8A4A';
+  return '#E07B6A';
 };
 
-// Gap priority helper
+// Total score color helper (for main score display)
+const getTotalScoreColor = (score: number): string => {
+  if (score >= 80) return '#5E8F6E';
+  if (score >= 60) return '#CB8A4A';
+  return '#E07B6A';
+};
+
+// Dimension color helper (四维专属色)
+const getDimensionColor = (dimension: string): string => {
+  switch (dimension) {
+    case 'basic': return '#5B6FD4';   // 基础要求 - 靛蓝
+    case 'skill': return '#4B9AB3';   // 技术技能 - 青蓝
+    case 'competency': return '#C4758A'; // 软技能 - 玫瑰粉
+    case 'potential': return '#5E8F6E';   // 发展潜力 - 绿
+    default: return '#5B6FD4';
+  }
+};
+
+// 进度条颜色
+const getWeightColor = (pct: number): string => {
+  if (pct >= 80) return '#4455B8';
+  if (pct >= 60) return '#5B6FD4';
+  if (pct >= 40) return '#8A9AE0';
+  return '#C4CAEF';
+};
+
+// Gap priority helper (差距分析色)
 const getGapPriorityInfo = (priority: string) => {
   switch (priority) {
     case 'high':
-      return { color: '#ff4d4f', label: '高优先', icon: <CloseCircleOutlined />, bgColor: '#fff2f0' };
+      return {
+        color: '#E07B6A',
+        label: '高优先',
+        bgColor: 'rgba(224,123,106,0.08)',
+        borderColor: 'rgba(224,123,106,0.20)',
+        dot: '#E07B6A',
+      };
     case 'medium':
-      return { color: '#faad14', label: '中优先', icon: <ExclamationCircleOutlined />, bgColor: '#fffbe6' };
+      return {
+        color: '#CB8A4A',
+        label: '中优先',
+        bgColor: 'rgba(203,138,74,0.08)',
+        borderColor: 'rgba(203,138,74,0.18)',
+        dot: '#CB8A4A',
+      };
     case 'low':
-      return { color: '#52c41a', label: '低优先', icon: <CheckCircleOutlined />, bgColor: '#f6ffed' };
+      return {
+        color: '#5E8F6E',
+        label: '低优先',
+        bgColor: 'rgba(94,143,110,0.08)',
+        borderColor: 'rgba(94,143,110,0.18)',
+        dot: '#5E8F6E',
+      };
     default:
-      return { color: '#8c8c8c', label: '未知', icon: null, bgColor: '#fafafa' };
+      return {
+        color: '#8C8C8C',
+        label: '未知',
+        bgColor: '#FAFAFA',
+        borderColor: '#E5E7EB',
+        dot: '#8C8C8C',
+      };
   }
 };
 
@@ -79,9 +130,9 @@ interface ActionItem {
 
 // Generate action items from missing skills
 const generateActionPlan = (gaps: GapItem[]): Record<ActionBucket, ActionItem[]> => {
-  const immediate: ActionItem[] = [];  // 立即开始 - 必备技能缺失
-  const nearTerm: ActionItem[] = [];  // 近期补充 - 优选技能
-  const longTerm: ActionItem[] = [];  // 长期规划 - 素养/潜力提升
+  const immediate: ActionItem[] = [];
+  const nearTerm: ActionItem[] = [];
+  const longTerm: ActionItem[] = [];
 
   gaps.forEach(gap => {
     const actionItem: ActionItem = {
@@ -90,29 +141,74 @@ const generateActionPlan = (gaps: GapItem[]): Record<ActionBucket, ActionItem[]>
       gap_item: gap.gap_item,
     };
 
-    // 高优先级的技能差距 - 立即开始
     if (gap.dimension === 'skill' && gap.priority === 'high') {
       immediate.push(actionItem);
     }
-    // 中优先级的技能差距 - 近期补充
     else if (gap.dimension === 'skill' && gap.priority === 'medium') {
       nearTerm.push(actionItem);
     }
-    // 素养和潜力差距 - 长期规划
     else if (gap.dimension === 'competency' || gap.dimension === 'potential') {
       longTerm.push(actionItem);
     }
-    // 基础差距 - 近期补充
     else if (gap.dimension === 'basic') {
       nearTerm.push(actionItem);
     }
-    // 其他低优先级
     else {
       longTerm.push(actionItem);
     }
   });
 
   return { immediate, near_term: nearTerm, long_term: longTerm };
+};
+
+// Custom progress bar component with elastic animation
+interface ProgressBarProps {
+  percent: number;
+  color: string;
+}
+
+const ProgressBar = ({ percent, color }: ProgressBarProps) => {
+  return (
+    <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div
+        className="h-full rounded-full transition-all duration-700 ease-out"
+        style={{
+          width: `${percent}%`,
+          backgroundColor: color,
+          animation: 'elasticWidth 0.8s ease-out',
+        }}
+      />
+    </div>
+  );
+};
+
+// Custom glass card component
+interface GlassCardProps {
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+  onClick?: () => void;
+}
+
+const GlassCard = ({ children, className = '', style = {}, onClick }: GlassCardProps) => {
+  return (
+    <div
+      className={className}
+      onClick={onClick}
+      style={{
+        background: 'rgba(255,255,255,0.82)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255,255,255,0.88)',
+        borderRadius: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.04)',
+        padding: '24px',
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
 };
 
 export default function Matching() {
@@ -158,7 +254,6 @@ export default function Matching() {
     try {
       const response = await matchingApi.recommendJobs(selectedStudent, { top_k: 10 });
       setMatchResults(response.data.results);
-      // Auto-select the first result
       if (response.data.results.length > 0) {
         setSelectedResult(response.data.results[0]);
       }
@@ -182,7 +277,6 @@ export default function Matching() {
         student_id: selectedStudent,
         job_profile_id: jobProfileId,
       });
-      // Update or add the result
       setMatchResults(prev => {
         const existing = prev.findIndex(r => r.job_profile_id === jobProfileId);
         if (existing >= 0) {
@@ -237,12 +331,25 @@ export default function Matching() {
     return { matched, missing };
   };
 
+  // Custom progress bar for left panel list
+  const renderMiniProgress = (score: number) => {
+    const color = getTotalScoreColor(score);
+    return (
+      <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden mt-1">
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${score}%`, backgroundColor: color }}
+        />
+      </div>
+    );
+  };
+
   // Render left panel - recommendation list
   const renderLeftPanel = () => (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col" style={{ background: 'rgba(255,255,255,0.82)', backdropFilter: 'blur(20px)' }}>
       {/* Header */}
-      <div className="p-4 border-b bg-gray-50">
-        <h2 className="text-lg font-semibold mb-3">岗位推荐</h2>
+      <div className="p-4 border-b" style={{ borderColor: '#E5E7EB' }}>
+        <h2 className="text-lg font-semibold mb-3" style={{ color: '#0A0A0A' }}>岗位推荐</h2>
         <div className="flex gap-2">
           <Button
             type="primary"
@@ -251,6 +358,7 @@ export default function Matching() {
             loading={matching}
             disabled={!selectedStudent}
             block
+            style={{ background: '#5B6FD4', borderColor: '#5B6FD4' }}
           >
             一键推荐
           </Button>
@@ -258,10 +366,11 @@ export default function Matching() {
       </div>
 
       {/* Student selector */}
-      <div className="p-4 border-b">
-        <span className="text-gray-600 text-sm">选择学生:</span>
+      <div className="p-4 border-b" style={{ borderColor: '#E5E7EB' }}>
+        <span style={{ color: '#6B7280', fontSize: '14px' }}>选择学生:</span>
         <select
-          className="ml-2 p-1 border rounded text-sm"
+          className="ml-2 p-2 border rounded text-sm"
+          style={{ borderColor: '#E5E7EB', borderRadius: '8px' }}
           value={selectedStudent || ''}
           onChange={(e) => {
             setSelectedStudent(e.target.value || null);
@@ -291,98 +400,88 @@ export default function Matching() {
               const isSelected = selectedResult?.id === result.id;
 
               return (
-                <Card
+                <GlassCard
                   key={result.id}
-                  size="small"
-                  className={`mb-2 cursor-pointer transition-all ${
-                    isSelected ? 'ring-2 ring-blue-500 shadow-md' : 'hover:shadow-sm'
-                  }`}
+                  className={`mb-2 cursor-pointer transition-all ${isSelected ? 'ring-2' : ''}`}
+                  style={{
+                    padding: '12px',
+                    border: isSelected ? `2px solid ${MODULE_COLOR}` : '1px solid rgba(255,255,255,0.9)',
+                    cursor: 'pointer',
+                  }}
                   onClick={() => setSelectedResult(result)}
                 >
                   {/* Header */}
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm truncate">
+                      <div className="font-medium text-sm truncate" style={{ color: '#0A0A0A' }}>
                         {result.role_name || `岗位 #${index + 1}`}
                       </div>
-                      <div className="text-xs text-gray-500">排名 #{index + 1}</div>
+                      <div className="text-xs" style={{ color: '#6B7280' }}>排名 #{index + 1}</div>
                     </div>
                     <div
                       className="text-2xl font-bold ml-2"
-                      style={{ color: getScoreColor(result.total_score) }}
+                      style={{ color: getTotalScoreColor(result.total_score) }}
                     >
                       {result.total_score.toFixed(0)}
                     </div>
                   </div>
 
                   {/* Score bar */}
-                  <Progress
-                    percent={result.total_score}
-                    strokeColor={getScoreColor(result.total_score)}
-                    showInfo={false}
-                    size="small"
-                  />
+                  {renderMiniProgress(result.total_score)}
 
                   {/* Four dimension progress bars */}
                   <div className="mt-2 space-y-1">
                     <div className="flex items-center gap-1">
-                      <SafetyOutlined className="text-blue-500 text-xs" />
-                      <span className="text-xs text-gray-500 w-8">基础</span>
-                      <Progress
-                        percent={result.scores.basic.score}
-                        size="small"
-                        strokeColor={getScoreColor(result.scores.basic.score)}
-                        className="flex-1"
-                      />
+                      <SafetyOutlined className="text-xs" style={{ color: '#5B6FD4' }} />
+                      <span className="text-xs" style={{ color: '#6B7280', width: '32px' }}>基础</span>
+                      <div className="flex-1">
+                        {renderMiniProgress(result.scores.basic.score)}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <ThunderboltOutlined className="text-purple-500 text-xs" />
-                      <span className="text-xs text-gray-500 w-8">技能</span>
-                      <Progress
-                        percent={result.scores.skill.score}
-                        size="small"
-                        strokeColor={getScoreColor(result.scores.skill.score)}
-                        className="flex-1"
-                      />
+                      <ThunderboltOutlined className="text-xs" style={{ color: '#4B9AB3' }} />
+                      <span className="text-xs" style={{ color: '#6B7280', width: '32px' }}>技能</span>
+                      <div className="flex-1">
+                        {renderMiniProgress(result.scores.skill.score)}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <StarOutlined className="text-green-500 text-xs" />
-                      <span className="text-xs text-gray-500 w-8">素养</span>
-                      <Progress
-                        percent={result.scores.competency.score}
-                        size="small"
-                        strokeColor={getScoreColor(result.scores.competency.score)}
-                        className="flex-1"
-                      />
+                      <StarOutlined className="text-xs" style={{ color: '#C4758A' }} />
+                      <span className="text-xs" style={{ color: '#6B7280', width: '32px' }}>素养</span>
+                      <div className="flex-1">
+                        {renderMiniProgress(result.scores.competency.score)}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <RocketOutlined className="text-pink-500 text-xs" />
-                      <span className="text-xs text-gray-500 w-8">潜力</span>
-                      <Progress
-                        percent={result.scores.potential.score}
-                        size="small"
-                        strokeColor={getScoreColor(result.scores.potential.score)}
-                        className="flex-1"
-                      />
+                      <RocketOutlined className="text-xs" style={{ color: '#5E8F6E' }} />
+                      <span className="text-xs" style={{ color: '#6B7280', width: '32px' }}>潜力</span>
+                      <div className="flex-1">
+                        {renderMiniProgress(result.scores.potential.score)}
+                      </div>
                     </div>
                   </div>
 
                   {/* Gap badges */}
                   <div className="mt-2 flex gap-1">
                     {gapCounts.high > 0 && (
-                      <Badge count={gapCounts.high} style={{ backgroundColor: '#ff4d4f' }} />
+                      <Badge count={gapCounts.high} style={{ backgroundColor: '#E07B6A' }} />
                     )}
                     {gapCounts.medium > 0 && (
-                      <Badge count={gapCounts.medium} style={{ backgroundColor: '#faad14' }} />
+                      <Badge count={gapCounts.medium} style={{ backgroundColor: '#CB8A4A' }} />
                     )}
                     {gapCounts.low > 0 && (
-                      <Badge count={gapCounts.low} style={{ backgroundColor: '#52c41a' }} />
+                      <Badge count={gapCounts.low} style={{ backgroundColor: '#5E8F6E' }} />
                     )}
                     {gapCounts.high + gapCounts.medium + gapCounts.low === 0 && (
-                      <Tag color="success" className="text-xs">无差距</Tag>
+                      <Tag style={{
+                        background: 'rgba(94,143,110,0.10)',
+                        color: '#3A6B4D',
+                        border: '1px solid rgba(94,143,110,0.20)',
+                        borderRadius: '6px',
+                      }} className="text-xs">无差距</Tag>
                     )}
                   </div>
-                </Card>
+                </GlassCard>
               );
             }}
           />
@@ -399,95 +498,116 @@ export default function Matching() {
     const { matched, missing } = getSkillAnalysis(selectedResult);
 
     return (
-      <Row gutter={[16, 16]}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Radar Chart */}
-        <Col xs={24} lg={12}>
-          <Card title="四维能力对比雷达图" size="small">
-            <ResponsiveContainer width="100%" height={300}>
-              <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-                <PolarGrid />
-                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12 }} />
-                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 10 }} />
-                <Radar
-                  name="学生能力"
-                  dataKey="A"
-                  stroke="#8884d8"
-                  fill="#8884d8"
-                  fillOpacity={0.6}
-                />
-                <Radar
-                  name="岗位要求"
-                  dataKey="B"
-                  stroke="#82ca9d"
-                  fill="#82ca9d"
-                  fillOpacity={0.6}
-                />
-                <Legend />
-              </RadarChart>
-            </ResponsiveContainer>
-          </Card>
-        </Col>
+        <GlassCard>
+          <div className="ds-section-title" style={{ color: MODULE_COLOR }}>四维能力对比雷达图</div>
+          <ResponsiveContainer width="100%" height={300}>
+            <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
+              <PolarGrid stroke="#E5E7EB" />
+              <PolarAngleAxis
+                dataKey="subject"
+                tick={{ fontSize: 12, fill: '#6B7280' }}
+              />
+              <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 10 }} />
+              <Radar
+                name="学生能力"
+                dataKey="A"
+                stroke="#5B6FD4"
+                fill="rgba(91,111,212,0.10)"
+                strokeWidth={2}
+              />
+              <Radar
+                name="岗位要求"
+                dataKey="B"
+                stroke="#82ca9d"
+                fill="rgba(130,202,157,0.12)"
+                strokeWidth={2}
+              />
+              <Legend />
+            </RadarChart>
+          </ResponsiveContainer>
+        </GlassCard>
 
         {/* Skill Analysis */}
-        <Col xs={24} lg={12}>
-          <Card title="技能匹配分析" size="small">
-            {matched.length > 0 ? (
-              <div className="mb-4">
-                <div className="text-sm font-medium text-green-600 mb-2 flex items-center gap-1">
-                  <CheckCircleOutlined /> 已匹配技能 ({matched.length})
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {matched.slice(0, 15).map((skill, idx) => (
-                    <Tag key={idx} color="success">{skill}</Tag>
-                  ))}
-                  {matched.length > 15 && <Tag color="success">+{matched.length - 15}</Tag>}
-                </div>
+        <GlassCard>
+          <div className="ds-section-title" style={{ color: MODULE_COLOR }}>技能匹配分析</div>
+          {matched.length > 0 ? (
+            <div className="mb-4">
+              <div className="text-sm font-medium mb-2 flex items-center gap-1" style={{ color: '#5E8F6E' }}>
+                <CheckCircleOutlined /> 已匹配技能 ({matched.length})
               </div>
-            ) : null}
-
-            {missing.length > 0 ? (
-              <div>
-                <div className="text-sm font-medium text-red-600 mb-2 flex items-center gap-1">
-                  <CloseCircleOutlined /> 缺失技能 ({missing.length})
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {missing.slice(0, 15).map((skill, idx) => (
-                    <Tag key={idx} color="error">{skill}</Tag>
-                  ))}
-                  {missing.length > 15 && <Tag color="error">+{missing.length - 15}</Tag>}
-                </div>
+              <div className="flex flex-wrap gap-1">
+                {matched.slice(0, 15).map((skill, idx) => (
+                  <Tag key={idx} style={{
+                    background: 'rgba(94,143,110,0.10)',
+                    color: '#3A6B4D',
+                    border: '1px solid rgba(94,143,110,0.20)',
+                    borderRadius: '6px',
+                  }}>{skill}</Tag>
+                ))}
+                {matched.length > 15 && <Tag style={{
+                  background: 'rgba(94,143,110,0.08)',
+                  color: '#5A7A60',
+                  border: '1px solid rgba(94,143,110,0.15)',
+                  borderRadius: '6px',
+                }}>+{matched.length - 15}</Tag>}
               </div>
-            ) : (
-              <div className="text-green-600 flex items-center gap-1">
-                <CheckCircleOutlined /> 所有必备技能已匹配
-              </div>
-            )}
-
-            {/* Skill score chart */}
-            <div className="mt-4">
-              <div className="text-sm font-medium mb-2">技能得分分布</div>
-              <ResponsiveContainer width="100%" height={150}>
-                <BarChart
-                  data={[
-                    { name: '必备', score: selectedResult.scores.skill.required_score || 0 },
-                    { name: '优选', score: selectedResult.scores.skill.preferred_score || 0 },
-                    { name: '加分', score: selectedResult.scores.skill.bonus_score || 0 },
-                  ]}
-                  layout="vertical"
-                >
-                  <XAxis type="number" domain={[0, 100]} />
-                  <YAxis type="category" dataKey="name" width={40} />
-                  <Bar dataKey="score" radius={[0, 4, 4, 0]}>
-                    {['#ff4d4f', '#faad14', '#52c41a'].map((color, index) => (
-                      <Cell key={`cell-${index}`} fill={color} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
             </div>
-          </Card>
-        </Col>
-      </Row>
+          ) : null}
+
+          {missing.length > 0 ? (
+            <div>
+              <div className="text-sm font-medium mb-2 flex items-center gap-1" style={{ color: '#E07B6A' }}>
+                <CloseCircleOutlined /> 缺失技能 ({missing.length})
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {missing.slice(0, 15).map((skill, idx) => (
+                  <Tag key={idx} style={{
+                    background: 'rgba(224,123,106,0.10)',
+                    color: '#8A4A3A',
+                    border: '1px solid rgba(224,123,106,0.20)',
+                    borderRadius: '6px',
+                  }}>{skill}</Tag>
+                ))}
+                {missing.length > 15 && <Tag style={{
+                  background: 'rgba(224,123,106,0.08)',
+                  color: '#A06050',
+                  border: '1px solid rgba(224,123,106,0.15)',
+                  borderRadius: '6px',
+                }}>+{missing.length - 15}</Tag>}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1" style={{ color: '#5E8F6E' }}>
+              <CheckCircleOutlined /> 所有必备技能已匹配
+            </div>
+          )}
+
+          {/* Skill score chart */}
+          <div className="mt-4">
+            <div className="text-sm font-medium mb-2">技能得分分布</div>
+            <ResponsiveContainer width="100%" height={150}>
+              <BarChart
+                data={[
+                  { name: '必备', score: selectedResult.scores.skill.required_score || 0 },
+                  { name: '优选', score: selectedResult.scores.skill.preferred_score || 0 },
+                  { name: '加分', score: selectedResult.scores.skill.bonus_score || 0 },
+                ]}
+                layout="vertical"
+              >
+                <XAxis type="number" domain={[0, 100]} />
+                <YAxis type="category" dataKey="name" width={40} />
+                <Bar dataKey="score" radius={[0, 4, 4, 0]}>
+                  {['#E07B6A', '#CB8A4A', '#5E8F6E'].map((color, index) => (
+                    <Cell key={`cell-${index}`} fill={color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </GlassCard>
+      </div>
     );
   };
 
@@ -502,13 +622,12 @@ export default function Matching() {
 
     if (sortedGaps.length === 0) {
       return (
-        <Card>
+        <GlassCard>
           <Empty description="恭喜！暂无差距项" />
-        </Card>
+        </GlassCard>
       );
     }
 
-    // Group by priority
     const highGaps = sortedGaps.filter(g => g.priority === 'high');
     const mediumGaps = sortedGaps.filter(g => g.priority === 'medium');
     const lowGaps = sortedGaps.filter(g => g.priority === 'low');
@@ -517,89 +636,155 @@ export default function Matching() {
       <div className="space-y-4">
         {/* High Priority */}
         {highGaps.length > 0 && (
-          <Card
-            title={
-              <span className="text-red-600 flex items-center gap-2">
-                <CloseCircleOutlined /> 高优先级差距 ({highGaps.length})
-              </span>
-            }
-            className="border-l-4 border-l-red-500"
+          <GlassCard
+            style={{
+              borderLeft: '4px solid #E07B6A',
+              padding: '16px 24px',
+            }}
           >
-            <div className="space-y-3">
-              {highGaps.map((gap, idx) => (
-                <div key={idx} className="p-3 bg-red-50 rounded-lg border border-red-200">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="font-medium">{gap.gap_item}</div>
-                      <div className="text-sm text-gray-600 mt-1">
-                        {gap.current_level} → {gap.required_level}
-                      </div>
-                      <div className="text-sm text-blue-600 mt-2">{gap.suggestion}</div>
-                    </div>
-                    <Tag color="red">高</Tag>
-                  </div>
-                </div>
-              ))}
+            <div className="flex items-center gap-2 mb-4" style={{ color: '#E07B6A' }}>
+              <CloseCircleOutlined />
+              <span className="font-semibold">高优先级差距 ({highGaps.length})</span>
             </div>
-          </Card>
+            <div className="space-y-3">
+              {highGaps.map((gap, idx) => {
+                const priorityInfo = getGapPriorityInfo('high');
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      background: priorityInfo.bgColor,
+                      border: `1px solid ${priorityInfo.borderColor}`,
+                      borderRadius: '10px',
+                      padding: '12px 16px',
+                    }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
+                        style={{ backgroundColor: priorityInfo.dot }}
+                      />
+                      <div className="flex-1">
+                        <div className="font-medium" style={{ color: '#0A0A0A' }}>{gap.gap_item}</div>
+                        <div className="text-sm mt-1" style={{ color: '#6B7280' }}>
+                          {gap.current_level} → {gap.required_level}
+                        </div>
+                        <div className="text-sm mt-2" style={{ color: '#5B6FD4' }}>{gap.suggestion}</div>
+                      </div>
+                      <Tag style={{
+                        background: 'rgba(224,123,106,0.10)',
+                        color: '#8A4A3A',
+                        border: '1px solid rgba(224,123,106,0.20)',
+                        borderRadius: '6px',
+                      }}>高</Tag>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </GlassCard>
         )}
 
         {/* Medium Priority */}
         {mediumGaps.length > 0 && (
-          <Card
-            title={
-              <span className="text-yellow-600 flex items-center gap-2">
-                <ExclamationCircleOutlined /> 中优先级差距 ({mediumGaps.length})
-              </span>
-            }
-            className="border-l-4 border-l-yellow-500"
+          <GlassCard
+            style={{
+              borderLeft: '4px solid #CB8A4A',
+              padding: '16px 24px',
+            }}
           >
-            <div className="space-y-3">
-              {mediumGaps.map((gap, idx) => (
-                <div key={idx} className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="font-medium">{gap.gap_item}</div>
-                      <div className="text-sm text-gray-600 mt-1">
-                        {gap.current_level} → {gap.required_level}
-                      </div>
-                      <div className="text-sm text-blue-600 mt-2">{gap.suggestion}</div>
-                    </div>
-                    <Tag color="gold">中</Tag>
-                  </div>
-                </div>
-              ))}
+            <div className="flex items-center gap-2 mb-4" style={{ color: '#CB8A4A' }}>
+              <ExclamationCircleOutlined />
+              <span className="font-semibold">中优先级差距 ({mediumGaps.length})</span>
             </div>
-          </Card>
+            <div className="space-y-3">
+              {mediumGaps.map((gap, idx) => {
+                const priorityInfo = getGapPriorityInfo('medium');
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      background: priorityInfo.bgColor,
+                      border: `1px solid ${priorityInfo.borderColor}`,
+                      borderRadius: '10px',
+                      padding: '12px 16px',
+                    }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
+                        style={{ backgroundColor: priorityInfo.dot }}
+                      />
+                      <div className="flex-1">
+                        <div className="font-medium" style={{ color: '#0A0A0A' }}>{gap.gap_item}</div>
+                        <div className="text-sm mt-1" style={{ color: '#6B7280' }}>
+                          {gap.current_level} → {gap.required_level}
+                        </div>
+                        <div className="text-sm mt-2" style={{ color: '#5B6FD4' }}>{gap.suggestion}</div>
+                      </div>
+                      <Tag style={{
+                        background: 'rgba(203,138,74,0.10)',
+                        color: '#7D4F1E',
+                        border: '1px solid rgba(203,138,74,0.20)',
+                        borderRadius: '6px',
+                      }}>中</Tag>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </GlassCard>
         )}
 
         {/* Low Priority */}
         {lowGaps.length > 0 && (
-          <Card
-            title={
-              <span className="text-green-600 flex items-center gap-2">
-                <CheckCircleOutlined /> 低优先级差距 ({lowGaps.length})
-              </span>
-            }
-            className="border-l-4 border-l-green-500"
+          <GlassCard
+            style={{
+              borderLeft: '4px solid #5E8F6E',
+              padding: '16px 24px',
+            }}
           >
-            <div className="space-y-3">
-              {lowGaps.map((gap, idx) => (
-                <div key={idx} className="p-3 bg-green-50 rounded-lg border border-green-200">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="font-medium">{gap.gap_item}</div>
-                      <div className="text-sm text-gray-600 mt-1">
-                        {gap.current_level} → {gap.required_level}
-                      </div>
-                      <div className="text-sm text-blue-600 mt-2">{gap.suggestion}</div>
-                    </div>
-                    <Tag color="green">低</Tag>
-                  </div>
-                </div>
-              ))}
+            <div className="flex items-center gap-2 mb-4" style={{ color: '#5E8F6E' }}>
+              <CheckCircleOutlined />
+              <span className="font-semibold">低优先级差距 ({lowGaps.length})</span>
             </div>
-          </Card>
+            <div className="space-y-3">
+              {lowGaps.map((gap, idx) => {
+                const priorityInfo = getGapPriorityInfo('low');
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      background: priorityInfo.bgColor,
+                      border: `1px solid ${priorityInfo.borderColor}`,
+                      borderRadius: '10px',
+                      padding: '12px 16px',
+                    }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
+                        style={{ backgroundColor: priorityInfo.dot }}
+                      />
+                      <div className="flex-1">
+                        <div className="font-medium" style={{ color: '#0A0A0A' }}>{gap.gap_item}</div>
+                        <div className="text-sm mt-1" style={{ color: '#6B7280' }}>
+                          {gap.current_level} → {gap.required_level}
+                        </div>
+                        <div className="text-sm mt-2" style={{ color: '#5B6FD4' }}>{gap.suggestion}</div>
+                      </div>
+                      <Tag style={{
+                        background: 'rgba(94,143,110,0.10)',
+                        color: '#3A6B4D',
+                        border: '1px solid rgba(94,143,110,0.20)',
+                        borderRadius: '6px',
+                      }}>低</Tag>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </GlassCard>
         )}
       </div>
     );
@@ -611,229 +796,190 @@ export default function Matching() {
 
     const actionPlan = generateActionPlan(selectedResult.gaps);
 
-    const bucketInfo = {
-      immediate: {
-        title: '立即开始',
-        icon: <RocketOutlined />,
-        color: '#ff4d4f',
-        bgColor: '#fff2f0',
-        description: '必备技能缺失，需要立即学习',
-      },
-      near_term: {
-        title: '近期补充',
-        icon: <ClockCircleOutlined />,
-        color: '#faad14',
-        bgColor: '#fffbe6',
-        description: '优选技能和基础条件提升',
-      },
-      long_term: {
-        title: '长期规划',
-        icon: <BookOutlined />,
-        color: '#52c41a',
-        bgColor: '#f6ffed',
-        description: '职业素养和潜力持续培养',
-      },
-    };
-
     return (
       <div className="space-y-4">
-        {/* Immediate bucket */}
-        <Card
-          title={
-            <span className="flex items-center gap-2" style={{ color: bucketInfo.immediate.color }}>
-              {bucketInfo.immediate.icon} {bucketInfo.immediate.title}
-            </span>
-          }
-          className="border-l-4"
-          style={{ borderLeftColor: bucketInfo.immediate.color }}
-        >
-          <div className="text-sm text-gray-500 mb-3">{bucketInfo.immediate.description}</div>
+        {/* 即时行动 */}
+        <GlassCard>
+          <div className="flex items-center gap-2 mb-4" style={{ color: '#E07B6A' }}>
+            <ClockCircleOutlined />
+            <span className="font-semibold">即时行动 (1-2周)</span>
+          </div>
           {actionPlan.immediate.length > 0 ? (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {actionPlan.immediate.map((item, idx) => (
-                <div key={idx} className="p-3 rounded-lg" style={{ backgroundColor: bucketInfo.immediate.bgColor }}>
-                  <div className="font-medium">{item.gap_item}</div>
-                  <div className="text-sm text-gray-600 mt-1">{item.action}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <Empty description="暂无项" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          )}
-        </Card>
-
-        {/* Near term bucket */}
-        <Card
-          title={
-            <span className="flex items-center gap-2" style={{ color: bucketInfo.near_term.color }}>
-              {bucketInfo.near_term.icon} {bucketInfo.near_term.title}
-            </span>
-          }
-          className="border-l-4"
-          style={{ borderLeftColor: bucketInfo.near_term.color }}
-        >
-          <div className="text-sm text-gray-500 mb-3">{bucketInfo.near_term.description}</div>
-          {actionPlan.near_term.length > 0 ? (
-            <div className="space-y-2">
-              {actionPlan.near_term.map((item, idx) => (
-                <div key={idx} className="p-3 rounded-lg" style={{ backgroundColor: bucketInfo.near_term.bgColor }}>
-                  <div className="font-medium">{item.gap_item}</div>
-                  <div className="text-sm text-gray-600 mt-1">{item.action}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <Empty description="暂无项" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          )}
-        </Card>
-
-        {/* Long term bucket */}
-        <Card
-          title={
-            <span className="flex items-center gap-2" style={{ color: bucketInfo.long_term.color }}>
-              {bucketInfo.long_term.icon} {bucketInfo.long_term.title}
-            </span>
-          }
-          className="border-l-4"
-          style={{ borderLeftColor: bucketInfo.long_term.color }}
-        >
-          <div className="text-sm text-gray-500 mb-3">{bucketInfo.long_term.description}</div>
-          {actionPlan.long_term.length > 0 ? (
-            <div className="space-y-2">
-              {actionPlan.long_term.map((item, idx) => (
-                <div key={idx} className="p-3 rounded-lg" style={{ backgroundColor: bucketInfo.long_term.bgColor }}>
-                  <div className="font-medium">{item.gap_item}</div>
-                  <div className="text-sm text-gray-600 mt-1">{item.action}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <Empty description="暂无项" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          )}
-        </Card>
-      </div>
-    );
-  };
-
-  // Render right panel
-  const renderRightPanel = () => {
-    if (!selectedResult) {
-      return (
-        <div className="h-full flex items-center justify-center">
-          <Empty description="请从左侧选择一个岗位查看详情" />
-        </div>
-      );
-    }
-
-    return (
-      <div className="h-full flex flex-col">
-        {/* Header */}
-        <div className="p-4 border-b bg-gray-50">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">
-                {selectedResult.role_name || '目标岗位'}
-              </h2>
-              <div className="text-sm text-gray-500">
-                综合评分:{' '}
-                <span
-                  className="text-2xl font-bold"
-                  style={{ color: getScoreColor(selectedResult.total_score) }}
+                <div
+                  key={idx}
+                  style={{
+                    background: 'rgba(224,123,106,0.06)',
+                    border: '1px solid rgba(224,123,106,0.15)',
+                    borderRadius: '10px',
+                    padding: '12px 16px',
+                  }}
                 >
-                  {selectedResult.total_score.toFixed(0)}
-                </span>
-                /100
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="text-center">
-                <div className="text-xs text-gray-500">差距项</div>
-                <div className="text-xl font-bold">{selectedResult.gaps.length}</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Summary progress */}
-          <div className="mt-3 grid grid-cols-4 gap-2">
-            {[
-              { key: 'basic', label: '基础', score: selectedResult.scores.basic.score, icon: <SafetyOutlined /> },
-              { key: 'skill', label: '技能', score: selectedResult.scores.skill.score, icon: <ThunderboltOutlined /> },
-              { key: 'competency', label: '素养', score: selectedResult.scores.competency.score, icon: <StarOutlined /> },
-              { key: 'potential', label: '潜力', score: selectedResult.scores.potential.score, icon: <RocketOutlined /> },
-            ].map(dim => (
-              <div key={dim.key} className="text-center p-2 bg-white rounded">
-                <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
-                  {dim.icon} {dim.label}
+                  <div className="font-medium" style={{ color: '#0A0A0A' }}>{item.gap_item}</div>
+                  <div className="text-sm mt-1" style={{ color: '#6B7280' }}>{item.reason}</div>
+                  <div className="text-sm mt-2" style={{ color: '#5B6FD4' }}>{item.action}</div>
                 </div>
-                <div className="text-lg font-bold" style={{ color: getScoreColor(dim.score) }}>
-                  {dim.score.toFixed(0)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ color: '#9CA3AF' }}>暂无即时行动项</div>
+          )}
+        </GlassCard>
 
-        {/* Tabs */}
-        <div className="flex-1 overflow-y-auto p-4">
-          <Tabs
-            activeKey={activeTab}
-            onChange={setActiveTab}
-            items={[
-              {
-                key: '1',
-                label: (
-                  <span>
-                    <AimOutlined /> 匹配分析
-                  </span>
-                ),
-                children: renderMatchAnalysis(),
-              },
-              {
-                key: '2',
-                label: (
-                  <span>
-                    <ExclamationCircleOutlined /> 差距清单
-                  </span>
-                ),
-                children: renderGapList(),
-              },
-              {
-                key: '3',
-                label: (
-                  <span>
-                    <ToolOutlined /> 行动计划
-                  </span>
-                ),
-                children: renderActionPlan(),
-              },
-            ]}
-          />
-        </div>
+        {/* 近期行动 */}
+        <GlassCard>
+          <div className="flex items-center gap-2 mb-4" style={{ color: '#CB8A4A' }}>
+            <AimOutlined />
+            <span className="font-semibold">近期行动 (1-3月)</span>
+          </div>
+          {actionPlan.near_term.length > 0 ? (
+            <div className="space-y-3">
+              {actionPlan.near_term.map((item, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    background: 'rgba(203,138,74,0.06)',
+                    border: '1px solid rgba(203,138,74,0.15)',
+                    borderRadius: '10px',
+                    padding: '12px 16px',
+                  }}
+                >
+                  <div className="font-medium" style={{ color: '#0A0A0A' }}>{item.gap_item}</div>
+                  <div className="text-sm mt-1" style={{ color: '#6B7280' }}>{item.reason}</div>
+                  <div className="text-sm mt-2" style={{ color: '#5B6FD4' }}>{item.action}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ color: '#9CA3AF' }}>暂无近期行动项</div>
+          )}
+        </GlassCard>
+
+        {/* 长期行动 */}
+        <GlassCard>
+          <div className="flex items-center gap-2 mb-4" style={{ color: '#5E8F6E' }}>
+            <BookOutlined />
+            <span className="font-semibold">长期规划 (3-6月)</span>
+          </div>
+          {actionPlan.long_term.length > 0 ? (
+            <div className="space-y-3">
+              {actionPlan.long_term.map((item, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    background: 'rgba(94,143,110,0.06)',
+                    border: '1px solid rgba(94,143,110,0.15)',
+                    borderRadius: '10px',
+                    padding: '12px 16px',
+                  }}
+                >
+                  <div className="font-medium" style={{ color: '#0A0A0A' }}>{item.gap_item}</div>
+                  <div className="text-sm mt-1" style={{ color: '#6B7280' }}>{item.reason}</div>
+                  <div className="text-sm mt-2" style={{ color: '#5B6FD4' }}>{item.action}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ color: '#9CA3AF' }}>暂无长期规划项</div>
+          )}
+        </GlassCard>
       </div>
     );
   };
+
+  // 页面标题区
+  const renderPageHeader = () => (
+    <div style={{ marginBottom: 28 }}>
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 8,
+          background: 'rgba(91,111,212,0.10)',
+          padding: '4px 12px',
+          borderRadius: 20,
+          fontSize: 12,
+          fontWeight: 600,
+          color: MODULE_COLOR,
+          marginBottom: 10,
+        }}
+      >
+        <BarChart2 size={12} /> 匹配推荐
+      </div>
+      <h1
+        style={{
+          fontSize: 28,
+          fontWeight: 800,
+          color: '#0A0A0A',
+          letterSpacing: '-0.8px',
+          margin: 0,
+        }}
+      >
+        匹配推荐
+      </h1>
+      <p style={{ fontSize: 14, color: '#6B7280', margin: '6px 0 0 0' }}>
+        基于学生画像与岗位画像的智能匹配
+      </p>
+    </div>
+  );
 
   return (
-    <div className="h-screen p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold text-gray-800">人岗匹配推荐</h1>
-        <Button icon={<RocketOutlined />} onClick={fetchData} loading={loading}>
-          刷新
-        </Button>
-      </div>
+    <div className="p-6">
+      {renderPageHeader()}
 
       {loading ? (
         <LoadingState />
       ) : (
-        <div className="h-[calc(100vh-120px)] flex gap-4">
-          {/* Left Panel - 40% */}
-          <div className="w-2/5 bg-white rounded-lg shadow overflow-hidden border">
+        <div className="flex gap-4" style={{ height: 'calc(100vh - 240px)' }}>
+          {/* 左侧：推荐列表 */}
+          <div className="w-80 flex-shrink-0 rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.88)' }}>
             {renderLeftPanel()}
           </div>
 
-          {/* Right Panel - 60% */}
-          <div className="w-3/5 bg-white rounded-lg shadow overflow-hidden border">
-            {renderRightPanel()}
+          {/* 右侧：详情面板 */}
+          <div className="flex-1 overflow-hidden rounded-lg" style={{ border: '1px solid rgba(255,255,255,0.88)', background: 'rgba(255,255,255,0.82)' }}>
+            {selectedResult ? (
+              <div className="h-full flex flex-col">
+                {/* 岗位信息头 */}
+                <div className="p-4 border-b" style={{ borderColor: '#E5E7EB' }}>
+                  <div className="flex items-center gap-4">
+                    {/* 总分大数字 */}
+                    <div
+                      className="text-5xl font-bold"
+                      style={{ color: getTotalScoreColor(selectedResult.total_score), minWidth: '100px' }}
+                    >
+                      {selectedResult.total_score.toFixed(0)}
+                    </div>
+                    <div>
+                      <div className="text-lg font-semibold" style={{ color: '#0A0A0A' }}>
+                        {selectedResult.role_name || '未知岗位'}
+                      </div>
+                      <div className="text-sm" style={{ color: '#6B7280' }}>
+                        综合匹配度
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tab 内容区 */}
+                <div className="flex-1 overflow-auto p-4">
+                  <Tabs
+                    activeKey={activeTab}
+                    onChange={setActiveTab}
+                    items={[
+                      { key: '1', label: '匹配分析', children: renderMatchAnalysis() },
+                      { key: '2', label: '差距清单', children: renderGapList() },
+                      { key: '3', label: '行动计划', children: renderActionPlan() },
+                    ]}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="h-full flex items-center justify-center">
+                <Empty description="请从左侧选择一个岗位查看详情" />
+              </div>
+            )}
           </div>
         </div>
       )}

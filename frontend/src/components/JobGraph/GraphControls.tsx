@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { SearchOutlined, ReloadOutlined } from "@ant-design/icons";
 import { JOB_CATEGORIES } from "../../constants";
 import styles from "./JobGraph.module.css";
@@ -22,24 +21,23 @@ export function GraphControls({
 }: GraphControlsProps) {
   return (
     <div className={styles.controlsBar}>
-      {/* Search input */}
       <div className={styles.searchWrapper}>
         <SearchOutlined className={styles.searchIcon} />
         <input
           type="text"
           placeholder="搜索岗位..."
           value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
+          onChange={(event) => onSearchChange(event.target.value)}
           className={styles.searchInput}
         />
       </div>
 
-      {/* Category chips */}
       <div className={styles.categoryChips}>
         {Object.entries(JOB_CATEGORIES).map(([category, meta]) => {
           const isSelected =
             selectedCategories.length === 0 ||
             selectedCategories.includes(category);
+
           return (
             <button
               key={category}
@@ -48,11 +46,11 @@ export function GraphControls({
               style={
                 isSelected
                   ? {
-                      backgroundColor: `${meta.color}26`,
-                      borderColor: meta.color,
+                      backgroundColor: `${meta.color}18`,
+                      borderColor: `${meta.color}99`,
                       color: meta.color,
                     }
-                  : {}
+                  : undefined
               }
             >
               {meta.icon} {category}
@@ -61,7 +59,6 @@ export function GraphControls({
         })}
       </div>
 
-      {/* Rebuild button */}
       <button
         className={`${styles.rebuildBtn} ${loading ? styles.rebuildLoading : ""}`}
         onClick={onRebuild}

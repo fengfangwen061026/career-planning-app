@@ -1,9 +1,22 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Space, Modal, Form, Input, message, Popconfirm, Select, Tag, Pagination } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
+import { Briefcase } from 'lucide-react';
 import { jobsApi } from '../api/jobs';
 import type { JobResponse, JobCreate, JobUpdate, RoleResponse, PaginatedJobResponse } from '../types/job';
 import LoadingState from '../components/LoadingState';
+
+// 模块专属色 - 鼠尾草绿色系
+const MODULE_COLOR = '#5E8F6E';
+const MODULE_BG = '#EEF6F2';
+
+// 统计摘要数据 - 基于当前页数据计算
+const getStats = (total: number, currentPageData: JobResponse[]) => {
+  // 基于技能是否填写来估算已完善信息的岗位
+  const withSkills = currentPageData.filter(j => j.skills && j.skills.length > 0).length;
+  const pending = currentPageData.length - withSkills;
+  return { total, withSkills, pending };
+};
 
 export default function JobManagement() {
   const [jobs, setJobs] = useState<JobResponse[]>([]);
@@ -129,36 +142,66 @@ export default function JobManagement() {
     }
   };
 
+  // 表头样式
+  const headerCellStyle: React.CSSProperties = {
+    fontSize: '11px',
+    textTransform: 'uppercase',
+    color: '#9CA3AF',
+    background: 'rgba(249,250,251,0.8)',
+    fontWeight: 600,
+  };
+
   const columns = [
     {
       title: '岗位名称',
       dataIndex: 'title',
       key: 'title',
       width: 180,
+      titleRender: () => <span style={headerCellStyle}>岗位名称</span>,
+      render: (title: string) => (
+        <span style={{ fontWeight: 600, color: '#0A0A0A' }}>{title}</span>
+      ),
     },
     {
       title: 'Role',
       dataIndex: 'role',
       key: 'role',
       width: 120,
-      render: (role: string) => role ? <Tag color="blue">{role}</Tag> : '-',
+      titleRender: () => <span style={headerCellStyle}>Role</span>,
+      render: (role: string) => role ? (
+        <span style={{
+          background: 'rgba(94,143,110,0.10)',
+          color: '#3A6B4D',
+          borderRadius: '8px',
+          fontSize: '12px',
+          fontWeight: 500,
+          padding: '3px 10px',
+          display: 'inline-block',
+          border: '1px solid rgba(94,143,110,0.20)',
+        }}>
+          {role}
+        </span>
+      ) : '-',
     },
     {
       title: '公司',
       dataIndex: 'company_name',
       key: 'company_name',
       width: 150,
+      titleRender: () => <span style={headerCellStyle}>公司</span>,
     },
     {
       title: '城市',
       dataIndex: 'city',
       key: 'city',
       width: 100,
+      titleRender: () => <span style={headerCellStyle}>城市</span>,
     },
     {
       title: '薪资范围',
       key: 'salary',
       width: 120,
+      titleRender: () => <span style={headerCellStyle}>薪资范围</span>,
       render: (_: unknown, record: JobResponse) => {
         if (record.salary_min && record.salary_max) {
           return `${record.salary_min / 1000}k-${record.salary_max / 1000}k`;
@@ -170,15 +213,26 @@ export default function JobManagement() {
       title: '技能',
       key: 'skills',
       width: 150,
+      titleRender: () => <span style={headerCellStyle}>技能</span>,
       render: (_: unknown, record: JobResponse) => {
         if (record.skills && record.skills.length > 0) {
           const displaySkills = record.skills.slice(0, 3);
           return (
             <>
               {displaySkills.map((skill, index) => (
-                <Tag key={index} color="green">{skill}</Tag>
+                <Tag key={index} style={{
+                  background: 'rgba(94,143,110,0.10)',
+                  color: '#3A6B4D',
+                  border: '1px solid rgba(94,143,110,0.20)',
+                  borderRadius: '6px',
+                }}>{skill}</Tag>
               ))}
-              {record.skills.length > 3 && <Tag>+{record.skills.length - 3}</Tag>}
+              {record.skills.length > 3 && <Tag style={{
+                background: 'rgba(94,143,110,0.08)',
+                color: '#5A7A60',
+                border: '1px solid rgba(94,143,110,0.15)',
+                borderRadius: '6px',
+              }}>+{record.skills.length - 3}</Tag>}
             </>
           );
         }
@@ -188,60 +242,140 @@ export default function JobManagement() {
     {
       title: '操作',
       key: 'action',
-      width: 150,
+      width: 120,
+      titleRender: () => <span style={headerCellStyle}>操作</span>,
       render: (_: unknown, record: JobResponse) => (
-        <Space>
+        <Space size={4}>
           <Button
-            type="link"
-            icon={<EyeOutlined />}
+            type="text"
+            icon={<EyeOutlined style={{ color: '#6B7280' }} />}
             onClick={() => handleView(record)}
-          >
-            查看
-          </Button>
+            style={{ color: '#6B7280' }}
+          />
           <Button
-            type="link"
-            icon={<EditOutlined />}
+            type="text"
+            icon={<EditOutlined style={{ color: '#5E8F6E' }} />}
             onClick={() => handleEdit(record)}
-          >
-            编辑
-          </Button>
+            style={{ color: '#5E8F6E' }}
+          />
           <Popconfirm
             title="确定删除这个岗位吗？"
             onConfirm={() => handleDelete(record.id)}
           >
-            <Button type="link" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
+            <Button
+              type="text"
+              icon={<DeleteOutlined style={{ color: '#E07B6A' }} />}
+              danger
+            />
           </Popconfirm>
         </Space>
       ),
     },
   ];
 
+  const stats = getStats(pagination.total, jobs);
+
   return (
-    <div>
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold">岗位管理</h1>
+    <div className="ds-page">
+      {/* 页面标题区 */}
+      <div style={{ marginBottom: 28 }}>
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            background: 'rgba(94,143,110,0.10)',
+            padding: '4px 12px',
+            borderRadius: 20,
+            fontSize: 12,
+            fontWeight: 600,
+            color: MODULE_COLOR,
+            marginBottom: 10,
+          }}
+        >
+          <Briefcase size={12} /> 岗位管理
+        </div>
+        <h1
+          style={{
+            fontSize: 28,
+            fontWeight: 800,
+            color: '#0A0A0A',
+            letterSpacing: '-0.8px',
+            margin: 0,
+          }}
+        >
+          岗位管理
+        </h1>
+        <p style={{ fontSize: 14, color: '#6B7280', margin: '6px 0 0 0' }}>
+          管理系统中的所有岗位数据
+        </p>
+      </div>
+
+      {/* 顶部操作栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <Space>
-          <Button icon={<UploadOutlined />}>批量导入</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            添加岗位
+          <span style={{
+            background: 'rgba(94,143,110,0.08)',
+            borderRadius: '8px',
+            padding: '6px 14px',
+            fontSize: '13px',
+            color: '#3A6B4D',
+          }}>
+            总数：<strong style={{ color: '#0A0A0A' }}>{pagination.total}</strong>
+          </span>
+          <span style={{
+            background: 'rgba(94,143,110,0.08)',
+            borderRadius: '8px',
+            padding: '6px 14px',
+            fontSize: '13px',
+            color: '#3A6B4D',
+          }}>
+            已完善：<strong style={{ color: '#0A0A0A' }}>{stats.withSkills}</strong>
+          </span>
+          <span style={{
+            background: 'rgba(224,123,106,0.08)',
+            borderRadius: '8px',
+            padding: '6px 14px',
+            fontSize: '13px',
+            color: '#8A4A3A',
+          }}>
+            待处理：<strong style={{ color: '#0A0A0A' }}>{stats.pending}</strong>
+          </span>
+        </Space>
+        <Space>
+          <Button icon={<UploadOutlined />} style={{ borderRadius: '10px' }}>批量导入</Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={handleAdd}
+            style={{
+              background: '#5E8F6E',
+              color: 'white',
+              borderRadius: '10px',
+              padding: '8px 20px',
+              fontWeight: 600,
+              border: 'none'
+            }}
+          >
+            新建
           </Button>
         </Space>
       </div>
 
       {/* 搜索和筛选区域 */}
-      <div className="flex gap-4 mb-4">
-        <Input.Search
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', alignItems: 'center' }}>
+        <Input
           placeholder="搜索岗位名称或公司"
+          prefix={<SearchOutlined style={{ color: '#9CA3AF' }} />}
           allowClear
-          onSearch={handleSearch}
-          style={{ width: 300 }}
+          value={keyword}
+          onChange={(e) => handleSearch(e.target.value)}
+          style={{ width: 280, borderRadius: '10px', border: '1px solid var(--gray-200)' }}
         />
         <Select
           placeholder="选择 Role"
           allowClear
-          style={{ width: 200 }}
+          style={{ width: 180 }}
           value={selectedRole}
           onChange={handleRoleChange}
         >
@@ -263,8 +397,22 @@ export default function JobManagement() {
             rowKey="id"
             pagination={false}
             scroll={{ x: 1000 }}
+            style={{
+              '--hover-bg': 'rgba(94,143,110,0.03)'
+            } as React.CSSProperties}
+            onRow={() => ({
+              style: { background: 'transparent' },
+              onMouseEnter: (e: React.MouseEvent) => {
+                const row = e.currentTarget as HTMLElement;
+                row.style.background = 'rgba(94,143,110,0.03)';
+              },
+              onMouseLeave: (e: React.MouseEvent) => {
+                const row = e.currentTarget as HTMLElement;
+                row.style.background = 'transparent';
+              }
+            })}
           />
-          <div className="flex justify-end mt-4">
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
             <Pagination
               current={pagination.page}
               pageSize={pagination.page_size}
@@ -273,6 +421,24 @@ export default function JobManagement() {
               showSizeChanger
               showQuickJumper
               showTotal={(total: number) => `共 ${total} 条`}
+              itemRender={(page, type, originalElement) => {
+                if (type === 'page') {
+                  return (
+                    <a style={{
+                      background: pagination.page === page ? '#5E8F6E' : 'transparent',
+                      color: pagination.page === page ? 'white' : '#4B5563',
+                      borderRadius: '8px',
+                      padding: '2px 8px',
+                      minWidth: '32px',
+                      display: 'inline-block',
+                      textAlign: 'center'
+                    }}>
+                      {page}
+                    </a>
+                  );
+                }
+                return originalElement;
+              }}
             />
           </div>
         </>
@@ -280,11 +446,13 @@ export default function JobManagement() {
 
       {/* 编辑/添加 Modal */}
       <Modal
-        title={editingJob ? '编辑岗位' : '添加岗位'}
+        title={<span style={{ fontSize: '16px', fontWeight: 700 }}>{editingJob ? '编辑岗位' : '添加岗位'}</span>}
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
         width={600}
+        styles={{ content: { borderRadius: '16px' }, header: { borderRadius: '16px 16px 0 0' } }}
+        style={{ borderRadius: '16px' }}
       >
         <Form form={form} layout="vertical">
           <Form.Item
@@ -292,34 +460,35 @@ export default function JobManagement() {
             label="岗位名称"
             rules={[{ required: true, message: '请输入岗位名称' }]}
           >
-            <Input />
+            <Input style={{ borderRadius: '8px' }} />
           </Form.Item>
           <Form.Item name="role" label="Role">
-            <Input />
+            <Input style={{ borderRadius: '8px' }} />
           </Form.Item>
           <Form.Item name="company_name" label="公司">
-            <Input />
+            <Input style={{ borderRadius: '8px' }} />
           </Form.Item>
           <Form.Item name="city" label="城市">
-            <Input />
+            <Input style={{ borderRadius: '8px' }} />
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <Input.TextArea rows={4} />
+            <Input.TextArea rows={4} style={{ borderRadius: '8px' }} />
           </Form.Item>
         </Form>
       </Modal>
 
       {/* 详情 Modal */}
       <Modal
-        title="岗位详情"
+        title={<span style={{ fontSize: '16px', fontWeight: 700 }}>岗位详情</span>}
         open={detailModalVisible}
         onCancel={() => setDetailModalVisible(false)}
         footer={[
-          <Button key="close" onClick={() => setDetailModalVisible(false)}>
+          <Button key="close" onClick={() => setDetailModalVisible(false)} style={{ borderRadius: '8px' }}>
             关闭
           </Button>,
         ]}
         width={700}
+        styles={{ content: { borderRadius: '16px' }, header: { borderRadius: '16px 16px 0 0' } }}
       >
         {viewingJob && (
           <div className="space-y-4">
@@ -330,7 +499,12 @@ export default function JobManagement() {
               </div>
               <div>
                 <span className="text-gray-500">Role：</span>
-                <Tag color="blue">{viewingJob.role || '-'}</Tag>
+                <Tag style={{
+                  background: 'rgba(94,143,110,0.10)',
+                  color: '#3A6B4D',
+                  border: '1px solid rgba(94,143,110,0.20)',
+                  borderRadius: '6px',
+                }}>{viewingJob.role || '-'}</Tag>
               </div>
               <div>
                 <span className="text-gray-500">公司：</span>
@@ -366,7 +540,12 @@ export default function JobManagement() {
               <div>
                 <span className="text-gray-500">行业：</span>
                 {viewingJob.industries.map((industry, index) => (
-                  <Tag key={index} color="orange">{industry}</Tag>
+                  <Tag key={index} style={{
+                    background: 'rgba(203,138,74,0.10)',
+                    color: '#7D4F1E',
+                    border: '1px solid rgba(203,138,74,0.20)',
+                    borderRadius: '6px',
+                  }}>{industry}</Tag>
                 ))}
               </div>
             )}
@@ -399,7 +578,12 @@ export default function JobManagement() {
                 <div className="text-gray-500 mb-1">技能要求：</div>
                 <div className="flex flex-wrap gap-1">
                   {viewingJob.skills.map((skill, index) => (
-                    <Tag key={index} color="green">{skill}</Tag>
+                    <Tag key={index} style={{
+                      background: 'rgba(94,143,110,0.10)',
+                      color: '#3A6B4D',
+                      border: '1px solid rgba(94,143,110,0.20)',
+                      borderRadius: '6px',
+                    }}>{skill}</Tag>
                   ))}
                 </div>
               </div>

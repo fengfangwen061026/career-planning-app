@@ -27,7 +27,10 @@ export const resumeApi = {
     formData.append('file', file);
     // 使用学生端点，需要 UUID 格式的 student_id
     const studentUuid = studentId || DEFAULT_STUDENT_UUID;
-    return client.post<ResumeUploadResponse>(`/students/${studentUuid}/upload-resume`, formData);
+    return client.post<ResumeUploadResponse>(`/students/${studentUuid}/upload-resume`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    });
   },
 
   /**

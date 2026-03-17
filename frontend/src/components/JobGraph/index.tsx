@@ -1,11 +1,10 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { Spin, message } from "antd";
 import { GraphCanvas } from "./GraphCanvas";
 import { GraphControls } from "./GraphControls";
 import { NodeDetailPanel } from "./NodeDetailPanel";
 import { useGraphData } from "./useGraphData";
 import type { GraphNode, JobNode } from "./types";
-import { isJobNode } from "./types";
 import styles from "./JobGraph.module.css";
 
 export function JobGraph() {
@@ -17,12 +16,10 @@ export function JobGraph() {
   );
   const [selectedJob, setSelectedJob] = useState<JobNode | null>(null);
 
-  const graphRef = useRef<{ resize: () => void } | null>(null);
-
   const handleCategoryToggle = useCallback((category: string) => {
     setSelectedCategories((prev) => {
       if (prev.includes(category)) {
-        return prev.filter((c) => c !== category);
+        return prev.filter((item) => item !== category);
       }
       return [...prev, category];
     });
@@ -30,32 +27,28 @@ export function JobGraph() {
 
   const handleCategoryClick = useCallback((category: string) => {
     setCollapsedCategories((prev) => {
-      const newSet = new Set(prev);
-      const catId = `cat_${category}`;
-      if (newSet.has(catId)) {
-        newSet.delete(catId);
+      const next = new Set(prev);
+      const categoryId = `cat_${category}`;
+
+      if (next.has(categoryId)) {
+        next.delete(categoryId);
       } else {
-        newSet.add(catId);
+        next.add(categoryId);
       }
-      return newSet;
+
+      return next;
     });
   }, []);
 
-  const handleNodeClick = useCallback((node: GraphNode) => {
-    if (isJobNode(node)) {
-      setSelectedJob(node);
-    }
-  }, []);
-
-  const handleCloseDetail = useCallback(() => {
-    setSelectedJob(null);
+  const handleJobSelect = useCallback((job: JobNode | null) => {
+    setSelectedJob(job);
   }, []);
 
   const handleRebuild = useCallback(async () => {
     try {
       await rebuild();
       message.success("图谱已刷新");
-    } catch (err) {
+    } catch {
       message.error("刷新失败");
     }
   }, [rebuild]);
@@ -65,7 +58,7 @@ export function JobGraph() {
       <div className={styles.container}>
         <div className={styles.loadingWrapper}>
           <Spin />
-          <p style={{ color: "#ef4444", marginTop: 8 }}>{error}</p>
+          <p className={styles.statusTextError}>{error}</p>
         </div>
       </div>
     );
@@ -76,14 +69,17 @@ export function JobGraph() {
       <div className={styles.container}>
         <div className={styles.loadingWrapper}>
           <Spin size="large" />
-          <p style={{ color: "#64748b", marginTop: 8 }}>加载图谱数据...</p>
+          <p className={styles.statusText}>加载图谱数据中...</p>
         </div>
       </div>
     );
   }
 
   const nodes = data.nodes as GraphNode[];
-  const edges = data.edges.map((e) => ({ source: e.source, target: e.target }));
+  const edges = data.edges.map((edge) => ({
+    source: edge.source,
+    target: edge.target,
+  }));
 
   return (
     <div className={styles.container}>
@@ -104,18 +100,19 @@ export function JobGraph() {
           searchQuery={searchQuery}
           selectedCategories={selectedCategories}
           collapsedCategories={collapsedCategories}
-          onNodeClick={handleNodeClick}
+          selectedJob={selectedJob}
+          onJobSelect={handleJobSelect}
           onCategoryClick={handleCategoryClick}
         />
       </div>
 
-      {selectedJob && (
-        <div
-          className={`${styles.detailPane} ${selectedJob ? styles.visible : ""}`}
-        >
-          <NodeDetailPanel node={selectedJob} onClose={handleCloseDetail} />
-        </div>
-      )}
+      <aside
+        className={`${styles.detailPane} ${selectedJob ? styles.visible : ""}`}
+      >
+        {selectedJob ? (
+          <NodeDetailPanel node={selectedJob} onClose={() => handleJobSelect(null)} />
+        ) : null}
+      </aside>
     </div>
   );
 }
