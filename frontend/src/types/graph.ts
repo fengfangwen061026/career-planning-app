@@ -1,7 +1,7 @@
 // Legacy graph types (deprecated - replaced by D3-based JobGraph)
 
 export type GraphEdgeType = 'vertical' | 'transition' | 'related';
-export type GraphLayoutType = 'cose' | 'circle' | 'grid';
+export type GraphLayoutType = 'radial' | 'cose' | 'circle' | 'grid';
 
 export interface RawGraphElement {
   data: Record<string, unknown>;
