@@ -1,5 +1,6 @@
 """Students API routes."""
 
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -130,14 +131,13 @@ async def delete_student(
 
 @router.post(
     "/{student_id}/upload-resume",
-    response_model=ResumeUploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_resume(
     student_id: UUID,
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
-) -> ResumeUploadResponse:
+) -> dict:
     """Upload a resume file, parse it, and return structured results.
 
     Accepts PDF and DOCX files.
@@ -194,11 +194,10 @@ async def upload_resume(
     await db.refresh(resume)
 
     # 解析简历
+    parse_result = None
     try:
         if raw_text:
             parse_result = await parse_resume_text(raw_text)
-            import logging
-            logging.getLogger(__name__).info(f"Parse result: {parse_result.model_dump()}")
             resume.parsed_json = parse_result.model_dump()
         else:
             from app.schemas.profiles import ResumeParseResult
@@ -208,19 +207,19 @@ async def upload_resume(
                 missing_fields=["简历文本为空"],
             )
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Parse error: {e}", exc_info=True)
-        # 解析失败时仍保留 Resume 记录，但返回错误
-        raise HTTPException(
-            status_code=422,
-            detail=f"Resume parsing failed: {e}",
+        import traceback
+        logging.getLogger(__name__).error(f"Parse error: {e}\n{traceback.format_exc()}")
+        from app.schemas.profiles import ResumeParseResult
+        parse_result = ResumeParseResult(
+            raw_text=raw_text or "",
+            parse_confidence=0.0,
+            missing_fields=["解析失败"],
         )
 
     # 从解析结果更新 Student 基本信息
     try:
         await update_student_basic_info(student_id, parse_result.model_dump(), db)
     except Exception as e:
-        import logging
         logging.getLogger(__name__).warning(f"Update basic info failed: {e}")
 
     # 自动生成学生画像 - 暂时跳过以调试
@@ -236,22 +235,24 @@ async def upload_resume(
     completeness = _calculate_completeness(parse_result)
     suggestions = _generate_suggestions(parse_result)
 
-    # 打印调试信息
-    import logging
     logger = logging.getLogger(__name__)
-    logger.info(f"Returning response with {len(parse_result.skills)} skills")
+    logger.info(f"Returning response - skills: {len(parse_result.skills)}, education: {len(parse_result.education)}")
 
-    # 临时简化返回
-    parsed_dict = parse_result.model_dump()
-    logger.info(f"Parsed dict keys: {parsed_dict.keys()}")
-
-    return ResumeUploadResponse(
-        resume=ResumeResponse.model_validate(resume),
-        parsed_data=parsed_dict,
-        completeness_score=completeness,
-        missing_suggestions=suggestions,
-        normalization_log=[],
-    )
+    # 直接返回字典而不是 Pydantic 模型
+    return {
+        "resume": {
+            "id": str(resume.id),
+            "student_id": str(resume.student_id),
+            "filename": resume.filename,
+            "file_type": resume.file_type,
+            "is_primary": resume.is_primary,
+            "created_at": resume.created_at.isoformat() if resume.created_at else None,
+        },
+        "parsed_data": parse_result.model_dump(),
+        "completeness_score": completeness,
+        "missing_suggestions": suggestions,
+        "normalization_log": [],
+    }
 
 
 @router.get("/{student_id}/resumes", response_model=list[ResumeResponse])

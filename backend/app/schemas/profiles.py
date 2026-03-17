@@ -1,6 +1,6 @@
 """Student profile schemas - 简历解析结果、学生画像、匹配结果定义."""
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -11,41 +11,41 @@ from pydantic import BaseModel, ConfigDict, Field
 class EducationItem(BaseModel):
     """教育经历条目."""
     school: str
-    degree: Literal["大专", "本科", "硕士", "博士"]
-    major: str
+    degree: Optional[str] = "本科"
+    major: Optional[str] = ""
     gpa: Optional[float] = None
     start_year: Optional[int] = None
     end_year: Optional[int] = None
-    evidence: str
+    evidence: Optional[str] = ""
 
 
 class ExperienceItem(BaseModel):
     """实习/工作经历条目."""
     company: str
-    role: str
+    role: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    description: str
+    description: Optional[str] = None
     is_internship: bool = True
-    evidence: str
+    evidence: Optional[str] = None
 
 
 class ProjectItem(BaseModel):
     """项目经历条目."""
     name: str
-    description: str
+    description: Optional[str] = ""
     tech_stack: list[str] = []
-    role: str
+    role: Optional[str] = None
     outcome: Optional[str] = None
-    evidence: str
+    evidence: Optional[str] = ""
 
 
 class SkillItem(BaseModel):
     """技能条目（解析后原始数据）."""
     name: str
-    category: Literal["编程语言", "框架", "工具", "领域知识", "软技能", "其他"]
-    proficiency: Literal["熟练", "掌握", "了解", "入门"]
-    evidence: str
+    category: Optional[str] = "其他"
+    proficiency: Optional[str] = "掌握"
+    evidence: Optional[str] = ""
 
 
 class CertificateItem(BaseModel):
@@ -53,15 +53,15 @@ class CertificateItem(BaseModel):
     name: str
     level: Optional[str] = None
     obtained_date: Optional[str] = None
-    evidence: str
+    evidence: Optional[str] = ""
 
 
 class AwardItem(BaseModel):
     """获奖条目."""
     name: str
-    level: Literal["国家级", "省级", "校级", "其他"]
+    level: Optional[str] = "其他"
     date: Optional[str] = None
-    evidence: str
+    evidence: Optional[str] = ""
 
 
 class ResumeParseResult(BaseModel):

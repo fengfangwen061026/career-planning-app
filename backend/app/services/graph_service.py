@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.constants.job_categories import JOB_CATEGORIES, get_job_category
+from app.constants.job_categories import JOB_CATEGORIES
 from app.models.graph_cache import GraphCache
 from app.models.job import Job
 

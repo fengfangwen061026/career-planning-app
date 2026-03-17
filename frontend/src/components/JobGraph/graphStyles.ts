@@ -11,9 +11,9 @@ export const graphStyles = {
   glassBlur: "blur(20px)",
 
   // Node sizes
-  rootNodeRadius: 36,
-  categoryNodeRadius: 28,
-  jobNodeRadius: 20,
+  rootNodeRadius: 28,
+  categoryNodeRadius: 20,
+  jobNodeRadius: 13,
   selectedNodeRadius: 24,
 
   // Strokes
@@ -30,8 +30,9 @@ export const graphStyles = {
   selectedGlow: "drop-shadow(0 0 12px currentColor)",
 
   // Fonts
-  categoryFontSize: 12,
-  jobFontSize: 9,
+  categoryFontSize: 10,
+  jobFontSize: 8,
+  rootFontSize: 11,
   iconFontSize: 16,
   badgeFontSize: 8,
 

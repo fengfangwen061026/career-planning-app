@@ -10,7 +10,7 @@ from uuid import UUID
 from app.database import get_db
 from app.models.graph import GraphNode, GraphEdge
 from app.services import graph as graph_service
-from app.services.graph_service import get_graph_cache, build_and_cache_graph
+from app.services.graph_mindmap import get_graph_cache, build_and_cache_graph
 
 router = APIRouter()
 

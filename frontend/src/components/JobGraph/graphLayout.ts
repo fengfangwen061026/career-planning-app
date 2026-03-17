@@ -61,7 +61,7 @@ export function createTreeLayout(
   const tree = d3
     .tree<TreeNode>()
     .size([2 * Math.PI, radius])
-    .separation((a, b) => (a.parent === b.parent ? 1.2 : 2.5) / a.depth);
+    .separation((a, b) => (a.parent === b.parent ? 1 : 2) / a.depth);
 
   return d3.hierarchy(treeData) as d3.HierarchyPointNode<TreeNode>;
 }
@@ -69,13 +69,13 @@ export function createTreeLayout(
 export function getNodeRadius(node: d3.HierarchyPointNode<TreeNode>): number {
   switch (node.data.type) {
     case "root":
-      return 36;
-    case "category":
       return 28;
+    case "category":
+      return 20;
     case "job":
-      return 20;
+      return 13;
     default:
-      return 20;
+      return 13;
   }
 }
 

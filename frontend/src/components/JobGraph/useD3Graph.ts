@@ -222,7 +222,7 @@ export function useD3Graph({
           .append("text")
           .attr("text-anchor", "middle")
           .attr("dy", "0.35em")
-          .attr("font-size", "14px")
+          .attr("font-size", `${graphStyles.rootFontSize}px`)
           .attr("font-weight", "600")
           .attr("fill", "#334155")
           .text(d.data.label);
@@ -350,13 +350,14 @@ export function useD3Graph({
       });
 
     // Initial zoom to fit
+    const initialScale = 0.75;
     const bounds = g.node()?.getBBox();
     if (bounds) {
       const fullWidth = bounds.width;
       const fullHeight = bounds.height;
       const midX = bounds.x + fullWidth / 2;
       const midY = bounds.y + fullHeight / 2;
-      const scale = 0.85 / Math.max(fullWidth / width, fullHeight / height);
+      const scale = initialScale / Math.max(fullWidth / width, fullHeight / height);
       const translate = [width / 2 - scale * midX, height / 2 - scale * midY];
 
       svg.call(

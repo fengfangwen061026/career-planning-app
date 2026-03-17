@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embedding import embedding
 from app.ai.llm_provider import llm
-from app.ai.prompts.job_profile import JOB_PROFILE_SYSTEM_PROMPT_V2, build_job_profile_prompt
+from app.ai.prompts.job_profile import JOB_PROFILE_SYSTEM_PROMPT_V3, build_job_profile_prompt
 from app.models.job import Job, JobProfile, Role
 
 logger = logging.getLogger(__name__)

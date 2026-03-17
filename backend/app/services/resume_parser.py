@@ -69,12 +69,23 @@ class ResumeParserService:
                 cleaned = cleaned.strip()
 
                 data = json.loads(cleaned)
-                result = ResumeParseResult(raw_text=text, **data)
+                print(f"[ResumeParser] JSON解析成功，keys: {data.keys()}")
+
+                # 只保留 ResumeParseResult 需要的字段
+                allowed_fields = {
+                    'education', 'experience', 'projects', 'skills',
+                    'certificates', 'awards', 'self_intro', 'parse_confidence', 'missing_fields'
+                }
+                filtered_data = {k: v for k, v in data.items() if k in allowed_fields}
+
+                result = ResumeParseResult(raw_text=text, **filtered_data)
                 print(f"[ResumeParser] 解析成功，skills数量={len(result.skills)}，education数量={len(result.education)}")
                 return result
 
             except Exception as e:
+                import traceback
                 print(f"[ResumeParser] 第{attempt+1}次失败: {e}")
+                print(f"[ResumeParser] Traceback: {traceback.format_exc()}")
                 if attempt == 0:
                     # 第二次用更简单的 prompt 重试
                     prompt = f"解析这份简历，只输出JSON，不要其他内容：\n{text[:4000]}\n输出格式：{{\"skills\":[{{\"name\":\"技能\",\"category\":\"编程语言\",\"proficiency\":\"掌握\",\"evidence\":\"\"}}],\"education\":[],\"experience\":[],\"projects\":[],\"certificates\":[],\"awards\":[],\"self_intro\":null,\"parse_confidence\":0.5,\"missing_fields\":[]}}"
@@ -286,7 +297,8 @@ def _calculate_completeness(parse_result: ResumeParseResult) -> float:
     # Check for quantified outcomes
     has_quantified = False
     for proj in parse_result.projects:
-        if proj.get("outcome") and any(c.isdigit() for c in str(proj["outcome"])):
+        proj_dict = proj.model_dump() if hasattr(proj, 'model_dump') else proj.dict()
+        if proj_dict.get("outcome") and any(c.isdigit() for c in str(proj_dict["outcome"])):
             has_quantified = True
             break
     if has_quantified:

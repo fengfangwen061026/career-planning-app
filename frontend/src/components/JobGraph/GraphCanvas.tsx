@@ -22,14 +22,14 @@ export function GraphCanvas({
   onNodeClick,
   onCategoryClick,
 }: GraphCanvasProps) {
-  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [dimensions, setDimensions] = useState({ width: 900, height: 700 });
 
   const updateDimensions = useCallback(() => {
     const container = document.getElementById("graph-container");
     if (container) {
       setDimensions({
-        width: container.clientWidth,
-        height: container.clientHeight,
+        width: container.clientWidth || 900,
+        height: container.clientHeight || 700,
       });
     }
   }, []);

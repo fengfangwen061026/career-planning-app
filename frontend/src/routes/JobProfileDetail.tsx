@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Row, Col, Tabs, Table, Tag, Button, Spin, Empty,
-  Select, Space, message, Pagination, Drawer, Modal, Tooltip
+  Space, message, Drawer, Modal, Tooltip
 } from 'antd';
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell
@@ -11,6 +11,10 @@ import {
   ArrowLeftOutlined, BankOutlined, DollarOutlined,
   EnvironmentOutlined, GiftOutlined, CloseOutlined, ClearOutlined
 } from '@ant-design/icons';
+import {
+  MessageCircle, Users, BookOpen, Shield, Lightbulb,
+  CheckCircle, Eye, Zap, Sparkles, LayoutGrid
+} from 'lucide-react';
 import { jobsApi } from '../api/jobs';
 import type {
   RoleResponse, JobProfileResponse,
@@ -18,7 +22,50 @@ import type {
 } from '../types/job';
 import LoadingState from '../components/LoadingState';
 
-const COLORS = ['#4361EE', '#2EC4B6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+// ========== Apple/Silicon Valley 风格样式系统 ==========
+
+const FONTS = {
+  primary: "-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif",
+  mono: "'SF Mono', 'Fira Code', 'Consolas', monospace",
+};
+
+// 进度条颜色映射（高对比度）
+const getBarColor = (pct: number) => {
+  if (pct >= 80) return { fill: '#1D4ED8', bg: '#DBEAFE' };
+  if (pct >= 60) return { fill: '#2563EB', bg: '#EFF6FF' };
+  if (pct >= 40) return { fill: '#3B82F6', bg: '#F0F9FF' };
+  return { fill: '#60A5FA', bg: '#F0F9FF' };
+};
+
+// 软素养图标映射
+const softSkillIcons: Record<string, React.ReactNode> = {
+  '沟通能力': <MessageCircle size={13} />,
+  '沟通': <MessageCircle size={13} />,
+  '团队协作': <Users size={13} />,
+  '团队': <Users size={13} />,
+  '协作': <Users size={13} />,
+  '学习能力': <BookOpen size={13} />,
+  '学习': <BookOpen size={13} />,
+  '抗压能力': <Shield size={13} />,
+  '抗压': <Shield size={13} />,
+  '逻辑思维': <Lightbulb size={13} />,
+  '逻辑': <Lightbulb size={13} />,
+  '思维': <Lightbulb size={13} />,
+  '组织能力': <LayoutGrid size={13} />,
+  '组织': <LayoutGrid size={13} />,
+  '责任心': <CheckCircle size={13} />,
+  '责任': <CheckCircle size={13} />,
+  '细心认真': <Eye size={13} />,
+  '细心': <Eye size={13} />,
+  '认真': <Eye size={13} />,
+  '问题解决': <Zap size={13} />,
+  '解决问题': <Zap size={13} />,
+};
+
+const getSoftSkillIcon = (name: string) => {
+  const key = Object.keys(softSkillIcons).find(k => name.includes(k));
+  return key ? softSkillIcons[key] : <Sparkles size={13} />;
+};
 
 // 薪资区间定义
 const SALARY_RANGES = [
@@ -30,20 +77,23 @@ const SALARY_RANGES = [
   { label: '20K以上', min: 20000, max: Infinity },
 ];
 
-// 获取分类颜色
-const getCategoryColor = (category: string) => {
-  const colors: Record<string, string> = {
-    '技术类': 'blue',
-    '产品类': 'purple',
-    '设计类': 'orange',
-    '运营类': 'green',
-    '市场类': 'red',
-    '销售类': 'cyan',
-    '职能类': 'gold',
-    '管理类': 'geekblue',
-    '其他': 'default',
-  };
-  return colors[category] || 'default';
+const COLORS = ['#4361EE', '#2EC4B6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+
+// 解析行业字段
+const parseIndustry = (industry: string | string[] | null | undefined): { first: string; all: string } => {
+  if (!industry) return { first: '—', all: '' };
+  let items: string[] = [];
+  if (Array.isArray(industry)) {
+    items = industry;
+  } else if (typeof industry === 'string') {
+    if (industry.startsWith('{') && industry.endsWith('}')) {
+      items = industry.slice(1, -1).split(',').map(s => s.trim()).filter(Boolean);
+    } else {
+      items = [industry];
+    }
+  }
+  if (items.length === 0) return { first: '—', all: '' };
+  return { first: items[0], all: items.join('、') };
 };
 
 // 格式化薪资
@@ -54,6 +104,38 @@ const formatSalary = (min?: number, max?: number) => {
   return minK && maxK ? `${minK}-${maxK}` : max ? `最高${maxK}` : `最低${minK}`;
 };
 
+// 卡片样式
+const cardStyle = {
+  background: 'rgba(255, 255, 255, 0.85)',
+  backdropFilter: 'blur(20px)',
+  WebkitBackdropFilter: 'blur(20px)',
+  border: '1px solid rgba(255, 255, 255, 0.9)',
+  borderRadius: 16,
+  padding: 24,
+  boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04)',
+  transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+} as const;
+
+// 卡片标题样式生成器
+const createCardTitleStyle = (accentColor: string) => ({
+  fontSize: 11,
+  fontWeight: 600,
+  color: '#9CA3AF',
+  textTransform: 'uppercase' as const,
+  letterSpacing: '0.08em',
+  marginBottom: 20,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  '&::before': {
+    content: '""',
+    width: 4,
+    height: 14,
+    borderRadius: 2,
+    background: accentColor,
+  },
+});
+
 export default function JobProfileDetail() {
   const { roleId } = useParams<{ roleId: string }>();
   const navigate = useNavigate();
@@ -61,10 +143,7 @@ export default function JobProfileDetail() {
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<RoleResponse | null>(null);
   const [profile, setProfile] = useState<JobProfileResponse | null>(null);
-
-  // 全量 JD 数据（用于筛选）
   const [allJobs, setAllJobs] = useState<JobWithCompany[]>([]);
-  const [jobsLoading, setJobsLoading] = useState(false);
 
   // 筛选状态
   const [filters, setFilters] = useState<FilterState>({
@@ -79,31 +158,20 @@ export default function JobProfileDetail() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<JobWithCompany | null>(null);
 
+  // 动画状态
+  const [animated, setAnimated] = useState(false);
+
   useEffect(() => {
     if (roleId) {
       fetchRoleData();
     }
   }, [roleId]);
 
-  // 加载全量 JD 数据
-  const fetchAllJobs = async () => {
-    if (!roleId) return;
-    setJobsLoading(true);
-    try {
-      const res = await jobsApi.getJobsByRole(roleId);
-      setAllJobs(res.data);
-    } catch (error) {
-      console.error('获取JD列表失败', error);
-      message.error('获取岗位数据失败');
-    } finally {
-      setJobsLoading(false);
-    }
-  };
-
-  // 切换 Tab 时加载数据
+  // Tab 切换时触发动画
   const handleTabChange = (key: string) => {
-    if (key === 'companies' && allJobs.length === 0) {
-      fetchAllJobs();
+    if (key === 'profile') {
+      setAnimated(false);
+      setTimeout(() => setAnimated(true), 100);
     }
   };
 
@@ -111,17 +179,21 @@ export default function JobProfileDetail() {
     if (!roleId) return;
     setLoading(true);
     try {
-      const [rolesRes, profileRes] = await Promise.all([
+      const [rolesRes, profileRes, jobsRes] = await Promise.all([
         jobsApi.getRoles(true),
         jobsApi.getRoleProfiles(roleId),
+        jobsApi.getJobsByRole(roleId),
       ]);
 
       const foundRole = rolesRes.data.find((r) => r.id === roleId);
       if (foundRole) {
         setRole(foundRole);
+        setAllJobs(jobsRes.data);
         const profiles = profileRes.data.profiles;
         if (profiles && profiles.length > 0) {
           setProfile(profiles[0]);
+          // 数据加载后触发动画
+          setTimeout(() => setAnimated(true), 300);
         }
       }
     } catch (error) {
@@ -132,39 +204,27 @@ export default function JobProfileDetail() {
   };
 
   // ========== 筛选逻辑 ==========
-  // 筛选后的 JD 列表
   const filteredJobs = useMemo(() => {
     return allJobs.filter(job => {
-      // 薪资筛选
       if (filters.salaryRange) {
         const range = SALARY_RANGES.find(r => r.label === filters.salaryRange);
         if (range) {
           const salaryMin = job.salary_min || 0;
-          if (salaryMin < range.min || salaryMin >= range.max) {
-            return false;
-          }
+          if (salaryMin < range.min || salaryMin >= range.max) return false;
         }
       }
-      // 城市筛选
-      if (filters.city && job.city !== filters.city) {
-        return false;
-      }
-      // 福利筛选（AND 关系）
+      if (filters.city && job.city !== filters.city) return false;
       if (filters.benefits.length > 0) {
         const jobBenefits = job.benefits || [];
-        if (!filters.benefits.every(b => jobBenefits.includes(b))) {
-          return false;
-        }
+        if (!filters.benefits.every(b => jobBenefits.includes(b))) return false;
       }
       return true;
     });
   }, [allJobs, filters]);
 
-  // 计算筛选后的统计数据
   const salaryDist = useMemo(() => {
     const counts: Record<string, number> = {};
     SALARY_RANGES.forEach(r => { counts[r.label] = 0; });
-
     filteredJobs.forEach(job => {
       const salary = job.salary_min || 0;
       for (const range of SALARY_RANGES) {
@@ -174,23 +234,16 @@ export default function JobProfileDetail() {
         }
       }
     });
-
-    return SALARY_RANGES.map(r => ({
-      range: r.label,
-      count: counts[r.label],
-    }));
+    return SALARY_RANGES.map(r => ({ range: r.label, count: counts[r.label] }));
   }, [filteredJobs]);
 
   const cityDist = useMemo(() => {
     const counts: Record<string, { count: number; salaries: number[] }> = {};
     filteredJobs.forEach(job => {
-      if (!counts[job.city]) {
-        counts[job.city] = { count: 0, salaries: [] };
-      }
+      if (!counts[job.city]) counts[job.city] = { count: 0, salaries: [] };
       counts[job.city].count++;
       if (job.salary_min) counts[job.city].salaries.push(job.salary_min);
     });
-
     return Object.entries(counts)
       .map(([city, data]) => ({
         city,
@@ -210,24 +263,35 @@ export default function JobProfileDetail() {
         counts[b] = (counts[b] || 0) + 1;
       });
     });
-
     return Object.entries(counts)
       .map(([name, frequency]) => ({ name, frequency }))
       .sort((a, b) => b.frequency - a.frequency)
       .slice(0, 15);
   }, [filteredJobs]);
 
-  // 计算筛选后的公司列表
+  // 画像分析 Tab 专用：基于全量 JD 的福利统计
+  const allJobsBenefitStats = useMemo(() => {
+    const counts: Record<string, number> = {};
+    allJobs.forEach(job => {
+      (job.benefits || []).forEach(b => {
+        counts[b] = (counts[b] || 0) + 1;
+      });
+    });
+    return Object.entries(counts)
+      .map(([name, frequency]) => ({ name, frequency }))
+      .sort((a, b) => b.frequency - a.frequency)
+      .slice(0, 15);
+  }, [allJobs]);
+
   const companyList = useMemo(() => {
     const companyMap = new Map<string, { name: string; jobCount: number; industries: string; company_size: string; cities: string[]; salaryRange: string; benefits: string[] }>();
-
     filteredJobs.forEach(job => {
       const companyName = job.company?.name || job.company_name || '未知公司';
       if (!companyMap.has(companyName)) {
         companyMap.set(companyName, {
           name: companyName,
           jobCount: 0,
-          industries: job.company?.industries || '',  // 已经是字符串
+          industries: job.company?.industries || '',
           company_size: job.company?.company_size || '',
           cities: [],
           salaryRange: '',
@@ -236,41 +300,29 @@ export default function JobProfileDetail() {
       }
       const c = companyMap.get(companyName)!;
       c.jobCount++;
-      if (job.city && !c.cities.includes(job.city)) {
-        c.cities.push(job.city);
-      }
+      if (job.city && !c.cities.includes(job.city)) c.cities.push(job.city);
       if (job.salary_min && job.salary_max) {
         const range = `${Math.round(job.salary_min / 1000)}K-${Math.round(job.salary_max / 1000)}K`;
         if (!c.salaryRange) c.salaryRange = range;
       }
-      // 聚合福利标签（去重）
       if (job.benefits && job.benefits.length > 0) {
         job.benefits.forEach(b => {
-          if (!c.benefits.includes(b)) {
-            c.benefits.push(b);
-          }
+          if (!c.benefits.includes(b)) c.benefits.push(b);
         });
       }
     });
-
-    return Array.from(companyMap.values())
-      .sort((a, b) => b.jobCount - a.jobCount);
+    return Array.from(companyMap.values()).sort((a, b) => b.jobCount - a.jobCount);
   }, [filteredJobs]);
 
-  // 福利标签组件（复用页面顶部福利统计的样式）
+  // 福利标签组件
   const BenefitTags = ({ benefits }: { benefits: string[] }) => {
     if (!benefits || benefits.length === 0) {
       return <span style={{ color: '#bbb' }}>—</span>;
     }
-
     return (
       <Space size={4} wrap>
         {benefits.map(b => (
-          <Tag
-            key={b}
-            color="green"
-            style={{ margin: 0, padding: '0 6px', fontSize: 12, lineHeight: '20px' }}
-          >
+          <Tag key={b} color="green" style={{ margin: 0, padding: '0 6px', fontSize: 12, lineHeight: '20px' }}>
             {b}
           </Tag>
         ))}
@@ -280,19 +332,11 @@ export default function JobProfileDetail() {
 
   // ========== 筛选交互 ==========
   const handleSalaryClick = (range: string) => {
-    setFilters(prev => ({
-      ...prev,
-      salaryRange: prev.salaryRange === range ? null : range,
-    }));
+    setFilters(prev => ({ ...prev, salaryRange: prev.salaryRange === range ? null : range }));
   };
-
   const handleCityClick = (city: string) => {
-    setFilters(prev => ({
-      ...prev,
-      city: prev.city === city ? null : city,
-    }));
+    setFilters(prev => ({ ...prev, city: prev.city === city ? null : city }));
   };
-
   const handleBenefitClick = (benefit: string) => {
     setFilters(prev => ({
       ...prev,
@@ -301,16 +345,12 @@ export default function JobProfileDetail() {
         : [...prev.benefits, benefit],
     }));
   };
-
   const clearAllFilters = () => {
     setFilters({ salaryRange: null, city: null, benefits: [] });
   };
-
   const removeFilter = (type: keyof FilterState, value?: string) => {
     setFilters(prev => {
-      if (type === 'benefits' && value) {
-        return { ...prev, benefits: prev.benefits.filter(b => b !== value) };
-      }
+      if (type === 'benefits' && value) return { ...prev, benefits: prev.benefits.filter(b => b !== value) };
       return { ...prev, [type]: null };
     });
   };
@@ -321,13 +361,11 @@ export default function JobProfileDetail() {
     setSelectedCompany({ name: companyName, jobs });
     setDrawerOpen(true);
   };
-
   const handleJobClick = (job: JobWithCompany) => {
     setSelectedJob(job);
     setModalOpen(true);
   };
 
-  // 公司表格列
   const companyColumns = [
     {
       title: '公司名称',
@@ -346,26 +384,33 @@ export default function JobProfileDetail() {
       dataIndex: 'industries',
       key: 'industries',
       width: 110,
-      render: (ind: string) => <span style={{ whiteSpace: 'nowrap' }}>{ind ? ind.split(',')[0] : '—'}</span>,
+      render: (ind: string | string[] | null | undefined) => {
+        const { first, all } = parseIndustry(ind);
+        const display = all || first;
+        const needTooltip = display.length > 8;
+        const content = (
+          <span style={{ display: 'inline-block', maxWidth: 95, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'bottom' }}>
+            {first}
+          </span>
+        );
+        return needTooltip ? <Tooltip title={display} placement="topLeft">{content}</Tooltip> : content;
+      },
     },
     {
       title: '规模',
       dataIndex: 'company_size',
       key: 'company_size',
-      width: 100,
+      width: 105,
+      onCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       render: (size: string) => <span style={{ whiteSpace: 'nowrap' }}>{size || '—'}</span>,
     },
-    {
-      title: '岗位数',
-      dataIndex: 'jobCount',
-      key: 'jobCount',
-      width: 70,
-    },
+    { title: '岗位数', dataIndex: 'jobCount', key: 'jobCount', width: 70 },
     {
       title: '薪资范围',
       dataIndex: 'salaryRange',
       key: 'salaryRange',
-      width: 110,
+      width: 105,
+      onCell: () => ({ style: { whiteSpace: 'nowrap' } }),
       render: (range: string) => <span style={{ whiteSpace: 'nowrap' }}>{range || '—'}</span>,
     },
     {
@@ -386,16 +431,11 @@ export default function JobProfileDetail() {
 
   // ========== Tab1: 画像分析 ==========
   const renderTab1 = () => {
-    if (!profile) {
-      return <Empty description="暂无画像数据" />;
-    }
+    if (!profile) return <Empty description="暂无画像数据" />;
 
     const profileData = profile.profile_json as any;
-    const basicRequirements = profileData?.basic_requirements || {};
     const techSkillsRaw = profileData?.technical_skills;
     const softSkills = Array.isArray(profileData?.soft_skills) ? profileData.soft_skills : [];
-    const profileBenefits = Array.isArray(profileData?.benefits) ? profileData.benefits : [];
-    const totalJds = profileData?.total_jds_analyzed || 0;
 
     const allSkills: Array<{ name: string; weight: number; category: string }> = [];
     const categoryLabels: Record<string, string> = {
@@ -409,126 +449,206 @@ export default function JobProfileDetail() {
 
     if (Array.isArray(techSkillsRaw)) {
       techSkillsRaw.forEach((item: any) => {
-        allSkills.push({
-          name: item.name,
-          weight: (item.frequency_pct || 0) / 100,
-          category: item.category || '其他',
-        });
+        allSkills.push({ name: item.name, weight: (item.frequency_pct || 0) / 100, category: item.category || '其他' });
       });
     } else if (techSkillsRaw && typeof techSkillsRaw === 'object') {
       Object.entries(techSkillsRaw).forEach(([cat, items]: [string, any]) => {
         (Array.isArray(items) ? items : []).forEach((item: any) => {
-          allSkills.push({
-            name: item.name,
-            weight: item.weight || 0,
-            category: categoryLabels[cat] || cat,
-          });
+          allSkills.push({ name: item.name, weight: item.weight || 0, category: categoryLabels[cat] || cat });
         });
       });
     }
     allSkills.sort((a, b) => b.weight - a.weight);
 
+    const topBenefits = allJobsBenefitStats.slice(0, 3);
+    const restBenefits = allJobsBenefitStats.slice(3, 10);
+
     return (
       <div style={{ padding: '0 8px' }}>
-        <div style={{
-          display: 'flex', gap: 16, padding: 12, background: '#fff', borderRadius: 8,
-          marginBottom: 16, flexWrap: 'wrap'
-        }}>
-          <div><strong>{totalJds}</strong> 条 JD</div>
-          <div>城市: {(basicRequirements.cities || []).slice(0, 3).map((c: any) => c.name).join(', ')}</div>
-        </div>
+        <Row gutter={[16, 16]}>
+          {/* 技术技能 - 占满左侧两行高度 */}
+          <Col span={24} lg={12}>
+            <div
+              style={{ ...cardStyle, gridRow: '1 / 3' }}
+              className="profile-card"
+            >
+              {/* 卡片标题 */}
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 4, height: 14, borderRadius: 2, background: '#3B82F6' }} />
+                技术技能
+              </div>
 
-        <Row gutter={16}>
-          <Col span={12}>
-            <Card title="技术技能" size="small" style={{ marginBottom: 16 }}>
-              {allSkills.slice(0, 15).map((s, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-                  <span style={{ width: 80, fontSize: 12 }}>{s.name}</span>
-                  <div style={{ flex: 1, height: 6, background: '#f0f0f0', borderRadius: 3 }}>
-                    <div style={{ width: `${s.weight * 100}%`, height: '100%', background: COLORS[i % COLORS.length], borderRadius: 3 }} />
+              {/* 技能列表 */}
+              {allSkills.slice(0, 15).map((s, i) => {
+                const percentage = Math.round(s.weight * 100);
+                const colors = getBarColor(percentage);
+                return (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 44px', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                    <span style={{ fontSize: 13, color: '#374151', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {s.name}
+                    </span>
+                    <div style={{ height: 8, background: '#F3F4F6', borderRadius: 4, overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          height: '100%',
+                          borderRadius: 4,
+                          width: animated ? `${percentage}%` : '0%',
+                          background: colors.fill,
+                          transition: animated ? `width 0.9s cubic-bezier(0.34, 1.56, 0.64, ${i * 0.03})` : 'none',
+                        }}
+                      />
+                    </div>
+                    <span style={{ fontSize: 12, color: '#9CA3AF', fontWeight: 500, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      {percentage}%
+                    </span>
                   </div>
-                  <span style={{ width: 40, fontSize: 10, textAlign: 'right' }}>{(s.weight * 100).toFixed(0)}%</span>
-                </div>
-              ))}
-            </Card>
+                );
+              })}
+            </div>
           </Col>
 
-          <Col span={12}>
-            <Card title="软素养" size="small" style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {softSkills.map((s: any, i: number) => (
-                  <Tag key={i} color="blue">{s.name}</Tag>
-                ))}
+          {/* 软素养 */}
+          <Col span={24} lg={12}>
+            <div style={{ ...cardStyle }} className="profile-card">
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 4, height: 14, borderRadius: 2, background: '#F59E0B' }} />
+                软素养
               </div>
-            </Card>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {softSkills.length > 0 ? softSkills.map((s: any, i: number) => (
+                  <span
+                    key={i}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '7px 14px',
+                      background: 'rgba(251, 191, 36, 0.12)',
+                      border: '1px solid rgba(251, 191, 36, 0.25)',
+                      borderRadius: 20,
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: '#92400E',
+                      cursor: 'default',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(251, 191, 36, 0.22)';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(251, 191, 36, 0.12)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                  >
+                    {getSoftSkillIcon(s.name)}
+                    {s.name}
+                  </span>
+                )) : <span style={{ color: '#bbb' }}>暂无数据</span>}
+              </div>
+            </div>
+          </Col>
 
-            <Card title="福利待遇" size="small">
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {profileBenefits.slice(0, 10).map((b: any, i: number) => (
-                  <Tag key={i} color="green">{b.name} ({b.frequency})</Tag>
-                ))}
+          {/* 福利待遇 */}
+          <Col span={24} lg={12}>
+            <div style={{ ...cardStyle }} className="profile-card">
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 4, height: 14, borderRadius: 2, background: '#10B981' }} />
+                福利待遇
               </div>
-            </Card>
+
+              {allJobs.length > 0 && allJobsBenefitStats.length > 0 ? (
+                <div>
+                  {/* 高频前3 */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                    {topBenefits.map((b: any, i: number) => (
+                      <span
+                        key={i}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '8px 16px',
+                          background: 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(5,150,105,0.08))',
+                          border: '1px solid rgba(16,185,129,0.25)',
+                          borderRadius: 10,
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: '#065F46',
+                        }}
+                      >
+                        {b.name}
+                        <span style={{ background: '#10B981', color: 'white', borderRadius: 10, padding: '1px 7px', fontSize: 11, fontWeight: 700 }}>
+                          {b.frequency}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                  {/* 其余标签 */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {restBenefits.map((b: any, i: number) => (
+                      <span
+                        key={i}
+                        style={{
+                          padding: '5px 12px',
+                          background: 'rgba(16,185,129,0.07)',
+                          border: '1px solid rgba(16,185,129,0.15)',
+                          borderRadius: 8,
+                          fontSize: 12,
+                          color: '#047857',
+                        }}
+                      >
+                        {b.name}
+                        <span style={{ color: '#10B981', fontWeight: 600, marginLeft: 3 }}>{b.frequency}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <span style={{ color: '#bbb' }}>暂无福利数据</span>
+              )}
+            </div>
           </Col>
         </Row>
+
+        {/* 注入动画样式 */}
+        <style>{`
+          .profile-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.08), 0 8px 32px rgba(0,0,0,0.06);
+          }
+        `}</style>
       </div>
     );
   };
 
-  // ========== Tab2: 关联岗位与公司（带筛选） ==========
+  // ========== Tab2: 关联岗位与公司（保持原样） ==========
   const renderTab2 = () => {
-    if (jobsLoading) {
-      return <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>;
-    }
-
+    if (allJobs.length === 0) return <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>;
     const hasFilters = filters.salaryRange || filters.city || filters.benefits.length > 0;
 
     return (
       <div style={{ padding: '0 8px' }}>
-        {/* 筛选条件展示区 */}
         {hasFilters && (
           <div style={{ marginBottom: 16, padding: 12, background: '#f6f8fa', borderRadius: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ color: '#666' }}>已筛选:</span>
               {filters.salaryRange && (
-                <Tag
-                  color="blue"
-                  closable
-                  onClose={() => removeFilter('salaryRange')}
-                  style={{ cursor: 'pointer' }}
-                >
+                <Tag color="blue" closable onClose={() => removeFilter('salaryRange')} style={{ cursor: 'pointer' }}>
                   薪资: {filters.salaryRange}
                 </Tag>
               )}
               {filters.city && (
-                <Tag
-                  color="green"
-                  closable
-                  onClose={() => removeFilter('city')}
-                  style={{ cursor: 'pointer' }}
-                >
+                <Tag color="green" closable onClose={() => removeFilter('city')} style={{ cursor: 'pointer' }}>
                   城市: {filters.city}
                 </Tag>
               )}
               {filters.benefits.map(b => (
-                <Tag
-                  key={b}
-                  color="orange"
-                  closable
-                  onClose={() => removeFilter('benefits', b)}
-                  style={{ cursor: 'pointer' }}
-                >
+                <Tag key={b} color="orange" closable onClose={() => removeFilter('benefits', b)} style={{ cursor: 'pointer' }}>
                   福利: {b}
                 </Tag>
               ))}
-              <Button
-                type="link"
-                size="small"
-                icon={<ClearOutlined />}
-                onClick={clearAllFilters}
-              >
-                清除全部
-              </Button>
+              <Button type="link" size="small" icon={<ClearOutlined />} onClick={clearAllFilters}>清除全部</Button>
               <span style={{ marginLeft: 'auto', color: '#666' }}>
                 已筛选 <strong>{filteredJobs.length}</strong> 个JD / 共 <strong>{allJobs.length}</strong> 个JD
               </span>
@@ -537,37 +657,17 @@ export default function JobProfileDetail() {
         )}
 
         <Row gutter={16}>
-          {/* 薪资分布（可点击） */}
           <Col span={12}>
-            <Card
-              title={<><DollarOutlined /> 薪资分布</>}
-              size="small"
-              style={{ marginBottom: 16 }}
-            >
+            <Card title={<><DollarOutlined /> 薪资分布</>} size="small" style={{ marginBottom: 16 }}>
               {salaryDist.length > 0 ? (
                 <ResponsiveContainer width="100%" height={200}>
-                  <BarChart
-                    data={salaryDist}
-                    layout="vertical"
-                    onClick={(e) => {
-                      if (e && e.activePayload && e.activePayload[0]) {
-                        handleSalaryClick(e.activePayload[0].payload.range);
-                      }
-                    }}
-                  >
+                  <BarChart data={salaryDist} layout="vertical" onClick={(e) => { if (e && e.activePayload && e.activePayload[0]) handleSalaryClick(e.activePayload[0].payload.range); }}>
                     <XAxis type="number" />
                     <YAxis dataKey="range" type="category" width={60} />
                     <Tooltip />
-                    <Bar
-                      dataKey="count"
-                      radius={[0, 4, 4, 0]}
-                    >
+                    <Bar dataKey="count" radius={[0, 4, 4, 0]}>
                       {salaryDist.map((entry, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={filters.salaryRange === entry.range ? COLORS[1] : COLORS[0]}
-                          style={{ cursor: 'pointer' }}
-                        />
+                        <Cell key={`cell-${index}`} fill={filters.salaryRange === entry.range ? COLORS[1] : COLORS[0]} style={{ cursor: 'pointer' }} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -575,42 +675,20 @@ export default function JobProfileDetail() {
               ) : (
                 <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               )}
-              <div style={{ fontSize: 12, color: '#888', marginTop: 8 }}>
-                点击柱子筛选
-              </div>
+              <div style={{ fontSize: 12, color: '#888', marginTop: 8 }}>点击柱子筛选</div>
             </Card>
           </Col>
-
-          {/* 城市分布（可点击） */}
           <Col span={12}>
-            <Card
-              title={<><EnvironmentOutlined /> 城市分布</>}
-              size="small"
-              style={{ marginBottom: 16 }}
-            >
+            <Card title={<><EnvironmentOutlined /> 城市分布</>} size="small" style={{ marginBottom: 16 }}>
               {cityDist.length > 0 ? (
                 <div style={{ maxHeight: 220, overflow: 'auto' }}>
                   {cityDist.slice(0, 10).map((c, i) => (
-                    <div
-                      key={i}
-                      onClick={() => handleCityClick(c.city)}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        padding: '4px 8px',
-                        borderBottom: '1px dashed #f0f0f0',
-                        cursor: 'pointer',
-                        background: filters.city === c.city ? '#e6f7ff' : 'transparent',
-                        borderRadius: 4,
-                      }}
-                    >
+                    <div key={i} onClick={() => handleCityClick(c.city)} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', borderBottom: '1px dashed #f0f0f0', cursor: 'pointer', background: filters.city === c.city ? '#e6f7ff' : 'transparent', borderRadius: 4 }}>
                       <span>{c.city}</span>
                       <span>
                         <Tag color={filters.city === c.city ? 'blue' : ''}>{c.count} 个岗位</Tag>
                         {c.avg_salary_min && c.avg_salary_max && (
-                          <span style={{ fontSize: 11, color: '#666' }}>
-                            {Math.round(c.avg_salary_min / 1000)}K-{Math.round(c.avg_salary_max / 1000)}K
-                          </span>
+                          <span style={{ fontSize: 11, color: '#666' }}>{Math.round(c.avg_salary_min / 1000)}K-{Math.round(c.avg_salary_max / 1000)}K</span>
                         )}
                       </span>
                     </div>
@@ -623,23 +701,13 @@ export default function JobProfileDetail() {
           </Col>
         </Row>
 
-        {/* 福利统计（可点击） */}
-        <Card
-          title={<><GiftOutlined /> 福利统计</>}
-          size="small"
-          style={{ marginBottom: 16 }}
-        >
+        <Card title={<><GiftOutlined /> 福利统计</>} size="small" style={{ marginBottom: 16 }}>
           {benefitStats.length > 0 ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {benefitStats.map((b, i) => {
                 const isActive = filters.benefits.includes(b.name);
                 return (
-                  <Tag
-                    key={i}
-                    color={isActive ? 'orange' : (i < 5 ? 'green' : 'default')}
-                    onClick={() => handleBenefitClick(b.name)}
-                    style={{ cursor: 'pointer' }}
-                  >
+                  <Tag key={i} color={isActive ? 'orange' : (i < 5 ? 'green' : 'default')} onClick={() => handleBenefitClick(b.name)} style={{ cursor: 'pointer' }}>
                     {b.name} ({b.frequency})
                   </Tag>
                 );
@@ -650,46 +718,21 @@ export default function JobProfileDetail() {
           )}
         </Card>
 
-        {/* 公司列表 */}
-        <Card
-          title={<><BankOutlined /> 招聘公司 ({companyList.length})</>}
-          size="small"
-        >
+        <Card title={<><BankOutlined /> 招聘公司 ({companyList.length})</>} size="small">
           {companyList.length > 0 ? (
-            <Table
-              dataSource={companyList}
-              columns={companyColumns}
-              rowKey="name"
-              size="small"
-              pagination={false}
-            />
+            <Table dataSource={companyList} columns={companyColumns} rowKey="name" size="small" pagination={false} />
           ) : (
             <Empty description="当前筛选条件下无匹配公司，请调整筛选" />
           )}
         </Card>
 
-        {/* 公司详情 Drawer */}
-        <Drawer
-          title={selectedCompany?.name}
-          placement="right"
-          width={600}
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-        >
+        <Drawer title={selectedCompany?.name} placement="right" width={600} open={drawerOpen} onClose={() => setDrawerOpen(false)}>
           {selectedCompany && selectedCompany.jobs.length > 0 ? (
             <div>
-              <div style={{ marginBottom: 16, color: '#666' }}>
-                共 {selectedCompany.jobs.length} 个在招岗位
-              </div>
+              <div style={{ marginBottom: 16, color: '#666' }}>共 {selectedCompany.jobs.length} 个在招岗位</div>
               <Space direction="vertical" style={{ width: '100%' }} size="middle">
                 {selectedCompany.jobs.map(job => (
-                  <Card
-                    key={job.id}
-                    size="small"
-                    hoverable
-                    onClick={() => handleJobClick(job)}
-                    style={{ cursor: 'pointer' }}
-                  >
+                  <Card key={job.id} size="small" hoverable onClick={() => handleJobClick(job)} style={{ cursor: 'pointer' }}>
                     <div style={{ fontWeight: 'bold', marginBottom: 8 }}>{job.title}</div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
                       <Tag color="blue">{job.city}</Tag>
@@ -698,9 +741,7 @@ export default function JobProfileDetail() {
                     </div>
                     {job.benefits && job.benefits.length > 0 && (
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {job.benefits.slice(0, 5).map((b, i) => (
-                          <Tag key={i} color="orange" style={{ fontSize: 11 }}>{b}</Tag>
-                        ))}
+                        {job.benefits.slice(0, 5).map((b, i) => <Tag key={i} color="orange" style={{ fontSize: 11 }}>{b}</Tag>)}
                       </div>
                     )}
                   </Card>
@@ -712,24 +753,15 @@ export default function JobProfileDetail() {
           )}
         </Drawer>
 
-        {/* JD 详情 Modal */}
         <Modal
           title={selectedJob?.title}
           open={modalOpen}
           onCancel={() => setModalOpen(false)}
           footer={[
             selectedJob?.source_url ? (
-              <Button
-                key="source"
-                type="primary"
-                onClick={() => window.open(selectedJob.source_url, '_blank')}
-              >
-                查看来源
-              </Button>
+              <Button key="source" type="primary" onClick={() => window.open(selectedJob.source_url, '_blank')}>查看来源</Button>
             ) : null,
-            <Button key="close" onClick={() => setModalOpen(false)}>
-              关闭
-            </Button>,
+            <Button key="close" onClick={() => setModalOpen(false)}>关闭</Button>,
           ]}
           width={800}
         >
@@ -738,23 +770,12 @@ export default function JobProfileDetail() {
               <div style={{ marginBottom: 16 }}>
                 <Space>
                   <Tag color="blue">{selectedJob.city}</Tag>
-                  <Tag color="green">
-                    {formatSalary(selectedJob.salary_min, selectedJob.salary_max)}
-                    {selectedJob.salary_months && selectedJob.salary_months !== 12 ? `·${selectedJob.salary_months}薪` : ''}
-                  </Tag>
+                  <Tag color="green">{formatSalary(selectedJob.salary_min, selectedJob.salary_max)}{selectedJob.salary_months && selectedJob.salary_months !== 12 ? `·${selectedJob.salary_months}薪` : ''}</Tag>
                   <Tag>{selectedJob.company?.name || selectedJob.company_name}</Tag>
                 </Space>
               </div>
               {selectedJob.description && (
-                <div style={{
-                  whiteSpace: 'pre-wrap',
-                  maxHeight: 400,
-                  overflow: 'auto',
-                  padding: 12,
-                  background: '#f6f8fa',
-                  borderRadius: 8,
-                  lineHeight: 1.8
-                }}>
+                <div style={{ whiteSpace: 'pre-wrap', maxHeight: 400, overflow: 'auto', padding: 12, background: '#f6f8fa', borderRadius: 8, lineHeight: 1.8 }}>
                   {selectedJob.description}
                 </div>
               )}
@@ -762,9 +783,7 @@ export default function JobProfileDetail() {
                 <div style={{ marginTop: 16 }}>
                   <strong>福利待遇：</strong>
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 8 }}>
-                    {selectedJob.benefits.map((b, i) => (
-                      <Tag key={i} color="green">{b}</Tag>
-                    ))}
+                    {selectedJob.benefits.map((b, i) => <Tag key={i} color="green">{b}</Tag>)}
                   </div>
                 </div>
               )}
@@ -775,52 +794,119 @@ export default function JobProfileDetail() {
     );
   };
 
-  if (loading) {
-    return <LoadingState />;
-  }
-
-  if (!role) {
-    return <Empty description="角色不存在" />;
-  }
+  if (loading) return <LoadingState />;
+  if (!role) return <Empty description="角色不存在" />;
 
   const items = [
-    {
-      key: 'profile',
-      label: '画像分析',
-      children: renderTab1(),
-    },
-    {
-      key: 'companies',
-      label: '关联公司',
-      children: renderTab2(),
-    },
+    { key: 'profile', label: '画像分析', children: renderTab1() },
+    { key: 'companies', label: '关联公司', children: renderTab2() },
   ];
 
   return (
-    <div style={{ padding: 16 }}>
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #F8F9FF 0%, #F0F4FF 50%, #F8FFF8 100%)',
+      padding: 24,
+      fontFamily: FONTS.primary,
+    }}>
+      {/* 返回按钮 */}
       <div style={{ marginBottom: 16 }}>
         <Button
           type="link"
           icon={<ArrowLeftOutlined />}
           onClick={() => navigate('/jobs/profiles')}
+          style={{ padding: 0, color: '#6B7280' }}
         >
           返回画像库
         </Button>
       </div>
 
-      <Card>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-          <h2 style={{ margin: 0 }}>{role.name}</h2>
-          <Tag color={getCategoryColor(role.category)}>{role.category}</Tag>
-          {profile && <Tag>v{profile.version}</Tag>}
-          <span style={{ marginLeft: 'auto', color: '#666' }}>
-            {role.job_count} 个 JD
-          </span>
+      {/* Header 卡片 */}
+      <div
+        style={{
+          background: '#FFFFFF',
+          borderRadius: 20,
+          padding: '32px 40px',
+          marginBottom: 24,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 8px 32px rgba(0,0,0,0.04)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+        }}
+      >
+        {/* 左侧 */}
+        <div>
+          <h2 style={{ margin: 0, fontSize: 32, fontWeight: 700, color: '#0A0A0A', letterSpacing: -1, fontFamily: FONTS.primary }}>
+            {role.name}
+          </h2>
+          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span
+              style={{
+                background: 'linear-gradient(135deg, #667EEA 0%, #764BA2 100%)',
+                color: 'white',
+                borderRadius: 20,
+                padding: '3px 12px',
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              {role.category}
+            </span>
+            {profile && (
+              <span
+                style={{
+                  background: '#F3F4F6',
+                  color: '#6B7280',
+                  borderRadius: 6,
+                  padding: '2px 8px',
+                  fontSize: 11,
+                  fontFamily: FONTS.mono,
+                }}
+              >
+                v{profile.version}
+              </span>
+            )}
+          </div>
         </div>
 
+        {/* 右侧统计区 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 36, fontWeight: 800, color: '#0A0A0A', letterSpacing: -1.5, fontVariantNumeric: 'tabular-nums', fontFamily: FONTS.primary }}>
+              {role.job_count}
+            </div>
+            <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 500, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              个在招岗位
+            </div>
+          </div>
+          <div style={{ width: 1, height: 40, background: '#E5E7EB', alignSelf: 'center' }} />
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 20, fontWeight: 600, color: '#0A0A0A', fontFamily: FONTS.primary }}>
+              {role.category}
+            </div>
+            <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 500, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              职位类别
+            </div>
+          </div>
+          <div style={{ width: 1, height: 40, background: '#E5E7EB', alignSelf: 'center' }} />
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 20, fontWeight: 600, color: '#0A0A0A', fontFamily: FONTS.mono }}>
+              v{profile?.version || '1'}
+            </div>
+            <div style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 500, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              版本
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tab 区域 */}
+      <Card style={{ borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.04)', border: 'none' }}>
         <Tabs
+          type="line"
           items={items}
           onChange={handleTabChange}
+          style={{ marginTop: -8 }}
         />
       </Card>
     </div>
