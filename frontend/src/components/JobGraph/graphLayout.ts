@@ -10,6 +10,8 @@ export interface TreeNode {
   category?: string;
   count?: number;
   jd_count?: number;
+  jd_total?: number;
+  job_count?: number;
   children?: TreeNode[];
   x?: number;
   y?: number;

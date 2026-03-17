@@ -1,15 +1,15 @@
 import { useState, useCallback, useEffect } from "react";
 import { useD3Graph } from "./useD3Graph";
-import type { GraphNode, JobNode } from "./types";
+import type { GraphEdge, GraphNode, JobNode } from "./types";
 import styles from "./JobGraph.module.css";
 
 interface GraphCanvasProps {
   nodes: GraphNode[];
-  edges: { source: string; target: string }[];
+  edges: GraphEdge[];
   searchQuery: string;
-  selectedCategories: string[];
-  collapsedCategories: Set<string>;
+  expandedCategory: string | null;
   selectedJob: JobNode | null;
+  showExploreHint: boolean;
   onJobSelect: (job: JobNode | null) => void;
   onCategoryClick: (category: string) => void;
 }
@@ -18,9 +18,9 @@ export function GraphCanvas({
   nodes,
   edges,
   searchQuery,
-  selectedCategories,
-  collapsedCategories,
+  expandedCategory,
   selectedJob,
+  showExploreHint,
   onJobSelect,
   onCategoryClick,
 }: GraphCanvasProps) {
@@ -52,8 +52,7 @@ export function GraphCanvas({
     width: dimensions.width,
     height: dimensions.height,
     searchQuery,
-    selectedCategories,
-    collapsedCategories,
+    expandedCategory,
     selectedJobId: selectedJob?.id,
     onJobSelect,
     onCategoryClick,
@@ -71,6 +70,9 @@ export function GraphCanvas({
         height={dimensions.height}
         className={styles.svgCanvas}
       />
+      {showExploreHint ? (
+        <div className={styles.exploreHint}>点击任意分类，探索该领域的岗位</div>
+      ) : null}
       <div className={styles.hint}>滚轮缩放 · 拖拽平移 · 双击重置</div>
     </div>
   );
