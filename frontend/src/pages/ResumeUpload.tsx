@@ -26,6 +26,13 @@ import type { ResumeUploadResponse } from '../types/student';
 const { Title, Text, Paragraph } = Typography;
 const { Dragger } = Upload;
 
+function logResumeUploadResponse(responseData: ResumeUploadResponse) {
+  const parsedData = responseData.parsed_data as Record<string, unknown> | undefined;
+  console.info('[ResumeUploadPage] upload response', responseData);
+  console.info('[ResumeUploadPage] response.data keys', Object.keys(responseData ?? {}));
+  console.info('[ResumeUploadPage] parsed_data keys', Object.keys(parsedData ?? {}));
+}
+
 type UploadStep = 'upload' | 'preview' | 'complete';
 
 // 默认学生 UUID
@@ -67,6 +74,7 @@ export default function ResumeUpload() {
 
     try {
       const response = await resumeApi.uploadResume(file);
+      logResumeUploadResponse(response.data);
       setUploadResponse(response.data);
 
       // Check missing suggestions

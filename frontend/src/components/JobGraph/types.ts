@@ -1,3 +1,9 @@
+export interface GraphTotals {
+  role_count: number;
+  jd_count: number;
+  category_count: number;
+}
+
 export interface GraphNode {
   id: string;
   label: string;
@@ -7,6 +13,8 @@ export interface GraphNode {
   category?: string;
   count?: number;
   jd_count?: number;
+  jd_total?: number;
+  job_count?: number;
 }
 
 export interface GraphEdge {
@@ -17,7 +25,16 @@ export interface GraphEdge {
 export interface JobGraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  totals: GraphTotals;
   generated_at: string;
+}
+
+export interface JobStats {
+  jd_count: number;
+  salary_min: number | null;
+  salary_max: number | null;
+  top_cities: string[];
+  top_skills: string[];
 }
 
 export interface JobNode extends GraphNode {
@@ -31,6 +48,8 @@ export interface CategoryNode extends GraphNode {
   color: string;
   icon: string;
   count: number;
+  jd_total: number;
+  job_count: number;
 }
 
 export function isJobNode(node: GraphNode): node is JobNode {

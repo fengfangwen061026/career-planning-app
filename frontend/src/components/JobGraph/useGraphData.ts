@@ -18,12 +18,13 @@ export function useGraphData(): UseGraphDataResult {
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     try {
       const response = await graphApi.getMindmap();
-      // Cast nodes to correct type
       const graphData: JobGraphData = {
         nodes: response.data.nodes as GraphNode[],
         edges: response.data.edges,
+        totals: response.data.totals,
         generated_at: response.data.generated_at,
       };
       setData(graphData);
@@ -37,6 +38,7 @@ export function useGraphData(): UseGraphDataResult {
   const rebuild = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     try {
       await graphApi.rebuildMindmap();
       await fetchData();
@@ -47,7 +49,7 @@ export function useGraphData(): UseGraphDataResult {
   }, [fetchData]);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, [fetchData]);
 
   return { data, loading, error, refetch: fetchData, rebuild };

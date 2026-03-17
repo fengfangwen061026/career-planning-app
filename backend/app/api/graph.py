@@ -1,4 +1,5 @@
 """Graph API routes - 岗位图谱相关接口."""
+from collections import Counter
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,6 +10,7 @@ from uuid import UUID
 
 from app.database import get_db
 from app.models.graph import GraphNode, GraphEdge
+from app.models.job import Job
 from app.services import graph as graph_service
 from app.services.graph_mindmap import get_graph_cache, build_and_cache_graph
 
@@ -330,4 +332,48 @@ async def rebuild_mindmap(db: AsyncSession = Depends(get_db)):
         "status": "ok",
         "rebuilt_at": result["generated_at"],
         "node_count": len(result["nodes"]),
+    }
+
+
+@router.get("/job-stats")
+async def get_job_stats(
+    role: str = Query(..., description="Role name"),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Job.salary_min, Job.salary_max, Job.city, Job.skills).where(Job.role == role)
+    )
+    rows = result.all()
+
+    if not rows:
+        return {
+            "jd_count": 0,
+            "salary_min": None,
+            "salary_max": None,
+            "top_cities": [],
+            "top_skills": [],
+        }
+
+    city_counter: Counter[str] = Counter()
+    skill_counter: Counter[str] = Counter()
+    salary_mins: list[int] = []
+    salary_maxs: list[int] = []
+
+    for row in rows:
+        if row.city:
+            city_counter[row.city] += 1
+        if row.salary_min is not None:
+            salary_mins.append(row.salary_min)
+        if row.salary_max is not None:
+            salary_maxs.append(row.salary_max)
+        for skill in row.skills or []:
+            if skill:
+                skill_counter[skill] += 1
+
+    return {
+        "jd_count": len(rows),
+        "salary_min": min(salary_mins) if salary_mins else None,
+        "salary_max": max(salary_maxs) if salary_maxs else None,
+        "top_cities": [city for city, _ in city_counter.most_common(3)],
+        "top_skills": [skill for skill, _ in skill_counter.most_common(5)],
     }

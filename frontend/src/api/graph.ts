@@ -1,5 +1,5 @@
-import client from './client';
-import type { RawGraphResponse } from '../types/graph';
+import client from "./client";
+import type { RawGraphResponse } from "../types/graph";
 
 export interface GraphNode {
   id: string;
@@ -21,33 +21,57 @@ export interface GraphEdge {
 
 export const graphApi = {
   getNodes: (params?: { node_type?: string; level?: string; skip?: number; limit?: number }) =>
-    client.get<GraphNode[]>('/graph/nodes', { params }),
+    client.get<GraphNode[]>("/graph/nodes", { params }),
 
   getEdges: (params?: { edge_type?: string; skip?: number; limit?: number }) =>
-    client.get<GraphEdge[]>('/graph/edges', { params }),
+    client.get<GraphEdge[]>("/graph/edges", { params }),
 
   getNodeDetail: (nodeId: string) =>
     client.get<GraphNode>(`/graph/nodes/${nodeId}`),
 
   getCytoscape: (params?: { edge_type?: string }) =>
-    client.get<RawGraphResponse>('/graph/cytoscape', { params }),
+    client.get<RawGraphResponse>("/graph/cytoscape", { params }),
 
   queryPath: (data: { source_id: string; target_id: string }) =>
-    client.post<Array<Record<string, unknown>>>('/graph/path', data),
+    client.post<Array<Record<string, unknown>>>("/graph/path", data),
 
   getCareerPath: (data: { from_role: string; to_role: string; from_level?: string }) =>
-    client.post<Array<Record<string, unknown>>>('/graph/career-path', data),
+    client.post<Array<Record<string, unknown>>>("/graph/career-path", data),
 
   getStudentPath: (data: { student_profile: Record<string, unknown>; target_role: string; target_level?: string }) =>
-    client.post<Record<string, unknown>>('/graph/student-path', data),
+    client.post<Record<string, unknown>>("/graph/student-path", data),
 
   buildGraph: () =>
-    client.post<{ vertical: Record<string, unknown>; transition: Record<string, unknown> }>('/graph/build'),
+    client.post<{ vertical: Record<string, unknown>; transition: Record<string, unknown> }>("/graph/build"),
 
-  // 思维导图 API
   getMindmap: () =>
-    client.get<{ nodes: Array<{ id: string; label: string; type: string; color?: string; icon?: string; category?: string; count?: number; jd_count?: number }>; edges: Array<{ source: string; target: string }>; generated_at: string }>('/graph/mindmap'),
+    client.get<{
+      nodes: Array<{
+        id: string;
+        label: string;
+        type: string;
+        color?: string;
+        icon?: string;
+        category?: string;
+        count?: number;
+        jd_count?: number;
+        jd_total?: number;
+        job_count?: number;
+      }>;
+      edges: Array<{ source: string; target: string }>;
+      totals: { role_count: number; jd_count: number; category_count: number };
+      generated_at: string;
+    }>("/graph/mindmap"),
+
+  getJobStats: (role: string) =>
+    client.get<{
+      jd_count: number;
+      salary_min: number | null;
+      salary_max: number | null;
+      top_cities: string[];
+      top_skills: string[];
+    }>("/graph/job-stats", { params: { role } }),
 
   rebuildMindmap: () =>
-    client.post<{ status: string; rebuilt_at: string; node_count: number }>('/graph/mindmap/rebuild'),
+    client.post<{ status: string; rebuilt_at: string; node_count: number }>("/graph/mindmap/rebuild"),
 };

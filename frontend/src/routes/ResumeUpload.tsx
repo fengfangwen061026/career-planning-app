@@ -70,6 +70,21 @@ interface ParsedResumeData {
   }>;
 }
 
+function extractNameFromRawText(rawText: string): string | undefined {
+  const firstLine = rawText.split('\n').find((line) => line.trim());
+  if (!firstLine) {
+    return undefined;
+  }
+
+  const colonMatch = firstLine.match(/(?:姓名|名字|Name)\s*[:：]\s*([^\s\t]+)/i);
+  if (colonMatch?.[1]) {
+    return colonMatch[1].trim();
+  }
+
+  const cleaned = firstLine.replace(/^(姓名|名字|Name)\s*[:：]?\s*/i, '').trim();
+  return cleaned || undefined;
+}
+
 type UploadStep = 'upload' | 'parsing' | 'preview' | 'complete';
 
 // Steps configuration
@@ -167,6 +182,23 @@ export default function ResumeUpload() {
     fetchStudents();
   }, []);
 
+  useEffect(() => {
+    if (!parsedData) {
+      return;
+    }
+
+    profileForm.setFieldsValue({
+      name: parsedData.name,
+      phone: parsedData.contact?.phone,
+      email: parsedData.contact?.email,
+      location: parsedData.contact?.location,
+      education: parsedData.education,
+      projects: parsedData.projects,
+      experience: parsedData.experience,
+      skills: parsedData.skills,
+    });
+  }, [parsedData, profileForm]);
+
   const fetchStudents = async () => {
     try {
       const response = await studentsApi.getStudents();
@@ -231,6 +263,12 @@ export default function ResumeUpload() {
 
       // Upload resume
       const response = await studentsApi.uploadResume(selectedStudent, file);
+      console.info('[ResumeUpload] upload response', response.data);
+      console.info('[ResumeUpload] response.data keys', Object.keys(response.data ?? {}));
+      console.info(
+        '[ResumeUpload] parsed_data keys',
+        Object.keys((response.data?.parsed_data as Record<string, unknown>) ?? {})
+      );
 
       // Stop progress simulation and set to 100%
       clearInterval(progressInterval);
@@ -241,9 +279,10 @@ export default function ResumeUpload() {
 
       // Extract parsed data from the ResumeUploadResponse
       const parsedRecord = response.data.parsed_data as Record<string, unknown> | undefined;
+      console.info('[ResumeUpload] parsed_data', parsedRecord);
       // Extract name from raw_text (first line typically contains name)
       const rawText = (parsedRecord?.raw_text as string) || '';
-      const nameMatch = rawText.split('\n')[0]?.match(/^[^\u0000-\u001F\u007F-\u9FFF]+/);
+      const extractedName = extractNameFromRawText(rawText);
 
       // Transform backend education format to form format
       const backendEducation = (parsedRecord?.education as Array<Record<string, unknown>>) || [];
@@ -268,33 +307,22 @@ export default function ResumeUpload() {
       const backendExperience = (parsedRecord?.experience as Array<Record<string, unknown>>) || [];
       const transformedExperience = backendExperience.map((exp) => ({
         company: exp.company as string,
-        position: exp.role as string,
+        position: (exp.role as string | undefined) || (exp.position as string | undefined) || '',
         duration: exp.start_date && exp.end_date ? `${exp.start_date} - ${exp.end_date}` : undefined,
         description: exp.description as string | undefined,
       }));
 
       const extractedData: ParsedResumeData = {
-        name: nameMatch ? nameMatch[0] : undefined,
+        name: extractedName,
         education: transformedEducation,
         projects: transformedProjects,
         experience: transformedExperience,
         skills: (parsedRecord?.skills as ParsedResumeData['skills']) || [],
       };
+      console.info('[ResumeUpload] extracted form data', extractedData);
 
       setParsedData(extractedData);
       setResumeResponse(response.data);
-
-      // Initialize form with parsed data
-      profileForm.setFieldsValue({
-        name: extractedData.name,
-        phone: extractedData.contact?.phone,
-        email: extractedData.contact?.email,
-        location: extractedData.contact?.location,
-        education: extractedData.education,
-        projects: extractedData.projects,
-        experience: extractedData.experience,
-        skills: extractedData.skills,
-      });
 
       setTimeout(() => {
         setUploadStep('preview');
