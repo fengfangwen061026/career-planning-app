@@ -16,8 +16,7 @@ interface UseD3GraphOptions {
   width: number;
   height: number;
   searchQuery: string;
-  selectedCategories: string[];
-  collapsedCategories: Set<string>;
+  expandedCategory: string | null;
   selectedJobId?: string;
   onJobSelect?: (job: JobNode | null) => void;
   onCategoryClick: (category: string) => void;
@@ -32,8 +31,7 @@ export function useD3Graph({
   width,
   height,
   searchQuery,
-  selectedCategories,
-  collapsedCategories,
+  expandedCategory,
   selectedJobId,
   onJobSelect,
   onCategoryClick,
@@ -46,85 +44,44 @@ export function useD3Graph({
       return;
     }
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll("*").remove();
-
-    const radius = Math.min(width, height) * 0.4;
-    const centerX = width / 2;
-    const centerY = height / 2 + 58;
     const treeData = buildTree(nodes, edges);
     if (!treeData) {
       return;
     }
 
+    const svg = d3.select(svgRef.current);
+    svg.selectAll("*").remove();
+    svg.style("font-family", graphStyles.fontFamily);
+
+    const hasVisibleJobs = nodes.some((node) => node.type === "job");
+    const radius = Math.min(width, height) * (hasVisibleJobs ? 0.44 : 0.34);
+    const centerX = width / 2;
+    const centerY = height / 2 + 38;
     const root = createTreeLayout(treeData, radius);
-    const visibleNodes = new Set<string>(["root"]);
     const searchLower = searchQuery.trim().toLowerCase();
 
-    for (const node of nodes) {
-      if (
-        node.type === "category" &&
-        (selectedCategories.length === 0 ||
-          selectedCategories.includes(node.label))
-      ) {
-        visibleNodes.add(node.id);
-      }
-    }
-
-    for (const edge of edges) {
-      if (
-        edge.source.startsWith("cat_") &&
-        visibleNodes.has(edge.source) &&
-        !collapsedCategories.has(edge.source)
-      ) {
-        visibleNodes.add(edge.target);
-      }
-    }
-
-    if (searchLower) {
-      for (const node of nodes) {
-        if (node.label.toLowerCase().includes(searchLower)) {
-          visibleNodes.add(node.id);
-          const parentEdge = edges.find((edge) => edge.target === node.id);
-          if (parentEdge) {
-            visibleNodes.add(parentEdge.source);
-          }
-        }
-      }
-    }
-
-    svg.style("font-family", graphStyles.fontFamily);
+    let initialTransform = d3.zoomIdentity;
 
     const zoomLayer = svg.append("g");
     const layoutLayer = zoomLayer
       .append("g")
       .attr("transform", `translate(${centerX},${centerY})`);
 
-    let initialTransform = d3.zoomIdentity;
-
     const zoom = d3
       .zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.3, 3])
+      .scaleExtent([0.45, 2.6])
       .on("zoom", (event) => {
         zoomLayer.attr("transform", event.transform.toString());
       });
 
     const resetZoom = () => {
-      svg.transition().duration(250).call(zoom.transform, initialTransform);
+      svg.transition().duration(260).call(zoom.transform, initialTransform);
     };
 
     svg.call(zoom);
     svg.on("dblclick.zoom", null);
     svg.on("dblclick.reset", () => resetZoom());
     svg.on("click.close-panel", () => onJobSelect?.(null));
-
-    const defs = svg.append("defs");
-    defs
-      .append("filter")
-      .attr("id", "job-graph-root-shadow")
-      .html(
-        '<feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="rgba(79,70,229,0.12)" />'
-      );
 
     const linksGroup = layoutLayer.append("g").attr("class", "links");
     const nodesGroup = layoutLayer.append("g").attr("class", "nodes");
@@ -134,13 +91,38 @@ export function useD3Graph({
       .angle((datum) => datum.x)
       .radius((datum) => datum.y);
 
-    const visibleLinks = root
-      .links()
-      .filter(
-        (link) =>
-          visibleNodes.has(link.source.data.id) &&
-          visibleNodes.has(link.target.data.id)
-      );
+    const visibleDescendants = root.descendants();
+    const visibleLinks = root.links();
+
+    const matchingJobIds = new Set(
+      searchLower
+        ? nodes
+            .filter(
+              (node) =>
+                node.type === "job" &&
+                node.label.toLowerCase().includes(searchLower)
+            )
+            .map((node) => node.id)
+        : []
+    );
+
+    const matchingCategoryIds = new Set(
+      searchLower
+        ? nodes
+            .filter((node) => node.type === "category")
+            .filter(
+              (node) =>
+                node.label.toLowerCase().includes(searchLower) ||
+                nodes.some(
+                  (job) =>
+                    job.type === "job" &&
+                    job.category === node.label &&
+                    matchingJobIds.has(job.id)
+                )
+            )
+            .map((node) => node.id)
+        : []
+    );
 
     const getNodePosition = (node: PointNode) => {
       const [x, y] = radialPoint(node.x || 0, node.y || 0);
@@ -159,30 +141,40 @@ export function useD3Graph({
       return `translate(${x},${y}) scale(${scale})`;
     };
 
-    const getAccentColor = (node: TreeNode) =>
-      node.color ?? graphStyles.primary;
+    const nodeOpacity = (node: TreeNode) => {
+      if (!searchLower || node.type === "root") {
+        return 1;
+      }
+      if (node.type === "category") {
+        return matchingCategoryIds.has(node.id) ? 1 : graphStyles.fadedOpacity;
+      }
+      return matchingJobIds.has(node.id) ? 1 : graphStyles.fadedOpacity;
+    };
 
-    const isSelectedJob = (node: TreeNode) =>
-      node.type === "job" && node.id === selectedJobId;
+    const linkOpacity = (link: PointLink) => {
+      if (!searchLower) {
+        return 1;
+      }
+      return matchingJobIds.has(link.target.data.id) ||
+        matchingCategoryIds.has(link.target.data.id)
+        ? 1
+        : 0.12;
+    };
 
     linksGroup
       .selectAll<SVGPathElement, PointLink>("path")
       .data(visibleLinks, (link) => link.target.data.id)
       .join("path")
       .attr("class", "link")
-      .attr("data-target", (link) => link.target.data.id)
       .attr("fill", "none")
-      .attr("stroke", (link) => `${getAccentColor(link.target.data)}33`)
+      .attr("stroke", (link) => `${link.target.data.color ?? graphStyles.primary}33`)
       .attr("stroke-width", graphStyles.lineWidth)
       .attr("opacity", 0)
       .attr("d", (link) => linkGenerator(link) ?? "")
       .transition()
-      .duration(320)
-      .attr("opacity", 1);
-
-    const visibleDescendants = root
-      .descendants()
-      .filter((node) => visibleNodes.has(node.data.id));
+      .duration(graphStyles.layoutDuration)
+      .ease(d3.easeCubicOut)
+      .attr("opacity", (link) => linkOpacity(link));
 
     const nodeGroups = nodesGroup
       .selectAll<SVGGElement, PointNode>("g.node")
@@ -191,54 +183,30 @@ export function useD3Graph({
       .attr("class", (node) => `node node-${node.data.type}`)
       .attr("data-node-id", (node) => node.data.id)
       .style("cursor", (node) => (node.data.type === "root" ? "default" : "pointer"))
-      .attr("transform", (node) => {
-        const baseScale = getBaseScale(node);
-        if (node.data.type === "category") {
-          return transformNode(node, 0.6);
-        }
-        return transformNode(node, baseScale);
-      })
       .attr("opacity", 0)
+      .attr("transform", (node) => {
+        if (node.data.type === "category") {
+          return transformNode(node, 0.86);
+        }
+        if (node.data.type === "job") {
+          return transformNode(node, 0.88);
+        }
+        return transformNode(node);
+      })
       .on("click", function (event, node) {
         event.stopPropagation();
-
-        if (node.data.type === "job") {
-          onJobSelect?.(node.data as JobNode);
-          return;
-        }
 
         if (node.data.type === "root") {
           resetZoom();
           return;
         }
 
-        const willExpand = collapsedCategories.has(node.data.id);
-        if (willExpand) {
+        if (node.data.type === "category") {
           onCategoryClick(node.data.label);
           return;
         }
 
-        const descendantIds = new Set(
-          node.descendants().slice(1).map((descendant) => descendant.data.id)
-        );
-
-        nodesGroup
-          .selectAll<SVGGElement, PointNode>("g.node")
-          .filter((descendant) => descendantIds.has(descendant.data.id))
-          .transition()
-          .duration(graphStyles.interactionDuration)
-          .attr("opacity", 0);
-
-        linksGroup
-          .selectAll<SVGPathElement, PointLink>("path")
-          .filter((link) => descendantIds.has(link.target.data.id))
-          .transition()
-          .duration(graphStyles.interactionDuration)
-          .attr("opacity", 0);
-
-        window.setTimeout(() => {
-          onCategoryClick(node.data.label);
-        }, graphStyles.interactionDuration);
+        onJobSelect?.(node.data as JobNode);
       });
 
     nodeGroups
@@ -249,13 +217,10 @@ export function useD3Graph({
         group
           .append("circle")
           .attr("r", graphStyles.rootNodeRadius)
-          .attr("fill", "rgba(255,255,255,0.92)")
+          .attr("fill", "rgba(255,255,255,0.94)")
           .attr("stroke", "#C7D2FE")
           .attr("stroke-width", 2)
-          .style(
-            "filter",
-            "drop-shadow(0 4px 16px rgba(79,70,229,0.12))"
-          );
+          .style("filter", "drop-shadow(0 6px 18px rgba(79,70,229,0.12))");
 
         group
           .append("text")
@@ -270,53 +235,156 @@ export function useD3Graph({
       })
       .transition()
       .duration(300)
-      .delay(graphStyles.enterDelay.root)
+      .ease(d3.easeCubicOut)
       .attr("opacity", 1);
-
-    nodeGroups
-      .filter((node) => node.data.type === "category")
-      .each(function (node) {
-        const group = d3.select(this);
-        const color = getAccentColor(node.data);
-
-        group
-          .append("circle")
-          .attr("r", graphStyles.categoryNodeRadius)
-          .attr("fill", `${color}18`)
-          .attr("stroke", `${color}99`)
-          .attr("stroke-width", 1.5)
-          .style("filter", `drop-shadow(0 2px 8px ${color}30)`);
-
-        group
-          .append("text")
-          .attr("text-anchor", "middle")
-          .attr("dy", "-0.65em")
-          .attr("pointer-events", "none")
-          .attr("font-size", `${graphStyles.iconFontSize}px`)
-          .text(node.data.icon || "");
-
-        group
-          .append("text")
-          .attr("text-anchor", "middle")
-          .attr("dy", "1.45em")
-          .attr("pointer-events", "none")
-          .attr("fill", graphStyles.gray700)
-          .attr("font-size", `${graphStyles.categoryFontSize}px`)
-          .attr("font-weight", 600)
-          .text(node.data.label);
-      });
 
     const categoryNodes = nodeGroups.filter((node) => node.data.type === "category");
 
+    categoryNodes.each(function (node) {
+      const group = d3.select(this);
+      const color = node.data.color ?? graphStyles.primary;
+      const isExpanded = expandedCategory === node.data.label && !searchLower;
+
+      group
+        .append("rect")
+        .attr("x", -graphStyles.categoryCardWidth / 2)
+        .attr("y", -graphStyles.categoryCardHeight / 2)
+        .attr("width", graphStyles.categoryCardWidth)
+        .attr("height", graphStyles.categoryCardHeight)
+        .attr("rx", 22)
+        .attr("fill", isExpanded ? `${color}24` : `${color}16`)
+        .attr("stroke", isExpanded ? color : `${color}88`)
+        .attr("stroke-width", isExpanded ? 2.5 : 1.5)
+        .style("filter", `drop-shadow(0 8px 18px ${color}20)`);
+
+      group
+        .append("text")
+        .attr("x", 0)
+        .attr("y", -14)
+        .attr("text-anchor", "middle")
+        .attr("pointer-events", "none")
+        .attr("font-size", `${graphStyles.iconFontSize}px`)
+        .text(node.data.icon ?? "");
+
+      group
+        .append("text")
+        .attr("x", 0)
+        .attr("y", 6)
+        .attr("text-anchor", "middle")
+        .attr("pointer-events", "none")
+        .attr("fill", graphStyles.gray900)
+        .attr("font-size", `${graphStyles.categoryFontSize}px`)
+        .attr("font-weight", 600)
+        .text(node.data.label);
+
+      group
+        .append("text")
+        .attr("x", 0)
+        .attr("y", 24)
+        .attr("text-anchor", "middle")
+        .attr("pointer-events", "none")
+        .attr("fill", graphStyles.gray500)
+        .attr("font-size", `${graphStyles.categoryMetaFontSize}px`)
+        .text(`${node.data.jd_total ?? 0}条 · ${node.data.job_count ?? 0}岗位`);
+
+      group
+        .append("text")
+        .attr("x", graphStyles.categoryCardWidth / 2 - 16)
+        .attr("y", -graphStyles.categoryCardHeight / 2 + 18)
+        .attr("text-anchor", "middle")
+        .attr("pointer-events", "none")
+        .attr("fill", color)
+        .attr("font-size", "12px")
+        .attr("font-weight", 700)
+        .text(isExpanded ? "⌃" : "⌄");
+    });
+
     categoryNodes
       .transition()
-      .duration(400)
-      .delay((_, index) => graphStyles.enterDelay.categories + index * 60)
-      .attr("opacity", 1)
+      .duration(graphStyles.layoutDuration)
+      .delay((_, index) => graphStyles.enterDelay.categories + index * 40)
+      .ease(d3.easeCubicOut)
+      .attr("opacity", (node) => nodeOpacity(node.data))
       .attr("transform", (node) => transformNode(node));
 
     categoryNodes
       .on("mouseenter", function (_, node) {
+        d3.select(this)
+          .transition()
+          .duration(graphStyles.interactionDuration)
+          .attr("transform", transformNode(node, 1.03));
+      })
+      .on("mouseleave", function (_, node) {
+        d3.select(this)
+          .transition()
+          .duration(graphStyles.interactionDuration)
+          .attr("transform", transformNode(node));
+      });
+
+    const jobNodes = nodeGroups.filter((node) => node.data.type === "job");
+
+    jobNodes.each(function (node) {
+      const group = d3.select(this);
+      const color = node.data.color ?? graphStyles.primary;
+      const selected = node.data.id === selectedJobId;
+
+      group
+        .append("circle")
+        .attr("r", graphStyles.jobNodeRadius)
+        .attr("fill", "rgba(255,255,255,0.88)")
+        .attr("stroke", selected ? color : `${color}66`)
+        .attr("stroke-width", selected ? 2.5 : 1)
+        .style(
+          "filter",
+          selected ? `drop-shadow(0 0 10px ${color}70)` : "drop-shadow(0 4px 10px rgba(15,23,42,0.05))"
+        );
+
+      group
+        .append("text")
+        .attr("text-anchor", "middle")
+        .attr("dy", "0.35em")
+        .attr("pointer-events", "none")
+        .attr("fill", graphStyles.gray500)
+        .attr("font-size", `${graphStyles.jobFontSize}px`)
+        .text(truncateLabel(node.data.label, 6));
+
+      const jdCount = node.data.jd_count ?? 0;
+      if (jdCount > 0) {
+        group
+          .append("circle")
+          .attr("cx", 10)
+          .attr("cy", -10)
+          .attr("r", 8)
+          .attr("fill", color);
+
+        group
+          .append("text")
+          .attr("x", 10)
+          .attr("y", -10)
+          .attr("dy", "0.35em")
+          .attr("text-anchor", "middle")
+          .attr("pointer-events", "none")
+          .attr("fill", "#fff")
+          .attr("font-size", `${graphStyles.badgeFontSize}px`)
+          .attr("font-weight", 700)
+          .text(jdCount > 99 ? "99+" : jdCount.toString());
+      }
+    });
+
+    jobNodes
+      .transition()
+      .duration(graphStyles.layoutDuration)
+      .delay((_, index) => graphStyles.enterDelay.jobs + index * 16)
+      .ease(d3.easeCubicOut)
+      .attr("opacity", (node) => nodeOpacity(node.data))
+      .attr("transform", (node) => transformNode(node));
+
+    jobNodes
+      .on("mouseenter", function (_, node) {
+        if (node.data.id === selectedJobId) {
+          return;
+        }
+
         d3.select(this)
           .transition()
           .duration(graphStyles.interactionDuration)
@@ -326,97 +394,10 @@ export function useD3Graph({
           .select("circle")
           .transition()
           .duration(graphStyles.interactionDuration)
-          .attr("fill", `${getAccentColor(node.data)}28`);
+          .attr("fill", "rgba(255,255,255,0.98)");
       })
       .on("mouseleave", function (_, node) {
-        d3.select(this)
-          .transition()
-          .duration(graphStyles.interactionDuration)
-          .attr("transform", transformNode(node));
-
-        d3.select(this)
-          .select("circle")
-          .transition()
-          .duration(graphStyles.interactionDuration)
-          .attr("fill", `${getAccentColor(node.data)}18`);
-      });
-
-    nodeGroups
-      .filter((node) => node.data.type === "job")
-      .each(function (node) {
-        const group = d3.select(this);
-        const color = getAccentColor(node.data);
-        const selected = isSelectedJob(node.data);
-
-        group
-          .append("circle")
-          .attr("r", graphStyles.jobNodeRadius)
-          .attr("fill", "rgba(255,255,255,0.82)")
-          .attr("stroke", selected ? color : `${color}66`)
-          .attr("stroke-width", selected ? 2.5 : 1)
-          .style("filter", selected ? `drop-shadow(0 0 10px ${color}80)` : "none");
-
-        group
-          .append("text")
-          .attr("text-anchor", "middle")
-          .attr("dy", "0.35em")
-          .attr("pointer-events", "none")
-          .attr("fill", graphStyles.gray500)
-          .attr("font-size", `${graphStyles.jobFontSize}px`)
-          .attr("font-weight", 400)
-          .text(truncateLabel(node.data.label, 6));
-
-        const jdCount = node.data.jd_count ?? 0;
-        if (jdCount > 0) {
-          group
-            .append("circle")
-            .attr("class", "job-badge")
-            .attr("cx", 10)
-            .attr("cy", -10)
-            .attr("r", 8)
-            .attr("fill", color);
-
-          group
-            .append("text")
-            .attr("x", 10)
-            .attr("y", -10)
-            .attr("dy", "0.35em")
-            .attr("text-anchor", "middle")
-            .attr("pointer-events", "none")
-            .attr("fill", "#fff")
-            .attr("font-size", `${graphStyles.badgeFontSize}px`)
-            .attr("font-weight", 700)
-            .text(jdCount > 99 ? "99+" : jdCount.toString());
-        }
-      });
-
-    const jobNodes = nodeGroups.filter((node) => node.data.type === "job");
-
-    jobNodes
-      .transition()
-      .duration(300)
-      .delay((_, index) => graphStyles.enterDelay.jobs + index * 15)
-      .attr("opacity", 1);
-
-    jobNodes
-      .on("mouseenter", function (_, node) {
-        if (isSelectedJob(node.data)) {
-          return;
-        }
-
-        d3.select(this)
-          .transition()
-          .duration(graphStyles.interactionDuration)
-          .attr("transform", transformNode(node, 1.18));
-
-        d3.select(this)
-          .select("circle")
-          .transition()
-          .duration(graphStyles.interactionDuration)
-          .attr("fill", "rgba(255,255,255,0.96)");
-      })
-      .on("mouseleave", function (_, node) {
-        if (isSelectedJob(node.data)) {
+        if (node.data.id === selectedJobId) {
           return;
         }
 
@@ -429,19 +410,19 @@ export function useD3Graph({
           .select("circle")
           .transition()
           .duration(graphStyles.interactionDuration)
-          .attr("fill", "rgba(255,255,255,0.82)");
+          .attr("fill", "rgba(255,255,255,0.88)");
       });
 
     const bounds = layoutLayer.node()?.getBBox();
     if (bounds) {
-      const scale = 0.8 / Math.max(bounds.width / width, bounds.height / (height - 140));
+      const scale = 0.84 / Math.max(bounds.width / width, bounds.height / (height - 180));
       const midX = bounds.x + bounds.width / 2;
       const midY = bounds.y + bounds.height / 2;
 
       initialTransform = d3.zoomIdentity
         .translate(
           width / 2 - scale * (midX + centerX),
-          height / 2 + 56 - scale * (midY + centerY)
+          height / 2 + 26 - scale * (midY + centerY)
         )
         .scale(scale);
 
@@ -453,8 +434,7 @@ export function useD3Graph({
     width,
     height,
     searchQuery,
-    selectedCategories,
-    collapsedCategories,
+    expandedCategory,
     selectedJobId,
     onJobSelect,
     onCategoryClick,
