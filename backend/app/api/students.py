@@ -292,7 +292,7 @@ async def upload_resume_stream(
         yield sse({"type": "stage", "stage": "extracting", "progress": 10})
 
         try:
-            raw_text, _ = extract_text(file_content, filename)
+            raw_text, _ = await asyncio.to_thread(extract_text, file_content, filename)
         except Exception as e:
             yield sse({"type": "error", "message": f"文本提取失败: {e}"})
             return
