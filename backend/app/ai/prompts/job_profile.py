@@ -22,11 +22,15 @@ JOB_PROFILE_SYSTEM_PROMPT_V3 = """\
     "certifications": [{"name": "string", "required": boolean}]
   },
   "technical_skills": [
-    {"name": "string", "category": "string", "importance": "必备|加分|了解即可", "frequency_pct": number}
+    {"skill_name": "string", "category": "string", "importance": "required|preferred|bonus", "weight": number, "proficiency_evidence": "string"}
   ],
-  "soft_skills": [
-    {"name": "string", "importance": "核心素养|重要|一般", "evidence": "string"}
-  ],
+  "soft_competencies": {
+    "communication": {"importance": "string", "evidence": "string"},
+    "teamwork": {"importance": "string", "evidence": "string"},
+    "stress_tolerance": {"importance": "string", "evidence": "string"},
+    "innovation": {"importance": "string", "evidence": "string"},
+    "learning_ability": {"importance": "string", "evidence": "string"}
+  },
   "development_potential": {
     "growth_indicators": ["string"],
     "learning_requirements": ["string"],
@@ -77,9 +81,9 @@ def build_job_profile_prompt(role_name: str, jd_texts: list[str]) -> list[dict[s
 
 请严格按照上面的JSON Schema输出岗位画像。
 注意：
-1. technical_skills 是数组，每个技能包含 name, category, importance, frequency_pct
-2. soft_skills 是数组，每个技能包含 name, importance, evidence
-3. 不要输出 certificates, job_responsibilities, benefits 等旧字段"""
+1. technical_skills 是数组，每个技能包含 skill_name, category, importance, weight, proficiency_evidence
+2. soft_competencies 是 dict，key 固定为 communication, teamwork, stress_tolerance, innovation, learning_ability
+3. 不要输出 soft_skills（旧字段），应使用 soft_competencies"""
 
     return [
         {"role": "system", "content": JOB_PROFILE_SYSTEM_PROMPT_V3},

@@ -57,117 +57,6 @@ def _degree_rank(degree: str | None) -> int:
     return 0
 
 
-# ── 辅助函数：适配新旧 job_profile 结构 ──────────────────────────────
-
-def _get_job_basic(job_profile: dict) -> dict:
-    """从 job_profile 获取 basic_requirements，兼容新旧两种结构.
-
-    新结构（当前）: job_profile 直接包含 basic_requirements
-    旧结构: job_profile 在 dimensions.basic_requirements 里（已废弃）
-    """
-    # 先尝试新结构（无 dimensions 包装）
-    basic = job_profile.get("basic_requirements", {})
-    if basic:
-        return basic
-    # 回退到旧结构（有 dimensions 包装）
-    return job_profile.get("dimensions", {}).get("basic_requirements", {})
-
-
-def _get_job_skills(job_profile: dict) -> list[dict]:
-    """从 job_profile 获取技能列表，兼容新旧两种结构.
-
-    新结构（当前）: job_profile.technical_skills (list of {name, category, importance, ...})
-    旧结构: job_profile.dimensions.professional_skills (已废弃)
-    """
-    # 先尝试新结构
-    tech_skills = job_profile.get("technical_skills", [])
-    if tech_skills and isinstance(tech_skills, list):
-        # 转换为 scoring 函数期望的格式
-        return [
-            {
-                "skill_name": sk.get("name", ""),
-                "category": sk.get("category", ""),
-                "importance": "required" if sk.get("importance") in ("必需", "必选", "必须") else "preferred",
-                "weight": float(sk.get("frequency_pct", 100)) / 100.0 if sk.get("frequency_pct") else 1.0,
-            }
-            for sk in tech_skills
-            if sk.get("name")
-        ]
-    # 回退到旧结构
-    return job_profile.get("dimensions", {}).get("professional_skills", [])
-
-
-def _get_job_soft_competencies(job_profile: dict) -> dict:
-    """从 job_profile 获取软素养要求，兼容新旧两种结构.
-
-    新结构（当前）: job_profile.soft_skills (list of {name, importance, ...})
-    旧结构: job_profile.dimensions.soft_competencies (dict，已废弃）
-    """
-    soft_skills = job_profile.get("soft_skills", [])
-    if soft_skills and isinstance(soft_skills, list):
-        # 新结构是列表，转换为 dict 格式
-        result = {}
-        for sk in soft_skills:
-            name = sk.get("name", "")
-            if name:
-                # 尝试映射到标准维度
-                dim = _map_skill_to_dimension(name)
-                result[dim] = {
-                    "importance": sk.get("importance", "一般"),
-                    "evidence": sk.get("evidence", ""),
-                }
-        return result
-    # 回退到旧结构
-    return job_profile.get("dimensions", {}).get("soft_competencies", {})
-
-
-def _map_skill_to_dimension(skill_name: str) -> str:
-    """将中文技能名映射到标准英文维度."""
-    mapping = {
-        "沟通": "communication",
-        "表达能力": "communication",
-        "团队": "teamwork",
-        "协作": "teamwork",
-        "抗压": "stress_tolerance",
-        "压力": "stress_tolerance",
-        "创新": "innovation",
-        "创造": "innovation",
-        "学习": "learning_ability",
-        "适应": "adaptability",
-    }
-    skill_lower = skill_name.lower()
-    for kw, dim in mapping.items():
-        if kw in skill_lower:
-            return dim
-    return "communication"  # 默认
-
-
-def _parse_job_education(j_basic: dict) -> str:
-    """从 job_profile 的 education 字段解析学历要求.
-
-    新结构: education 是字符串如 "大专及以上"
-    旧结构: education 是 dict with value
-    """
-    edu = j_basic.get("education", "")
-    if isinstance(edu, dict):
-        return edu.get("value", "") or ""
-    return str(edu) if edu else ""
-
-
-def _parse_job_experience(j_basic: dict) -> float:
-    """从 job_profile 的 experience_years 解析经验要求.
-
-    新结构: experience_years 是 {min: int, preferred: int}
-    旧结构: experience_years 是 int/float
-    """
-    exp = j_basic.get("experience_years", 0)
-    if isinstance(exp, dict):
-        # 优先使用 preferred，如果没有则用 min
-        val = exp.get("preferred") or exp.get("min", 0)
-        return float(val) if val else 0.0
-    return _parse_years(exp)
-
-
 # =====================================================================
 # 1. 基础要求评分（规则化）
 # =====================================================================
@@ -179,14 +68,14 @@ def score_basic_requirements(
     """规则化评分：学历、专业、经验、硬性条件."""
     s_dims = student_profile.get("dimensions", {})
     s_basic = s_dims.get("basic_requirements", {})
-    j_basic = _get_job_basic(job_profile)
+    j_basic = job_profile.get("basic_requirements", {})
 
     score = 0.0
     penalties: list[dict[str, Any]] = []
 
     # ── 学历匹配（40 分）──
     s_degree = s_basic.get("degree") or student_profile.get("basic_info", {}).get("degree", "")
-    j_degree_str = _parse_job_education(j_basic)
+    j_degree_str = j_basic.get("education", "")
 
     s_rank = _degree_rank(s_degree)
     j_rank = _degree_rank(j_degree_str)
@@ -224,7 +113,8 @@ def score_basic_requirements(
 
     # ── 经验年限（20 分）──
     s_years = _parse_years(s_basic.get("work_years"))
-    j_years = _parse_job_experience(j_basic)
+    j_years_exp = j_basic.get("experience_years", 0)
+    j_years = float(j_years_exp.get("preferred") or j_years_exp.get("min", 0)) if isinstance(j_years_exp, dict) else float(j_years_exp or 0)
     if j_years == 0:
         exp_score = 20.0
     elif s_years >= j_years:
@@ -294,7 +184,7 @@ async def score_skills(
 
     s_skills_raw = s_dims.get("professional_skills", [])
     # 使用适配器获取 job profile 的技能列表（兼容新旧结构）
-    j_skills_raw = _get_job_skills(job_profile)
+    j_skills_raw = job_profile.get("technical_skills", [])
 
     # 标准化学生技能列表
     s_skill_names: list[str] = []
@@ -431,7 +321,7 @@ async def score_competency(
 ) -> CompetencyScore:
     """LLM 评估职业素养: 沟通/团队/抗压/创新/学习."""
     # 使用适配器获取软素养（兼容新旧结构）
-    j_comp = _get_job_soft_competencies(job_profile)
+    j_comp = job_profile.get("soft_competencies", {})
     messages = build_competency_prompt(student_profile, j_comp)
     try:
         result = await llm.generate_json(

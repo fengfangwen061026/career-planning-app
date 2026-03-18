@@ -382,13 +382,16 @@ def _merge_statistical_and_llm(
     llm_profile: dict[str, Any],
     role_name: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """将统计硬锚点与 LLM 结果融合，返回 (merged_profile, evidence)。
+    """将统计硬锚点与 LLM 结果融合，返回 (merged_profile, evidence).
 
-    新7类Schema融合逻辑：
-    1. 使用统计结果填充 basic_requirements 的分布数据
-    2. technical_skills 与统计交叉校验
-    3. 保留原始统计锚点（已过滤噪音）
+    V3 Schema 融合逻辑：
+    1. basic_requirements: 使用统计结果确定学历/经验字符串，LLM 补充专业
+    2. technical_skills: 直接使用 LLM 输出格式（数组）
+    3. soft_competencies: 直接使用 LLM 输出格式（dict）
+    4. 统计锚点保留在 evidence_json 中
     """
+    import re as _re
+
     total_jds = stat_anchors.get("total_jds", 0)
     skill_freq = stat_anchors.get("skill_freq", {})
     education_freq = stat_anchors.get("education_freq", {})
@@ -398,26 +401,47 @@ def _merge_statistical_and_llm(
     cert_freq = stat_anchors.get("cert_freq", {})
     filtered_noise_count = stat_anchors.get("filtered_noise_count", 0)
 
-    # 构建 LLM 技能名称集合（小写）
-    all_llm_skills = []
-    technical_skills = llm_profile.get("technical_skills", {})
-    for category, skills in technical_skills.items():
-        if isinstance(skills, list):
-            all_llm_skills.extend([s.get("name", "").lower() for s in skills])
+    # 从 LLM 输出获取 technical_skills（V3 为数组）
+    llm_tech_skills: list[dict[str, Any]] = llm_profile.get("technical_skills", [])
+    # 构建 LLM 技能名称集合（小写），用于统计补充
+    all_llm_skill_names = set()
+    for sk in llm_tech_skills:
+        name = (sk.get("skill_name") or sk.get("name") or "").lower()
+        if name:
+            all_llm_skill_names.add(name)
 
-    # 统计高频但 LLM 遗漏的技能 → 标记为待审核
+    # 统计高频但 LLM 遗漏的技能 -> 标记为待审核
     high_freq_threshold = max(1, total_jds * 0.3) if total_jds > 0 else 1
     supplemented: list[dict[str, Any]] = []
 
     for term, freq in skill_freq.items():
-        if freq >= high_freq_threshold and term.lower() not in all_llm_skills:
+        if freq >= high_freq_threshold and term.lower() not in all_llm_skill_names:
             supplemented.append({
-                "name": term,
-                "frequency": freq,
+                "skill_name": term,
+                "category": "统计补充",
+                "importance": "bonus",
                 "weight": round(min(freq / total_jds, 1.0), 2) if total_jds else 0.5,
-                "source": "statistical",
-                "note": f"统计高频但LLM未识别，在{total_jds}条JD中出现{freq}次",
+                "proficiency_evidence": f"在{total_jds}条JD中出现{freq}次，LLM未识别",
             })
+
+    # 从统计分布中取最常见的学历（作为字符串）
+    if education_freq:
+        top_edu = max(education_freq.items(), key=lambda x: x[1])[0]
+    else:
+        top_edu = "不限"
+    # 经验年限：取统计中最常见的区间
+    if experience_freq:
+        top_exp = max(experience_freq.items(), key=lambda x: x[1])[0]
+    else:
+        top_exp = "0"
+    # 解析经验年限为数字
+    exp_match = _re.match(r"(\d+)", str(top_exp))
+    exp_years = int(exp_match.group(1)) if exp_match else 0
+
+    # 从 LLM basic_requirements 获取专业信息
+    llm_basic = llm_profile.get("basic_requirements", {})
+    llm_majors = llm_basic.get("majors", [])
+    llm_certs = llm_basic.get("certifications", [])
 
     # 构建 evidence
     evidence: dict[str, Any] = {
@@ -435,28 +459,21 @@ def _merge_statistical_and_llm(
         "filtered_noise_count": filtered_noise_count,
     }
 
-    # 构建最终画像（合并统计与LLM结果）
+    # 构建最终画像（V3 Schema）
     merged_profile: dict[str, Any] = {
         "role_name": role_name,
-        "total_jds_analyzed": total_jds,
+        "summary": llm_profile.get("summary", ""),
         "basic_requirements": {
-            "education": _normalize_distribution(education_freq),
-            "experience": _normalize_distribution(experience_freq),
-            "majors": llm_profile.get("basic_requirements", {}).get("majors", []),
-            "languages": llm_profile.get("basic_requirements", {}).get("languages", []),
-            "cities": [{"name": k, "count": v} for k, v in sorted(city_freq.items(), key=lambda x: -x[1])],
+            "education": top_edu,
+            "majors": llm_majors,
+            "experience_years": {"min": exp_years, "preferred": exp_years + 1},
+            "certifications": llm_certs,
         },
-        "technical_skills": technical_skills,
-        "soft_skills": llm_profile.get("soft_skills", []),
-        "certificates": _merge_certificates(cert_freq, llm_profile.get("certificates", [])),
-        "job_responsibilities": llm_profile.get("job_responsibilities", []),
-        "benefits": [{"name": k, "frequency": v} for k, v in sorted(benefit_freq.items(), key=lambda x: -x[1])],
-        "metadata": {
-            "version": "v2",
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "noise_filtered_count": filtered_noise_count,
-            "supplemented_skills_count": len(supplemented),
-        },
+        "technical_skills": llm_tech_skills + supplemented,
+        "soft_competencies": llm_profile.get("soft_competencies", {}),
+        "development_potential": llm_profile.get("development_potential", {}),
+        "salary_range": llm_profile.get("salary_range", {}),
+        "evidence_summary": llm_profile.get("evidence_summary", f"基于{total_jds}条JD样本生成"),
     }
 
     return merged_profile, evidence
@@ -594,29 +611,27 @@ async def generate_role_profile(
 
 
 def _build_profile_summary(profile: dict[str, Any], role_name: str) -> str:
-    """构建画像摘要文本用于 embedding（适配新7类Schema）。"""
+    """构建画像摘要文本用于 embedding（V3 Schema）。"""
     parts = [f"岗位: {role_name}"]
 
-    # 基础要求 - 学历分布
+    # 基础要求 - 学历（V3 为字符串）
     basic_req = profile.get("basic_requirements", {})
-    if basic_req.get("education"):
-        edu_dist = basic_req["education"]
-        if edu_dist:
-            top_edu = max(edu_dist.items(), key=lambda x: x[1])[0] if edu_dist else ""
-            if top_edu:
-                parts.append(f"学历: {top_edu}")
+    edu = basic_req.get("education", "")
+    if edu:
+        parts.append(f"学历: {edu}")
 
-    # 核心技术技能 - 收集所有必填技能
-    all_required_skills = []
-    tech_skills = profile.get("technical_skills", {})
-    for category, skills in tech_skills.items():
-        if isinstance(skills, list):
-            for s in skills:
-                if s.get("is_required"):
-                    all_required_skills.append(s.get("name", ""))
+    # 核心技术技能（V3 为数组）
+    all_skills = []
+    tech_skills = profile.get("technical_skills", [])
+    if isinstance(tech_skills, list):
+        for s in tech_skills:
+            if s.get("importance") in ("required", "必备"):
+                name = s.get("skill_name") or s.get("name", "")
+                if name:
+                    all_skills.append(name)
 
-    if all_required_skills:
-        parts.append(f"核心技能: {', '.join(all_required_skills[:15])}")
+    if all_skills:
+        parts.append(f"核心技能: {', '.join(all_skills[:15])}")
 
     return " | ".join(parts)
 
