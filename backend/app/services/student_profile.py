@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embedding import embedding
 from app.models.student import Resume, Student, StudentProfile
+from app.schemas.profiles import ResumeParseResult
 from app.services.resume_parser import compute_completeness_score, generate_missing_suggestions
 
 logger = logging.getLogger(__name__)
@@ -228,11 +229,16 @@ async def generate_student_profile(
         raise ValueError(f"Resume {resume.id} has not been parsed yet")
 
     parsed_data = resume.parsed_json
+    parse_result = (
+        parsed_data
+        if isinstance(parsed_data, ResumeParseResult)
+        else ResumeParseResult.model_validate(parsed_data)
+    )
 
     # 组装画像
     profile_json = _build_profile_json(parsed_data, student)
-    completeness_score = compute_completeness_score(parsed_data)
-    missing_suggestions = generate_missing_suggestions(parsed_data)
+    completeness_score = compute_completeness_score(parse_result)
+    missing_suggestions = generate_missing_suggestions(parse_result)
 
     # 生成 embedding
     summary = _build_profile_summary(profile_json)

@@ -156,11 +156,13 @@ export default function StudentProfile() {
   const profileJson = currentProfile?.profile_json;
   const studentName = profileJson?.basic_info?.name || students.find(s => s.id === selectedStudentId)?.name || '未知';
   const studentEmail = profileJson?.basic_info?.email || students.find(s => s.id === selectedStudentId)?.email || '';
+  const completenessScoreRaw = currentProfile?.completeness_score || 0;
+  const completenessScore = completenessScoreRaw <= 1 ? Math.round(completenessScoreRaw * 100) : completenessScoreRaw;
 
   // 计算完整度饼图数据
   const completenessData: PieChartData[] = [
-    { name: '完整度', value: currentProfile?.completeness_score || 0 },
-    { name: '缺失', value: 100 - (currentProfile?.completeness_score || 0) },
+    { name: '完整度', value: completenessScore },
+    { name: '缺失', value: Math.max(0, 100 - completenessScore) },
   ];
 
   // 技能分类
@@ -216,7 +218,7 @@ export default function StudentProfile() {
   const softSkills = profileJson?.soft_skills || {};
   const softSkillsData = Object.entries(softSkills).map(([key, value]) => ({
     subject: key,
-    A: value,
+    A: typeof value === 'number' && value <= 1 ? Math.round(value * 100) : value,
     fullMark: 100,
   }));
 
@@ -231,7 +233,7 @@ export default function StudentProfile() {
       return mapped;
     }
     // 使用默认四维数据，但如果有completeness_score可以展示
-    const avgScore = currentProfile?.completeness_score || 0;
+    const avgScore = completenessScore;
     return [
       { subject: '基础要求', A: avgScore, fullMark: 100 },
       { subject: '技术技能', A: avgScore * 0.9, fullMark: 100 },
@@ -418,14 +420,14 @@ export default function StudentProfile() {
                         left: '50%',
                       }}
                     >
-                      <Title
-                        level={2}
-                        style={{
-                          color: getScoreColor(currentProfile.completeness_score),
-                          margin: 0,
-                        }}
-                      >
-                        {currentProfile.completeness_score}
+                        <Title
+                          level={2}
+                          style={{
+                            color: getScoreColor(completenessScore),
+                            margin: 0,
+                          }}
+                        >
+                        {completenessScore}
                       </Title>
                       <Text type="secondary">分</Text>
                     </div>

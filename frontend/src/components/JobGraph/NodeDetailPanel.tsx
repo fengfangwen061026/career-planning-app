@@ -19,6 +19,39 @@ interface DetailState {
   stats: JobStats | null;
 }
 
+const PROFILE_LABELS: Record<string, string> = {
+  role_name: "岗位名称",
+  summary: "岗位概述",
+  basic_requirements: "基础要求",
+  education: "学历要求",
+  majors: "相关专业",
+  experience_years: "经验年限",
+  min: "最低要求",
+  preferred: "优先条件",
+  certifications: "证书要求",
+  technical_skills: "技术技能",
+  soft_skills: "软技能",
+  development_potential: "发展潜力",
+  growth_indicators: "成长方向",
+  learning_requirements: "学习要求",
+  innovation_signals: "创新信号",
+  salary_range: "薪资范围",
+  entry_level: "初级阶段",
+  experienced: "熟练阶段",
+  senior: "高级阶段",
+  evidence_summary: "证据摘要",
+  name: "名称",
+  category: "类别",
+  importance: "重要程度",
+  frequency_pct: "出现频率",
+  evidence: "依据",
+  current: "当前情况",
+  required: "目标要求",
+  priority: "优先级",
+  suggestion: "建议",
+  top_skills: "核心技能",
+};
+
 export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
   const navigate = useNavigate();
   const [state, setState] = useState<DetailState>({
@@ -151,7 +184,7 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
             className={styles.sectionBar}
             style={{ backgroundColor: accentColor }}
           />
-          <span className={styles.sectionTitle}>Top Skills</span>
+          <span className={styles.sectionTitle}>核心技能</span>
         </div>
         <div className={styles.sectionBody}>
           {topSkills.length > 0 ? (
@@ -375,7 +408,5 @@ function formatSalaryRange(min: number | null, max: number | null): string {
 }
 
 function formatKey(key: string): string {
-  return key
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  return PROFILE_LABELS[key] ?? key.replace(/_/g, " ");
 }

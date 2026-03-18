@@ -30,7 +30,7 @@ export function useGraphData(): UseGraphDataResult {
       };
       setData(graphData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch graph data");
+      setError(err instanceof Error ? err.message : "获取图谱数据失败");
     } finally {
       setLoading(false);
     }
@@ -44,7 +44,7 @@ export function useGraphData(): UseGraphDataResult {
       await graphApi.rebuildMindmap();
       await fetchData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to rebuild graph");
+      setError(err instanceof Error ? err.message : "重建图谱失败");
       setLoading(false);
     }
   }, [fetchData]);
