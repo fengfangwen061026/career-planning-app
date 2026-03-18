@@ -35,10 +35,17 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // 找最精确匹配的菜单项（key 最长的那个）
+  const activeKey = menuItems
+    .filter(item =>
+      item.key === '/'
+        ? location.pathname === '/'
+        : location.pathname === item.key || location.pathname.startsWith(item.key + '/')
+    )
+    .sort((a, b) => b.key.length - a.key.length)[0]?.key ?? '';
+
   const getCurrentAccentColor = () => {
-    const item = menuItems.find(
-      (m) => location.pathname === m.key || (m.key !== '/' && location.pathname.startsWith(m.key))
-    );
+    const item = menuItems.find(m => m.key === activeKey);
     return item?.accentColor || '#5B6FD4';
   };
 
@@ -96,9 +103,7 @@ export default function Layout() {
         {/* 菜单区 */}
         <div style={{ flex: 1, padding: '12px 8px', overflowY: 'auto' }}>
           {menuItems.map((item) => {
-            const isActive =
-              location.pathname === item.key ||
-              (item.key !== '/' && location.pathname.startsWith(item.key));
+            const isActive = item.key === activeKey;
             const IconComponent = item.icon;
             return (
               <div
@@ -189,11 +194,7 @@ export default function Layout() {
               background: `${currentAccent}15`,
             }}
           >
-            {menuItems.find(
-              (m) =>
-                location.pathname === m.key ||
-                (m.key !== '/' && location.pathname.startsWith(m.key))
-            )?.label || '职业规划系统'}
+            {menuItems.find(m => m.key === activeKey)?.label || '职业规划系统'}
           </div>
 
           {/* 右：头像 */}

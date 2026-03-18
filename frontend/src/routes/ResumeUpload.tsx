@@ -850,6 +850,16 @@ export default function ResumeUpload() {
       {/* Step Indicator */}
       {uploadStep !== 'complete' && <StepIndicator currentStep={uploadStep} />}
 
+      {uploadStep !== 'preview' && (
+        <div style={{ display: 'none' }}>
+          <Form form={profileForm} layout="vertical">
+            <Form.Item name="__profile_form_placeholder">
+              <Input />
+            </Form.Item>
+          </Form>
+        </div>
+      )}
+
       {/* Student Selection */}
       <GlassCard className="mb-6">
         <Space>

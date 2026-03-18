@@ -130,18 +130,20 @@ export function JobGraph() {
       <div
         className={`${styles.graphPane} ${selectedJob ? styles.withDetail : ""}`}
       >
-        <GraphControls
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          categories={categoryNodes}
-          selectedCategories={selectedCategories}
-          onCategoryToggle={handleCategoryToggle}
-          onRebuild={handleRebuild}
-          loading={loading}
-        />
+        <div className={styles.headerStack}>
+          <GraphControls
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            categories={categoryNodes}
+            selectedCategories={selectedCategories}
+            onCategoryToggle={handleCategoryToggle}
+            onRebuild={handleRebuild}
+            loading={loading}
+          />
 
-        <div className={styles.statsStrip}>
-          共 {totals.role_count} 个岗位类型 · {totals.jd_count.toLocaleString()} 条招聘数据 · 覆盖 {totals.category_count} 大行业领域
+          <div className={styles.statsStrip}>
+            共 {totals.role_count} 个岗位类型 · {totals.jd_count.toLocaleString()} 条招聘数据 · 覆盖 {totals.category_count} 个行业领域
+          </div>
         </div>
 
         <GraphCanvas

@@ -19,6 +19,19 @@ interface DetailState {
   stats: JobStats | null;
 }
 
+interface SkillItem {
+  name: string;
+  category?: string;
+  importance?: string;
+  frequency_pct?: number;
+  evidence?: string;
+}
+
+interface CertificationItem {
+  name: string;
+  required?: boolean;
+}
+
 const PROFILE_LABELS: Record<string, string> = {
   role_name: "岗位名称",
   summary: "岗位概述",
@@ -255,35 +268,49 @@ function ProfileContent({
           <h3 className={styles.profileBlockTitle} style={{ color: accentColor }}>
             {formatKey(key)}
           </h3>
-          <div className={styles.profileBlockBody}>{renderProfileValue(value)}</div>
+          <div className={styles.profileBlockBody}>{renderProfileValue(value, key)}</div>
         </section>
       ))}
     </div>
   );
 }
 
-function renderProfileValue(value: unknown): JSX.Element {
-  if (value == null) {
+function renderProfileValue(value: unknown, fieldKey?: string): JSX.Element {
+  const normalizedValue = normalizeJsonValue(value);
+
+  if (normalizedValue == null) {
     return <div className={styles.profileMuted}>暂无数据</div>;
   }
 
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return <div className={styles.profileParagraph}>{String(value)}</div>;
+  if (isCertificationList(normalizedValue) || fieldKey === "certifications") {
+    return renderCertifications(normalizedValue);
   }
 
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
+  if (isTechnicalSkillList(normalizedValue) || fieldKey === "technical_skills") {
+    return renderTechnicalSkills(normalizedValue);
+  }
+
+  if (isSoftSkillList(normalizedValue) || fieldKey === "soft_skills") {
+    return renderSoftSkills(normalizedValue);
+  }
+
+  if (
+    typeof normalizedValue === "string" ||
+    typeof normalizedValue === "number" ||
+    typeof normalizedValue === "boolean"
+  ) {
+    return <div className={styles.profileParagraph}>{String(normalizedValue)}</div>;
+  }
+
+  if (Array.isArray(normalizedValue)) {
+    if (normalizedValue.length === 0) {
       return <div className={styles.profileMuted}>暂无数据</div>;
     }
 
-    if (value.every((item) => typeof item === "string" || typeof item === "number")) {
+    if (normalizedValue.every(isPrimitiveValue)) {
       return (
         <div className={styles.profileTagList}>
-          {value.map((item, index) => (
+          {normalizedValue.map((item, index) => (
             <span key={`${item}-${index}`} className={styles.profileTag}>
               {String(item)}
             </span>
@@ -294,65 +321,194 @@ function renderProfileValue(value: unknown): JSX.Element {
 
     return (
       <div className={styles.profileList}>
-        {value.map((item, index) => (
+        {normalizedValue.map((item, index) => (
           <div key={index} className={styles.profileListItem}>
-            {renderObjectOrPrimitive(item)}
+            {renderProfileValue(item)}
           </div>
         ))}
       </div>
     );
   }
 
-  if (typeof value === "object") {
+  if (typeof normalizedValue === "object") {
     return (
       <div className={styles.profileKvList}>
-        {Object.entries(value as Record<string, unknown>).map(([subKey, subValue]) => (
-          <div key={subKey} className={styles.profileKvRow}>
-            <span className={styles.profileKvKey}>{formatKey(subKey)}</span>
-            <div className={styles.profileKvValue}>{renderObjectOrPrimitive(subValue)}</div>
-          </div>
-        ))}
+        {Object.entries(normalizedValue as Record<string, unknown>).map(([subKey, subValue]) => {
+          const nestedValue = normalizeJsonValue(subValue);
+          const complex =
+            Array.isArray(nestedValue) ||
+            (nestedValue !== null && typeof nestedValue === "object");
+
+          return (
+            <div
+              key={subKey}
+              className={`${styles.profileKvRow} ${complex ? styles.profileKvRowStacked : ""}`}
+            >
+              <span className={styles.profileKvKey}>{formatKey(subKey)}</span>
+              <div className={styles.profileKvValue}>{renderProfileValue(nestedValue, subKey)}</div>
+            </div>
+          );
+        })}
       </div>
     );
   }
 
-  return <div className={styles.profileParagraph}>{String(value)}</div>;
+  return <div className={styles.profileParagraph}>{String(normalizedValue)}</div>;
 }
 
-function renderObjectOrPrimitive(value: unknown): JSX.Element {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return (
-      <div className={styles.profileInlineGrid}>
-        {Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => (
-          <div key={key} className={styles.profileInlineItem}>
-            <span className={styles.profileInlineKey}>{formatKey(key)}</span>
-            <span className={styles.profileInlineValue}>{stringifyValue(nestedValue)}</span>
-          </div>
-        ))}
-      </div>
-    );
+function renderTechnicalSkills(value: unknown): JSX.Element {
+  const skills = normalizeSkillList(value);
+  if (skills.length === 0) {
+    return <div className={styles.profileMuted}>暂无技能数据</div>;
   }
 
-  if (Array.isArray(value)) {
-    return (
-      <div className={styles.profileParagraph}>
-        {value.map(stringifyValue).join(" · ")}
-      </div>
-    );
-  }
-
-  return <div className={styles.profileParagraph}>{stringifyValue(value)}</div>;
+  return (
+    <div className={styles.skillRowList}>
+      {skills.map((skill, index) => (
+        <div
+          key={`${skill.name}-${index}`}
+          className={styles.skillRow}
+        >
+          <span className={styles.skillName}>{skill.name}</span>
+          {skill.category ? (
+            <span className={styles.skillMetaTag}>{skill.category}</span>
+          ) : null}
+          {skill.importance ? (
+            <span
+              className={`${styles.skillImportanceTag} ${getImportanceClass(skill.importance)}`}
+            >
+              {getImportanceSymbol(skill.importance)} {normalizeImportanceLabel(skill.importance)}
+            </span>
+          ) : null}
+          <span className={styles.skillFrequency}>
+            {skill.frequency_pct != null ? `${skill.frequency_pct}%` : "—"}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function stringifyValue(value: unknown): string {
-  if (value == null) return "暂无";
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return String(value);
+function renderSoftSkills(value: unknown): JSX.Element {
+  const skills = normalizeSkillList(value);
+  if (skills.length === 0) {
+    return <div className={styles.profileMuted}>暂无技能数据</div>;
   }
-  if (Array.isArray(value)) {
-    return value.map(stringifyValue).join(" · ");
+
+  return (
+    <div className={styles.softSkillList}>
+      {skills.map((skill, index) => (
+        <span
+          key={`${skill.name}-${index}`}
+          className={`${styles.softSkillTag} ${getSoftSkillClass(skill.importance)}`}
+          title={skill.evidence ?? ""}
+        >
+          {getImportanceSymbol(skill.importance)} {skill.name}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function renderCertifications(value: unknown): JSX.Element {
+  const certs = normalizeCertificationList(value);
+  if (certs.length === 0) {
+    return <div className={styles.profileMuted}>暂无数据</div>;
   }
-  return JSON.stringify(value);
+
+  return (
+    <div className={styles.certificationList}>
+      {certs.map((cert, index) => (
+        <span
+          key={`${cert.name}-${index}`}
+          className={`${styles.certTag} ${cert.required ? styles.certRequired : styles.certOptional}`}
+        >
+          {cert.name}
+          {cert.required ? "" : "（选修）"}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function normalizeJsonValue(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+    (trimmed.startsWith("{") && trimmed.endsWith("}"))
+  ) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return value;
+    }
+  }
+
+  return value;
+}
+
+function isPrimitiveValue(value: unknown): boolean {
+  return (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  );
+}
+
+function normalizeSkillList(value: unknown): SkillItem[] {
+  const normalized = normalizeJsonValue(value);
+  if (!Array.isArray(normalized)) {
+    return [];
+  }
+
+  return normalized
+    .map((item) => normalizeJsonValue(item))
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    .map((item) => ({
+      name: typeof item.name === "string" ? item.name : "未命名技能",
+      category: typeof item.category === "string" ? item.category : undefined,
+      importance: typeof item.importance === "string" ? item.importance : undefined,
+      frequency_pct:
+        typeof item.frequency_pct === "number"
+          ? item.frequency_pct
+          : typeof item.frequency_pct === "string"
+            ? Number(item.frequency_pct.replace("%", ""))
+            : undefined,
+      evidence: typeof item.evidence === "string" ? item.evidence : undefined,
+    }));
+}
+
+function normalizeCertificationList(value: unknown): CertificationItem[] {
+  const normalized = normalizeJsonValue(value);
+  if (!Array.isArray(normalized)) {
+    return [];
+  }
+
+  return normalized
+    .map((item) => normalizeJsonValue(item))
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    .map((item) => ({
+      name: typeof item.name === "string" ? item.name : "未命名证书",
+      required: Boolean(item.required),
+    }));
+}
+
+function isTechnicalSkillList(value: unknown): boolean {
+  const skills = normalizeSkillList(value);
+  return skills.length > 0 && skills.some((skill) => skill.frequency_pct != null || skill.category || skill.importance);
+}
+
+function isSoftSkillList(value: unknown): boolean {
+  const skills = normalizeSkillList(value);
+  return skills.length > 0 && skills.some((skill) => Boolean(skill.evidence));
+}
+
+function isCertificationList(value: unknown): boolean {
+  return normalizeCertificationList(value).length > 0;
 }
 
 function extractTopSkills(profileJson?: Record<string, unknown>): string[] {
@@ -360,43 +516,8 @@ function extractTopSkills(profileJson?: Record<string, unknown>): string[] {
     return [];
   }
 
-  const skills = new Set<string>();
-  const technicalSkills = profileJson.technical_skills;
-
-  if (Array.isArray(technicalSkills)) {
-    technicalSkills.forEach((skill) => {
-      if (typeof skill === "string") {
-        skills.add(skill);
-      }
-      if (
-        skill &&
-        typeof skill === "object" &&
-        "name" in skill &&
-        typeof skill.name === "string"
-      ) {
-        skills.add(skill.name);
-      }
-    });
-  }
-
-  if (technicalSkills && typeof technicalSkills === "object" && !Array.isArray(technicalSkills)) {
-    Object.values(technicalSkills as Record<string, unknown>).forEach((value) => {
-      if (Array.isArray(value)) {
-        value.forEach((item) => {
-          if (
-            item &&
-            typeof item === "object" &&
-            "name" in item &&
-            typeof item.name === "string"
-          ) {
-            skills.add(item.name);
-          }
-        });
-      }
-    });
-  }
-
-  return Array.from(skills);
+  const skills = normalizeSkillList(profileJson.technical_skills);
+  return skills.map((skill) => skill.name);
 }
 
 function formatSalaryRange(min: number | null, max: number | null): string {
@@ -409,4 +530,36 @@ function formatSalaryRange(min: number | null, max: number | null): string {
 
 function formatKey(key: string): string {
   return PROFILE_LABELS[key] ?? key.replace(/_/g, " ");
+}
+
+function getImportanceClass(importance?: string): string {
+  const label = normalizeImportanceLabel(importance);
+  if (label === "必备") return styles.skillImportanceRequired;
+  if (label === "优先") return styles.skillImportancePreferred;
+  return styles.skillImportanceBonus;
+}
+
+function getSoftSkillClass(importance?: string): string {
+  const label = normalizeImportanceLabel(importance);
+  if (label === "核心素养") return styles.softSkillCore;
+  if (label === "重要") return styles.softSkillImportant;
+  return styles.softSkillBonus;
+}
+
+function getImportanceSymbol(importance?: string): string {
+  const label = normalizeImportanceLabel(importance);
+  if (label === "必备" || label === "核心素养") return "●";
+  if (label === "优先" || label === "重要") return "○";
+  return "·";
+}
+
+function normalizeImportanceLabel(importance?: string): string {
+  if (!importance) return "加分";
+  if (importance.includes("必备")) return "必备";
+  if (importance.includes("优先")) return "优先";
+  if (importance.includes("核心")) return "核心素养";
+  if (importance.includes("重要")) return "重要";
+  if (importance.includes("加分")) return "加分";
+  if (importance.includes("了解")) return "加分";
+  return importance;
 }
