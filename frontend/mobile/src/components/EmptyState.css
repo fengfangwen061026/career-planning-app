@@ -1,4 +1,4 @@
-@import '../../styles/mobile-tokens.css';
+@import '../styles/mobile-tokens.css';
 
 .empty-state {
   height: 280px;
