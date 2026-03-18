@@ -424,6 +424,7 @@ export default function StudentProfile() {
             <Row gutter={24} className="mb-6">
               {/* 左侧栏：技能栈可视化 */}
               <Col xs={24} lg={6}>
+                {/* 卡片1：技能栈 */}
                 <GlassCard className="h-full">
                   <Title level={4} className="m-0" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
                     <BookOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
@@ -467,6 +468,37 @@ export default function StudentProfile() {
                     <Empty description="暂无技能数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   )}
                 </GlassCard>
+
+                {/* 卡片2：获奖信息 */}
+                {awards.length > 0 && (
+                  <GlassCard className="h-full" style={{ marginTop: '16px' }}>
+                    <Title level={4} className="m-0" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
+                      <TrophyOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
+                      获奖信息
+                    </Title>
+                    <div className="space-y-2">
+                      {awards.map((award: { name: string; level?: string; date?: string }, index: number) => (
+                        <div
+                          key={`${award.name}-${index}`}
+                          style={{
+                            background: 'rgba(249,250,251,0.8)',
+                            borderRadius: '0 8px 8px 0',
+                            padding: '8px 12px',
+                            marginBottom: '8px',
+                            borderLeft: '3px solid #C4758A',
+                          }}
+                        >
+                          <Text strong style={{ color: '#0A0A0A', fontSize: '14px' }}>{award.name}</Text>
+                          <div>
+                            <Text type="secondary" className="text-sm">
+                              {[award.level, award.date].filter(Boolean).join(' | ') || '暂无级别/时间'}
+                            </Text>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </GlassCard>
+                )}
               </Col>
 
               {/* 中间栏：项目/实习经历时间线 */}
@@ -560,37 +592,6 @@ export default function StudentProfile() {
                       </div>
                     ) : (
                       <Text type="secondary">暂无软素养数据</Text>
-                    )}
-                  </div>
-
-                  <div className="mt-6">
-                    <Text strong type="secondary" style={{ color: '#6B7280' }}>
-                      获奖信息
-                    </Text>
-                    {awards.length > 0 ? (
-                      <div className="mt-3 space-y-2">
-                        {awards.map((award: { name: string; level?: string; date?: string }, index: number) => (
-                          <div
-                            key={`${award.name}-${index}`}
-                            style={{
-                              background: 'rgba(249,250,251,0.8)',
-                              borderRadius: '10px',
-                              padding: '12px 16px',
-                              marginBottom: '8px',
-                              borderLeft: '3px solid #CB8A4A',
-                            }}
-                          >
-                            <Text strong style={{ color: '#0A0A0A' }}>{award.name}</Text>
-                            <div>
-                              <Text type="secondary" className="text-sm">
-                                {[award.level, award.date].filter(Boolean).join(' | ') || '暂无级别/时间'}
-                              </Text>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <Text type="secondary">暂无获奖信息</Text>
                     )}
                   </div>
                 </GlassCard>

@@ -50,8 +50,9 @@ class ResumeParserService:
                 prompt=prompt,
                 system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
                 temperature=0.3,
-                max_tokens=6000,
+                max_tokens=2000,
                 max_retries=3,
+                disable_reasoning=True,
             )
         except Exception as e:
             logger.exception("Resume parse failed: %s", e)
@@ -68,6 +69,7 @@ class ResumeParserService:
                     prompt=fallback_prompt,
                     system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
                     max_retries=3,
+                    disable_reasoning=True,
                 )
             except Exception:
                 logger.error("Resume parse failed after fallback, returning empty result")

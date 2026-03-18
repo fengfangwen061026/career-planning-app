@@ -33,6 +33,7 @@ RESUME_PARSE_USER_TEMPLATE = """简历格式可能不规范，请从任意格式
 3. 技能（skills）：AI 工具使用、办公软件、通用能力归类为“其他”，也要提取。
 4. 自我评价（self_intro）：找到自我评价段落后直接提取原文。
 5. 如果同一项目出现在“项目经历”和“荣誉奖项”两个位置，projects 和 awards 两个字段都要填。
+6. 日期格式识别：日期可能以“YYYY-MM~YYYY-MM”或“YYYY-MM~至今”格式出现在行首，紧跟项目名或学校名，用空格分隔（如“2025-12~2026-01  项目名  奖项”）。必须将行首日期范回回拆分为 start_date 和 end_date 填入对应字段，不要遗漏。“至今” 对应的 end_date 直接填 “至今”，start_date 和 end_date 格式统一个为 “YYYY-MM”。
 
 请解析以下简历，严格按照 Schema 输出 JSON：
 

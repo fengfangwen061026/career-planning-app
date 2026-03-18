@@ -31,13 +31,17 @@ class LLMProvider:
         messages: list[dict[str, str]],
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        disable_reasoning: bool = False,
     ) -> str:
-        response = await self.client.chat.completions.create(
+        kwargs: dict = dict(
             model=self.model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        if disable_reasoning:
+            kwargs["extra_body"] = {"reasoning": {"max_tokens": 1}}
+        response = await self.client.chat.completions.create(**kwargs)
         content = response.choices[0].message.content or ""
         return _strip_reasoning(content)
 
@@ -68,13 +72,19 @@ class LLMProvider:
         system_prompt: str = "",
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        disable_reasoning: bool = False,
     ) -> str:
         """Generate a plain-text response from a prompt."""
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-        return await self.chat(messages, temperature=temperature, max_tokens=max_tokens)
+        return await self.chat(
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            disable_reasoning=disable_reasoning,
+        )
 
     async def generate_json(
         self,
@@ -84,6 +94,7 @@ class LLMProvider:
         max_retries: int = 3,
         temperature: float = 0.3,
         max_tokens: int | None = None,
+        disable_reasoning: bool = False,
     ) -> dict[str, Any]:
         """Generate a structured JSON response with retry & parse tolerance.
 
@@ -106,7 +117,12 @@ class LLMProvider:
         last_error: Exception | None = None
         for attempt in range(1, max_retries + 1):
             try:
-                raw = await self.chat(messages, temperature=temperature, max_tokens=max_tokens)
+                raw = await self.chat(
+                    messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    disable_reasoning=disable_reasoning,
+                )
                 return _parse_json_tolerant(raw)
             except (json.JSONDecodeError, ValueError) as exc:
                 last_error = exc
