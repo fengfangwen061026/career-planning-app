@@ -4,9 +4,11 @@ import {
   Button,
   Form,
   Input,
+  Progress,
   Select,
   Space,
   Tag,
+  Alert,
   message,
   Typography,
 } from 'antd';
@@ -31,6 +33,12 @@ const MODULE_BG = '#FEF5E9';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
+const PARSING_MESSAGES = [
+  '正在提取简历内容...',
+  'AI 正在分析技能与经历...',
+  '正在生成结构化画像...',
+  '即将完成，请稍候...',
+] as const;
 
 // Parsed resume data structure
 interface ParsedResumeData {
@@ -192,6 +200,8 @@ export default function ResumeUpload() {
   // Upload state
   const [uploadStep, setUploadStep] = useState<UploadStep>('upload');
   const [parseProgress, setParseProgress] = useState(0);
+  const [parseMessage, setParseMessage] = useState<string>(PARSING_MESSAGES[0]);
+  const [parseAlert, setParseAlert] = useState<string | null>(null);
   const [parsedData, setParsedData] = useState<ParsedResumeData | null>(null);
   const [resumeResponse, setResumeResponse] = useState<ResumeUploadResponse | null>(null);
   const [profileCreated, setProfileCreated] = useState(false);
@@ -199,9 +209,26 @@ export default function ResumeUpload() {
   // Drag state
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
+  const parseProgressIntervalRef = useRef<number | null>(null);
+  const parseMessageIntervalRef = useRef<number | null>(null);
+  const parseSlowHintTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     fetchStudents();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (parseProgressIntervalRef.current) {
+        window.clearInterval(parseProgressIntervalRef.current);
+      }
+      if (parseMessageIntervalRef.current) {
+        window.clearInterval(parseMessageIntervalRef.current);
+      }
+      if (parseSlowHintTimeoutRef.current) {
+        window.clearTimeout(parseSlowHintTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -244,24 +271,46 @@ export default function ResumeUpload() {
     }
   };
 
-  // Simulate parsing progress
-  const simulateParsing = () => {
+  const clearParsingFeedback = () => {
+    if (parseProgressIntervalRef.current) {
+      window.clearInterval(parseProgressIntervalRef.current);
+      parseProgressIntervalRef.current = null;
+    }
+    if (parseMessageIntervalRef.current) {
+      window.clearInterval(parseMessageIntervalRef.current);
+      parseMessageIntervalRef.current = null;
+    }
+    if (parseSlowHintTimeoutRef.current) {
+      window.clearTimeout(parseSlowHintTimeoutRef.current);
+      parseSlowHintTimeoutRef.current = null;
+    }
+  };
+
+  const startParsingFeedback = () => {
+    clearParsingFeedback();
     setUploadStep('parsing');
-    setParseProgress(0);
+    setParseProgress(60);
+    setParseMessage(PARSING_MESSAGES[0]);
+    setParseAlert(null);
 
-    const interval = setInterval(() => {
+    parseProgressIntervalRef.current = window.setInterval(() => {
       setParseProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          return 100;
+        if (prev >= 95) {
+          return 95;
         }
-        // Simulate variable progress
-        const increment = Math.random() * 15 + 5;
-        return Math.min(prev + increment, 100);
+        return prev + 1;
       });
-    }, 300);
+    }, 1000);
 
-    return interval;
+    let messageIndex = 0;
+    parseMessageIntervalRef.current = window.setInterval(() => {
+      messageIndex = (messageIndex + 1) % PARSING_MESSAGES.length;
+      setParseMessage(PARSING_MESSAGES[messageIndex]);
+    }, 3000);
+
+    parseSlowHintTimeoutRef.current = window.setTimeout(() => {
+      setParseAlert('解析时间较长，请稍候或重新上传');
+    }, 60000);
   };
 
   const handleUpload = async (file: File) => {
@@ -280,8 +329,7 @@ export default function ResumeUpload() {
     setProfileCreated(false);
 
     try {
-      // Start progress simulation
-      const progressInterval = simulateParsing();
+      startParsingFeedback();
 
       // Upload resume
       const response = await studentsApi.uploadResume(selectedStudent, file);
@@ -292,9 +340,10 @@ export default function ResumeUpload() {
         Object.keys((response.data?.parsed_data as Record<string, unknown>) ?? {})
       );
 
-      // Stop progress simulation and set to 100%
-      clearInterval(progressInterval);
+      clearParsingFeedback();
       setParseProgress(100);
+      setParseMessage('解析完成！');
+      setParseAlert(null);
 
       // Brief delay for animation
       await new Promise<void>((resolve) => setTimeout(resolve, 500));
@@ -354,12 +403,10 @@ export default function ResumeUpload() {
         setUploadStep('preview');
       }, 500);
     } catch (error: any) {
-      const errorMessage =
-        error?.code === 'ECONNABORTED'
-          ? '简历解析耗时较长，请稍后重试'
-          : error?.response?.data?.detail || '上传失败，请重试';
-      message.error(errorMessage);
-      setUploadStep('upload');
+      clearParsingFeedback();
+      setParseAlert('解析时间较长，请稍候或重新上传');
+      setParseMessage('AI 仍在尝试处理中...');
+      setUploadStep('parsing');
     } finally {
       setLoading(false);
     }
@@ -422,10 +469,13 @@ export default function ResumeUpload() {
   const handleReset = () => {
     setUploadStep('upload');
     setParseProgress(0);
+    setParseMessage(PARSING_MESSAGES[0]);
+    setParseAlert(null);
     setParsedData(null);
     setResumeResponse(null);
     setProfileCreated(false);
     profileForm.resetFields();
+    clearParsingFeedback();
   };
 
   // Render upload step - left panel
@@ -487,22 +537,33 @@ export default function ResumeUpload() {
       </div>
       <Title level={4} className="mb-4">正在解析简历...</Title>
 
-      {/* Custom progress bar */}
-      <div className="max-w-xs mx-auto mb-4">
-        <div className="h-2 bg-[#E5E7EB] rounded-full overflow-hidden">
-          <div
-            className="h-full bg-[#CB8A4A] transition-all duration-300 ease-out rounded-full"
-            style={{ width: `${Math.round(parseProgress)}%` }}
-          />
-        </div>
-        <p className="text-[14px] text-[#6B7280] mt-2">
-          {Math.round(parseProgress)}%
-        </p>
+      <div className="max-w-md mx-auto mb-4">
+        <Progress
+          percent={Math.round(parseProgress)}
+          status={parseProgress >= 100 ? 'success' : 'active'}
+          strokeColor="#CB8A4A"
+        />
       </div>
 
       <Text type="secondary">
-        正在提取简历中的关键信息，请稍候
+        {parseMessage}
       </Text>
+
+      {parseAlert && (
+        <div className="max-w-md mx-auto mt-6 text-left">
+          <Alert
+            type="warning"
+            showIcon
+            message="解析时间较长，请稍候或重新上传"
+            description={parseAlert}
+            action={
+              <Button size="small" onClick={handleReset}>
+                重新上传
+              </Button>
+            }
+          />
+        </div>
+      )}
     </GlassCard>
   );
 

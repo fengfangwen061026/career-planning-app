@@ -1,3 +1,8 @@
+---
+name: commit
+description: 当用户执行 /commit 命令时，自动检查 git 状态、添加文件、生成 commit 消息并推送到远程仓库。
+---
+
 # Commit Skill
 
 当用户执行 `/commit` 命令时，自动完成以下操作：

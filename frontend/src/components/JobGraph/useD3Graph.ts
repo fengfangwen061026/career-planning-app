@@ -56,16 +56,11 @@ export function useD3Graph({
     const hasVisibleJobs = nodes.some((node) => node.type === "job");
     const radius = Math.min(width, height) * (hasVisibleJobs ? 0.44 : 0.34);
     const centerX = width / 2;
-    const centerY = height / 2 + 38;
+    const centerY = height / 2 + 24;
     const root = createTreeLayout(treeData, radius);
     const searchLower = searchQuery.trim().toLowerCase();
 
-    let initialTransform = d3.zoomIdentity;
-
     const zoomLayer = svg.append("g");
-    const layoutLayer = zoomLayer
-      .append("g")
-      .attr("transform", `translate(${centerX},${centerY})`);
 
     const zoom = d3
       .zoom<SVGSVGElement, unknown>()
@@ -75,7 +70,7 @@ export function useD3Graph({
       });
 
     const resetZoom = () => {
-      svg.transition().duration(260).call(zoom.transform, initialTransform);
+      svg.transition().duration(260).call(zoom.transform, d3.zoomIdentity);
     };
 
     svg.call(zoom);
@@ -83,10 +78,10 @@ export function useD3Graph({
     svg.on("dblclick.reset", () => resetZoom());
     svg.on("click.close-panel", () => onJobSelect?.(null));
 
-    const linksGroup = layoutLayer.append("g").attr("class", "links");
-    const nodesGroup = layoutLayer.append("g").attr("class", "nodes");
+    const linksGroup = zoomLayer.append("g").attr("class", "links");
+    const nodesGroup = zoomLayer.append("g").attr("class", "nodes");
 
-    const linkGenerator = d3
+    const projectedLinkGenerator = d3
       .linkRadial<PointLink, PointNode>()
       .angle((datum) => datum.x)
       .radius((datum) => datum.y);
@@ -125,8 +120,11 @@ export function useD3Graph({
     );
 
     const getNodePosition = (node: PointNode) => {
-      const [x, y] = radialPoint(node.x || 0, node.y || 0);
-      return { x, y };
+      const [dx, dy] = radialPoint(node.x ?? 0, node.y ?? 0);
+      return {
+        x: centerX + dx,
+        y: centerY + dy,
+      };
     };
 
     const getBaseScale = (node: PointNode) => {
@@ -170,7 +168,8 @@ export function useD3Graph({
       .attr("stroke", (link) => `${link.target.data.color ?? graphStyles.primary}33`)
       .attr("stroke-width", graphStyles.lineWidth)
       .attr("opacity", 0)
-      .attr("d", (link) => linkGenerator(link) ?? "")
+      .attr("transform", `translate(${centerX},${centerY})`)
+      .attr("d", (link) => projectedLinkGenerator(link) ?? "")
       .transition()
       .duration(graphStyles.layoutDuration)
       .ease(d3.easeCubicOut)
@@ -438,21 +437,7 @@ export function useD3Graph({
           .attr("fill", "rgba(255,255,255,0.92)");
       });
 
-    const bounds = layoutLayer.node()?.getBBox();
-    if (bounds) {
-      const scale = 0.84 / Math.max(bounds.width / width, bounds.height / (height - 180));
-      const midX = bounds.x + bounds.width / 2;
-      const midY = bounds.y + bounds.height / 2;
-
-      initialTransform = d3.zoomIdentity
-        .translate(
-          width / 2 - scale * (midX + centerX),
-          height / 2 + 26 - scale * (midY + centerY)
-        )
-        .scale(scale);
-
-      svg.call(zoom.transform, initialTransform);
-    }
+    svg.call(zoom.transform, d3.zoomIdentity);
   }, [
     nodes,
     edges,
