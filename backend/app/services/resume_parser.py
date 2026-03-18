@@ -1,6 +1,5 @@
 """Resume parser service - parses resumes and extracts structured information."""
 
-import json
 import logging
 from typing import Any
 from uuid import UUID
@@ -13,7 +12,6 @@ from app.models.student import Resume, Student
 from app.prompts.resume_parse import (
     RESUME_PARSE_SYSTEM_PROMPT,
     RESUME_PARSE_USER_TEMPLATE,
-    build_resume_parse_prompt,
 )
 from app.schemas.profiles import ResumeParseResult
 from app.utils.file_extractor import extract_text
@@ -47,70 +45,53 @@ class ResumeParserService:
 
         prompt = RESUME_PARSE_USER_TEMPLATE.format(resume_text=text[:8000])
 
-        for attempt in range(2):
+        try:
+            data = await llm.generate_json(
+                prompt=prompt,
+                system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
+                temperature=0.3,
+                max_tokens=6000,
+                max_retries=3,
+            )
+        except Exception as e:
+            logger.exception("Resume parse failed: %s", e)
+            fallback_prompt = (
+                "简历格式可能不规范，请尽力提取其中的教育、经历、项目、技能、证书、奖项等信息，"
+                "哪怕只有零散关键词也要填入对应字段，不要返回空数组。"
+                f"\n解析这份简历，只输出JSON，不要其他内容：\n{text[:4000]}"
+                '\n输出格式：{"skills":[{"name":"技能","category":"编程语言","proficiency":"掌握","evidence":""}],'
+                '"education":[],"experience":[],"projects":[],"certificates":[],"awards":[],'
+                '"self_intro":null,"parse_confidence":0.5,"missing_fields":[]}'
+            )
             try:
-                logger.info(
-                    "Calling resume parse LLM: attempt=%d, text_length=%d",
-                    attempt + 1,
-                    len(text),
-                )
-
-                raw = await llm.generate(
-                    prompt=prompt,
+                data = await llm.generate_json(
+                    prompt=fallback_prompt,
                     system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
-                    temperature=0.3,
-                    max_tokens=6000,
+                    max_retries=3,
+                )
+            except Exception:
+                logger.error("Resume parse failed after fallback, returning empty result")
+                return ResumeParseResult(
+                    raw_text=text,
+                    parse_confidence=0.0,
+                    missing_fields=["LLM解析失败"],
                 )
 
-                print(f"[ResumeParser] LLM返回长度={len(raw)}")
-                print(f"[ResumeParser] LLM返回前500字: {raw[:500]}")
+        allowed_fields = {
+            'education', 'experience', 'projects', 'skills',
+            'certificates', 'awards', 'self_intro', 'parse_confidence', 'missing_fields'
+        }
+        filtered_data = {k: v for k, v in data.items() if k in allowed_fields}
 
-                cleaned = raw.strip()
-                if "<think>" in cleaned:
-                    cleaned = cleaned.split("</think>")[-1]
-                if cleaned.startswith("```"):
-                    lines = cleaned.split("\n")
-                    cleaned = "\n".join(lines[1:-1]) if (lines[-1].strip() == "```") else "\n".join(lines[1:])
-                cleaned = cleaned.strip()
-
-                data = json.loads(cleaned)
-                logger.info("Resume parse JSON keys: %s", list(data.keys()))
-
-                allowed_fields = {
-                    'education', 'experience', 'projects', 'skills',
-                    'certificates', 'awards', 'self_intro', 'parse_confidence', 'missing_fields'
-                }
-                filtered_data = {k: v for k, v in data.items() if k in allowed_fields}
-
-                result = ResumeParseResult(raw_text=text, **filtered_data)
-                logger.info(
-                    "Resume parse success: skills=%d, education=%d, experience=%d, projects=%d",
-                    len(result.skills),
-                    len(result.education),
-                    len(result.experience),
-                    len(result.projects),
-                )
-                return result
-
-            except Exception as e:
-                logger.exception("Resume parse failed on attempt %d: %s", attempt + 1, e)
-                if attempt == 0:
-                    prompt = (
-                        "简历格式可能不规范，请尽力提取其中的教育、经历、项目、技能、证书、奖项等信息，"
-                        "哪怕只有零散关键词也要填入对应字段，不要返回空数组。"
-                        f"\n解析这份简历，只输出JSON，不要其他内容：\n{text[:4000]}"
-                        '\n输出格式：{"skills":[{"name":"技能","category":"编程语言","proficiency":"掌握","evidence":""}],'
-                        '"education":[],"experience":[],"projects":[],"certificates":[],"awards":[],'
-                        '"self_intro":null,"parse_confidence":0.5,"missing_fields":[]}'
-                    )
-                    continue
-
-        logger.error("Resume parse failed after 2 attempts, returning empty result")
-        return ResumeParseResult(
-            raw_text=text,
-            parse_confidence=0.0,
-            missing_fields=["LLM解析失败"],
+        result = ResumeParseResult(raw_text=text, **filtered_data)
+        logger.info(
+            "Resume parse success: skills=%d, education=%d, experience=%d, projects=%d",
+            len(result.skills),
+            len(result.education),
+            len(result.experience),
+            len(result.projects),
         )
+        return result
 
     async def process_upload(
         self,
