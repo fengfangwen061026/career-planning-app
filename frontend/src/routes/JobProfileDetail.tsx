@@ -955,6 +955,7 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'flex-start',
+          opacity: 0,
           animation: 'cardBounceIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
         }}
       >
