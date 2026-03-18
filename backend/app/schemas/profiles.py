@@ -1,6 +1,6 @@
 """Student profile schemas - 简历解析结果、学生画像、匹配结果定义."""
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 

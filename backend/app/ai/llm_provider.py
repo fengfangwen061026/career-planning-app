@@ -1,12 +1,14 @@
 """LLM Provider - Unified interface for LLM calls."""
 
 import asyncio
+import inspect
 import json
 import logging
 import re
 from typing import Any, AsyncIterator, Literal
 
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
+from openai.resources.chat.completions.completions import AsyncCompletions
 
 from app.config import settings
 
@@ -14,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 ProviderName = Literal["default", "profile"]
 _RETRYABLE_STATUS_CODES = {405, 408, 409, 429, 500, 502, 503, 504}
+_CHAT_COMPLETION_CREATE_PARAMS = {
+    name for name in inspect.signature(AsyncCompletions.create).parameters if name != "self"
+}
 
 
 class LLMProvider:
@@ -57,6 +62,17 @@ class LLMProvider:
             self._clients[provider] = client
         return client
 
+    @staticmethod
+    def _merge_extra_body(kwargs: dict[str, Any], extra_kwargs: dict[str, Any]) -> None:
+        extra_body = dict(kwargs.get("extra_body") or {})
+        for key, value in extra_kwargs.items():
+            if key in _CHAT_COMPLETION_CREATE_PARAMS:
+                kwargs[key] = value
+            else:
+                extra_body[key] = value
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+
     async def chat(
         self,
         messages: list[dict[str, str]],
@@ -76,7 +92,7 @@ class LLMProvider:
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        kwargs.update(extra_kwargs)
+        self._merge_extra_body(kwargs, extra_kwargs)
 
         for attempt in range(1, max_retries + 1):
             try:
@@ -115,14 +131,15 @@ class LLMProvider:
     ) -> AsyncIterator[str]:
         client = self._get_client(provider)
         _, _, default_model = self._provider_config(provider)
-        stream = await client.chat.completions.create(
+        kwargs: dict[str, Any] = dict(
             model=model or default_model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
-            **extra_kwargs,
         )
+        self._merge_extra_body(kwargs, extra_kwargs)
+        stream = await client.chat.completions.create(**kwargs)
         async for chunk in stream:
             if chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
@@ -166,6 +183,7 @@ class LLMProvider:
         disable_reasoning: bool = False,
         provider: ProviderName = "default",
         model: str | None = None,
+        enable_thinking: bool | None = None,
         **extra_kwargs: Any,
     ) -> dict[str, Any]:
         """Generate a structured JSON response with retry & parse tolerance."""
@@ -181,6 +199,9 @@ class LLMProvider:
             )
         messages.append({"role": "system", "content": "\n\n".join(sys_parts)})
         messages.append({"role": "user", "content": prompt})
+
+        if enable_thinking is not None:
+            extra_kwargs["enable_thinking"] = enable_thinking
 
         last_error: Exception | None = None
         raw = ""
@@ -215,25 +236,70 @@ class LLMProvider:
 def _parse_json_tolerant(text: str) -> dict[str, Any]:
     """Parse JSON from text, tolerating markdown fences and leading/trailing junk."""
     text = text.strip()
+    candidates: list[str] = []
 
     fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
     if fence_match:
-        text = fence_match.group(1).strip()
+        candidates.append(fence_match.group(1).strip())
 
-    try:
-        result = json.loads(text)
-        if isinstance(result, dict):
-            return result
-    except json.JSONDecodeError:
-        pass
+    candidates.append(text)
 
-    brace_match = re.search(r"\{.*\}", text, re.DOTALL)
-    if brace_match:
-        result = json.loads(brace_match.group())
-        if isinstance(result, dict):
-            return result
+    decoder = json.JSONDecoder()
+    seen: set[str] = set()
+    for candidate in candidates + list(_iter_json_object_candidates(text)):
+        candidate = candidate.strip()
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+
+        for normalized in (candidate, re.sub(r",\s*([}\]])", r"\1", candidate)):
+            try:
+                result = json.loads(normalized)
+                if isinstance(result, dict):
+                    return result
+            except json.JSONDecodeError:
+                try:
+                    result, _ = decoder.raw_decode(normalized)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(result, dict):
+                    return result
 
     raise ValueError(f"Could not extract JSON object from response: {text[:200]}...")
+
+
+def _iter_json_object_candidates(text: str) -> list[str]:
+    """Extract balanced JSON object substrings from arbitrary model output."""
+    candidates: list[str] = []
+    for start, char in enumerate(text):
+        if char != "{":
+            continue
+
+        depth = 0
+        in_string = False
+        escaped = False
+        for end in range(start, len(text)):
+            current = text[end]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif current == "\\":
+                    escaped = True
+                elif current == '"':
+                    in_string = False
+                continue
+
+            if current == '"':
+                in_string = True
+            elif current == "{":
+                depth += 1
+            elif current == "}":
+                depth -= 1
+                if depth == 0:
+                    candidates.append(text[start:end + 1])
+                    break
+
+    return candidates
 
 
 def _strip_reasoning(text: str) -> str:

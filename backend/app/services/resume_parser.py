@@ -165,20 +165,32 @@ def is_fallback_result(parse_result: ResumeParseResult) -> bool:
     return any(field.startswith("AI解析失败，已使用兜底结果") for field in parse_result.missing_fields)
 
 
+def _is_parse_result_substantial(parse_result: ResumeParseResult) -> bool:
+    return any(
+        [
+            bool(parse_result.education),
+            bool(parse_result.experience),
+            bool(parse_result.projects),
+            bool(parse_result.skills),
+            bool(parse_result.certificates),
+            bool(parse_result.awards),
+            bool((parse_result.self_intro or "").strip()),
+            parse_result.parse_confidence >= 0.2,
+        ]
+    )
+
+
 class ResumeParserService:
     """Service for parsing resumes."""
 
-    async def _llm_parse_resume_text(self, text: str, *, max_tokens: int = 1024) -> ResumeParseResult:
+    async def _llm_parse_resume_text(self, text: str, *, max_tokens: int = 12000) -> ResumeParseResult:
+        # step-3.5-flash counts reasoning tokens against max_tokens. Disabling
+        # thinking keeps resume parsing within budget, but real resume templates
+        # can still consume 7k-8k completion tokens on longer samples. Use 12k
+        # to avoid finish_reason=length returning empty content on real templates.
+        # Keep temperature at 0 for stricter JSON formatting and allow an extra
+        # retry because the provider can occasionally return malformed JSON.
         prompt = RESUME_PARSE_USER_TEMPLATE.format(resume_text=_select_resume_excerpt(text))
-        data = await llm.generate_json(
-            prompt=prompt,
-            system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
-            temperature=0.3,
-            max_tokens=max_tokens,
-            max_retries=1,
-            disable_reasoning=True,
-            response_format={"type": "json_object"},
-        )
         allowed_fields = {
             "education",
             "experience",
@@ -190,8 +202,28 @@ class ResumeParserService:
             "parse_confidence",
             "missing_fields",
         }
-        filtered_data = {key: value for key, value in data.items() if key in allowed_fields}
-        return ResumeParseResult(raw_text=text, **filtered_data)
+
+        for attempt in range(1, 3):
+            data = await llm.generate_json(
+                prompt=prompt,
+                system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
+                temperature=0.0,
+                max_tokens=max_tokens,
+                max_retries=3,
+                enable_thinking=False,
+                timeout=180,
+            )
+            filtered_data = {key: value for key, value in data.items() if key in allowed_fields}
+            result = ResumeParseResult(raw_text=text, **filtered_data)
+            if _is_parse_result_substantial(result):
+                return result
+
+            logger.warning(
+                "Resume parse returned degenerate JSON on semantic attempt %d/2; retrying",
+                attempt,
+            )
+
+        raise ValueError("LLM returned degenerate JSON with no extracted resume content")
 
     async def parse_resume_text(self, text: str) -> ResumeParseResult:
         """Parse resume text using LLM, then fall back to local rules on failure."""
