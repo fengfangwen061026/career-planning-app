@@ -424,81 +424,84 @@ export default function StudentProfile() {
             <Row gutter={24} className="mb-6">
               {/* 左侧栏：技能栈可视化 */}
               <Col xs={24} lg={6}>
-                {/* 卡片1：技能栈 */}
-                <GlassCard className="h-full">
-                  <Title level={4} className="m-0" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
-                    <BookOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
-                    技能栈
-                  </Title>
-                  {Object.keys(skillsByCategory).length > 0 ? (
-                    Object.entries(skillsByCategory).map(([category, skills]) => (
-                      <div key={category} className="mb-4">
-                        <Text strong type="secondary" style={{ color: '#6B7280' }}>
-                          {category}
-                        </Text>
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {skills.map((skill, index) => {
-                            const colors = getLevelColor(skill.level);
-                            return (
-                              <span
-                                key={index}
-                                style={{
-                                  background: colors.bg,
-                                  color: colors.color,
-                                  border: `1px solid ${colors.border}`,
-                                  borderRadius: '8px',
-                                  padding: '4px 10px',
-                                  fontSize: '13px',
-                                  fontWeight: 500,
-                                }}
-                              >
-                                {skill.name}
-                                {skill.level && (
-                                  <span className="ml-1 text-xs opacity-70">
-                                    ({skill.level})
-                                  </span>
-                                )}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <Empty description="暂无技能数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                  )}
-                </GlassCard>
-
-                {/* 卡片2：获奖信息 */}
-                {awards.length > 0 && (
-                  <GlassCard className="h-full" style={{ marginTop: '16px' }}>
+                {/* 左列 flex 容器：技能栈 + 获奖信息竖向堆叠 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {/* 卡片1：技能栈 */}
+                  <GlassCard className="h-full">
                     <Title level={4} className="m-0" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
-                      <TrophyOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
-                      获奖信息
+                      <BookOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
+                      技能栈
                     </Title>
-                    <div className="space-y-2">
-                      {awards.map((award: { name: string; level?: string; date?: string }, index: number) => (
-                        <div
-                          key={`${award.name}-${index}`}
-                          style={{
-                            background: 'rgba(249,250,251,0.8)',
-                            borderRadius: '0 8px 8px 0',
-                            padding: '8px 12px',
-                            marginBottom: '8px',
-                            borderLeft: '3px solid #C4758A',
-                          }}
-                        >
-                          <Text strong style={{ color: '#0A0A0A', fontSize: '14px' }}>{award.name}</Text>
-                          <div>
-                            <Text type="secondary" className="text-sm">
-                              {[award.level, award.date].filter(Boolean).join(' | ') || '暂无级别/时间'}
-                            </Text>
+                    {Object.keys(skillsByCategory).length > 0 ? (
+                      Object.entries(skillsByCategory).map(([category, skills]) => (
+                        <div key={category} className="mb-4">
+                          <Text strong type="secondary" style={{ color: '#6B7280' }}>
+                            {category}
+                          </Text>
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {skills.map((skill, index) => {
+                              const colors = getLevelColor(skill.level);
+                              return (
+                                <span
+                                  key={index}
+                                  style={{
+                                    background: colors.bg,
+                                    color: colors.color,
+                                    border: `1px solid ${colors.border}`,
+                                    borderRadius: '8px',
+                                    padding: '4px 10px',
+                                    fontSize: '13px',
+                                    fontWeight: 500,
+                                  }}
+                                >
+                                  {skill.name}
+                                  {skill.level && (
+                                    <span className="ml-1 text-xs opacity-70">
+                                      ({skill.level})
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })}
                           </div>
                         </div>
-                      ))}
-                    </div>
+                      ))
+                    ) : (
+                      <Empty description="暂无技能数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    )}
                   </GlassCard>
-                )}
+
+                  {/* 卡片2：获奖信息 */}
+                  {awards.length > 0 && (
+                    <GlassCard className="h-full">
+                      <Title level={4} className="m-0" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
+                        <TrophyOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
+                        获奖信息
+                      </Title>
+                      <div className="space-y-2">
+                        {awards.map((award: { name: string; level?: string; date?: string }, index: number) => (
+                          <div
+                            key={`${award.name}-${index}`}
+                            style={{
+                              background: 'rgba(249,250,251,0.8)',
+                              borderRadius: '0 8px 8px 0',
+                              padding: '8px 12px',
+                              marginBottom: '8px',
+                              borderLeft: '3px solid #C4758A',
+                            }}
+                          >
+                            <Text strong style={{ color: '#0A0A0A', fontSize: '14px' }}>{award.name}</Text>
+                            <div>
+                              <Text type="secondary" className="text-sm">
+                                {[award.level, award.date].filter(Boolean).join(' | ') || '暂无级别/时间'}
+                              </Text>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </GlassCard>
+                  )}
+                </div>
               </Col>
 
               {/* 中间栏：项目/实习经历时间线 */}

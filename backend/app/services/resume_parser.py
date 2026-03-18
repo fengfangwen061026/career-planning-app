@@ -50,8 +50,8 @@ class ResumeParserService:
                 prompt=prompt,
                 system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
                 temperature=0.3,
-                max_tokens=2000,
-                max_retries=3,
+                max_tokens=4096,
+                max_retries=1,
                 disable_reasoning=True,
             )
         except Exception as e:
@@ -68,7 +68,8 @@ class ResumeParserService:
                 data = await llm.generate_json(
                     prompt=fallback_prompt,
                     system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
-                    max_retries=3,
+                    max_tokens=4096,
+                    max_retries=1,
                     disable_reasoning=True,
                 )
             except Exception:

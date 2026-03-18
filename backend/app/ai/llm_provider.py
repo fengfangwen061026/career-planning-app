@@ -39,8 +39,6 @@ class LLMProvider:
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        if disable_reasoning:
-            kwargs["extra_body"] = {"reasoning": {"max_tokens": 1}}
         response = await self.client.chat.completions.create(**kwargs)
         content = response.choices[0].message.content or ""
         return _strip_reasoning(content)

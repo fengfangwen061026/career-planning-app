@@ -365,11 +365,26 @@ def _get_competency_weight(j_comp: dict, dimension: str) -> float:
     """从岗位画像的 soft_competencies 中获取维度权重."""
     entry = j_comp.get(dimension, {})
     if isinstance(entry, dict):
-        val = entry.get("value", 3)
+        val = entry.get("value")
+        if val is None:
+            legacy_importance = str(entry.get("importance", "")).strip().lower()
+            legacy_map = {
+                "核心要求": 5,
+                "核心素养": 5,
+                "重要": 4,
+                "较重要": 4,
+                "一般": 3,
+                "了解": 2,
+                "低": 1,
+            }
+            val = legacy_map.get(legacy_importance, 3)
     elif isinstance(entry, (int, float)):
         val = entry
+    elif isinstance(entry, str) and entry.strip().isdigit():
+        val = int(entry.strip())
     else:
         val = 3
+    val = max(1, min(int(val), 5))
     return float(val) / 5.0  # 归一化到 0-1
 
 

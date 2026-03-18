@@ -195,7 +195,8 @@ async def _evaluate_soft_skills(parsed_data: dict) -> dict:
             prompt=prompt,
             system_prompt=SOFT_SKILL_EVAL_SYSTEM_PROMPT,
             temperature=0.3,
-            max_retries=2,
+            max_tokens=2048,
+            max_retries=1,
             disable_reasoning=True,
         )
         # 校验：必须包含五个维度且 score 在合法范围

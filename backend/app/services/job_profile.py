@@ -387,8 +387,9 @@ def _merge_statistical_and_llm(
     V3 Schema 融合逻辑：
     1. basic_requirements: 使用统计结果确定学历/经验字符串，LLM 补充专业
     2. technical_skills: 直接使用 LLM 输出格式（数组）
-    3. soft_competencies: 直接使用 LLM 输出格式（dict）
-    4. 统计锚点保留在 evidence_json 中
+    3. soft_competencies: 直接使用 LLM 输出格式（dict，value 1-5）
+    4. development_potential: 收敛为简短字符串说明
+    5. 统计锚点保留在 evidence_json 中
     """
     import re as _re
 
@@ -459,6 +460,17 @@ def _merge_statistical_and_llm(
         "filtered_noise_count": filtered_noise_count,
     }
 
+    development_potential = llm_profile.get("development_potential", "")
+    if not isinstance(development_potential, str):
+        if isinstance(development_potential, dict):
+            summary_parts = []
+            for value in development_potential.values():
+                if isinstance(value, list):
+                    summary_parts.extend(str(item) for item in value[:2] if item)
+            development_potential = "; ".join(summary_parts[:3])
+        else:
+            development_potential = str(development_potential)
+
     # 构建最终画像（V3 Schema）
     merged_profile: dict[str, Any] = {
         "role_name": role_name,
@@ -471,7 +483,7 @@ def _merge_statistical_and_llm(
         },
         "technical_skills": llm_tech_skills + supplemented,
         "soft_competencies": llm_profile.get("soft_competencies", {}),
-        "development_potential": llm_profile.get("development_potential", {}),
+        "development_potential": development_potential,
         "salary_range": llm_profile.get("salary_range", {}),
         "evidence_summary": llm_profile.get("evidence_summary", f"基于{total_jds}条JD样本生成"),
     }
