@@ -7,6 +7,7 @@ export interface ProfileBasicInfo {
   phone?: string;
   school?: string;
   degree?: string;
+  major?: string;
 }
 
 export interface ProfileSkill {
@@ -36,14 +37,28 @@ export interface ProfileCertificate {
   date?: string;
 }
 
+export interface ProfileAward {
+  name: string;
+  level?: string;
+  date?: string;
+  evidence?: string;
+}
+
 export interface ProfileJson {
   competitiveness_score?: number;
+  experience_months?: number;
   basic_info?: ProfileBasicInfo;
   skills?: ProfileSkill[];
   experiences?: ProfileExperience[];
+  certificate_names?: string[];
   education?: ProfileEducation[];
   certificates?: ProfileCertificate[];
-  soft_skills?: Record<string, number>;
+  awards?: ProfileAward[];
+  soft_skills?: Array<{
+    dimension: string;
+    score: number;
+    evidence?: string;
+  }> | Record<string, number>;
 }
 
 export interface StudentBase {

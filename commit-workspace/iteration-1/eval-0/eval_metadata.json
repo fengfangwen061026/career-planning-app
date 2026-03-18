@@ -1,0 +1,6 @@
+{
+  "eval_id": 0,
+  "eval_name": "commit-with-context-analysis",
+  "prompt": "执行 /commit 命令提交当前的修改",
+  "assertions": []
+}

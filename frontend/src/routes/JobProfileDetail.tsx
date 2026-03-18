@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Card, Row, Col, Tabs, Table, Tag, Button, Spin, Empty,
+  Card, Row, Col, Tabs, Table, Tag, Button, Empty,
   Space, message, Drawer, Modal, Tooltip
 } from 'antd';
 import {
@@ -231,6 +231,7 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
   const [selectedCompany, setSelectedCompany] = useState<{ name: string; jobs: JobWithCompany[] } | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<JobWithCompany | null>(null);
+  const flipOriginRef = useRef<{ ox: string; oy: string } | null>(null);
 
   // 动画状态
   const [animated, setAnimated] = useState(false);
@@ -437,7 +438,17 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
     setSelectedCompany({ name: companyName, jobs });
     setDrawerOpen(true);
   };
-  const handleJobClick = (job: JobWithCompany) => {
+  const handleJobClick = (event: React.MouseEvent<HTMLElement>, job: JobWithCompany) => {
+    const cardRect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const cardCX = cardRect.left + cardRect.width / 2;
+    const cardCY = cardRect.top + cardRect.height / 2;
+    const modalW = Math.min(window.innerWidth * 0.9, 800);
+    const modalLeft = (window.innerWidth - modalW) / 2;
+    const modalTop = 100;
+    flipOriginRef.current = {
+      ox: `${Math.round(cardCX - modalLeft)}px`,
+      oy: `${Math.round(cardCY - modalTop)}px`,
+    };
     setSelectedJob(job);
     setModalOpen(true);
   };
@@ -702,33 +713,24 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
         </Row>
 
         {/* 注入动画样式 */}
-        <style>{`
-          .profile-card:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--card-shadow-hover);
-          }
-
-          @keyframes cardBounceIn {
-            0%   { opacity: 0; transform: translateY(24px) scale(0.97); }
-            60%  { opacity: 1; transform: translateY(-6px) scale(1.01); }
-            80%  { transform: translateY(3px) scale(0.995); }
-            100% { opacity: 1; transform: translateY(0) scale(1); }
-          }
-
-          .card-bounce {
-            opacity: 0;
-            animation: cardBounceIn 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-            animation-delay: calc(var(--ci, 0) * 70ms);
-            will-change: transform, opacity;
-          }
-        `}</style>
       </div>
     );
   };
 
   // ========== Tab2: 关联岗位与公司（保持原样） ==========
   const renderTab2 = () => {
-    if (allJobs.length === 0) return <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>;
+    if (allJobs.length === 0) {
+      return (
+        <LoadingState
+          tip="正在整理关联岗位..."
+          lines={[
+            { width: '35%', height: 20, marginBottom: 16 },
+            { width: '100%', height: 120, marginBottom: 12 },
+            { width: '100%', height: 120, marginBottom: 0 },
+          ]}
+        />
+      );
+    }
     const hasFilters = filters.salaryRange || filters.city || filters.benefits.length > 0;
 
     return (
@@ -836,7 +838,7 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
               <div style={{ marginBottom: 16, color: 'var(--gray-500)' }}>共 {selectedCompany.jobs.length} 个在招岗位</div>
               <Space direction="vertical" style={{ width: '100%' }} size="middle">
                 {selectedCompany.jobs.map(job => (
-                  <Card key={job.id} size="small" hoverable onClick={() => handleJobClick(job)} style={{ cursor: 'pointer' }}>
+                  <Card key={job.id} size="small" hoverable onClick={(event) => handleJobClick(event, job)} style={{ cursor: 'pointer' }}>
                     <div style={{ fontWeight: 'bold', marginBottom: 8 }}>{job.title}</div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
                       <Tag color="blue">{job.city}</Tag>
@@ -861,6 +863,8 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
           title={selectedJob?.title}
           open={modalOpen}
           onCancel={() => setModalOpen(false)}
+          transitionName=""
+          maskTransitionName=""
           footer={[
             selectedJob?.source_url ? (
               <Button key="source" type="primary" onClick={() => window.open(selectedJob.source_url, '_blank')}>查看来源</Button>
@@ -868,6 +872,14 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
             <Button key="close" onClick={() => setModalOpen(false)}>关闭</Button>,
           ]}
           width={800}
+          styles={{
+            content: {
+              '--flip-ox': flipOriginRef.current?.ox ?? '50%',
+              '--flip-oy': flipOriginRef.current?.oy ?? '50%',
+              animation: 'modalFlipIn 0.45s var(--spring-smooth) both',
+              opacity: 0,
+            } as React.CSSProperties,
+          }}
         >
           {selectedJob && (
             <div>

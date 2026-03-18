@@ -2,111 +2,156 @@
 @tailwind components;
 @tailwind utilities;
 
-/* =============================================
-   DESIGN SYSTEM — LOW-SATURATION DOPAMINE
-   ============================================= */
-
 :root {
-  /* ── 全局主色（降饱和靛蓝） ── */
-  --primary:       #5B6FD4;
-  --primary-light: #ECEDFC;
-  --primary-dark:  #4455B8;
+  --spring-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --spring-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+  --spring-snappy: cubic-bezier(0.25, 1.25, 0.5, 1);
+  --spring-press: cubic-bezier(0.25, 0, 0, 1);
 
-  /* ── 模块专属色 ── */
-  --color-dashboard:    #E07B6A;
-  --color-dashboard-bg: #FFF2EF;
+  --primary: #5b6fd4;
+  --primary-light: #ecedfc;
+  --primary-dark: #4455b8;
 
-  --color-jobs:    #5E8F6E;
-  --color-jobs-bg: #EEF6F2;
+  --color-dashboard: #e07b6a;
+  --color-dashboard-bg: #fff2ef;
+  --color-jobs: #5e8f6e;
+  --color-jobs-bg: #eef6f2;
+  --color-profiles: #7c6dc8;
+  --color-profiles-bg: #f0eefb;
+  --color-graph: #4b9ab3;
+  --color-graph-bg: #ebf6fb;
+  --color-resume: #cb8a4a;
+  --color-resume-bg: #fef5e9;
+  --color-students: #c4758a;
+  --color-students-bg: #faecf0;
+  --color-matching: #5b6fd4;
+  --color-matching-bg: #ecedfc;
+  --color-reports: #5e8a7c;
+  --color-reports-bg: #edf5f2;
 
-  --color-profiles:    #7C6DC8;
-  --color-profiles-bg: #F0EEFB;
-
-  --color-graph:    #4B9AB3;
-  --color-graph-bg: #EBF6FB;
-
-  --color-resume:    #CB8A4A;
-  --color-resume-bg: #FEF5E9;
-
-  --color-students:    #C4758A;
-  --color-students-bg: #FAECF0;
-
-  --color-matching:    #5B6FD4;
-  --color-matching-bg: #ECEDFC;
-
-  --color-reports:    #5E8A7C;
-  --color-reports-bg: #EDF5F2;
-
-  /* ── 语义色（技术/人文/收益 三套，不混用）── */
-  --blue-fill:   #4B7EC8;
-  --blue-mid:    #6494D4;
-  --blue-light:  #8AB0E0;
-  --blue-bg:     #EEF4FC;
-
-  --amber-fill:   #CB8A4A;
-  --amber-text:   #7D4F1E;
-  --amber-bg:     rgba(203, 138, 74, 0.10);
+  --blue-fill: #4b7ec8;
+  --blue-mid: #6494d4;
+  --blue-light: #8ab0e0;
+  --blue-bg: #eef4fc;
+  --amber-fill: #cb8a4a;
+  --amber-text: #7d4f1e;
+  --amber-bg: rgba(203, 138, 74, 0.1);
   --amber-border: rgba(203, 138, 74, 0.22);
+  --green-fill: #5e8f6e;
+  --green-text: #2a5c3a;
+  --green-bg: rgba(94, 143, 110, 0.08);
+  --green-border: rgba(94, 143, 110, 0.2);
 
-  --green-fill:   #5E8F6E;
-  --green-text:   #2A5C3A;
-  --green-bg:     rgba(94, 143, 110, 0.08);
-  --green-border: rgba(94, 143, 110, 0.20);
-
-  /* ── 中性色（骨架） ── */
-  --gray-900: #0A0A0A;
+  --gray-900: #0a0a0a;
   --gray-700: #374151;
-  --gray-500: #6B7280;
-  --gray-400: #9CA3AF;
-  --gray-200: #E5E7EB;
-  --gray-100: #F3F4F6;
-  --gray-50:  #F9FAFB;
+  --gray-500: #6b7280;
+  --gray-400: #9ca3af;
+  --gray-200: #e5e7eb;
+  --gray-100: #f3f4f6;
+  --gray-50: #f9fafb;
 
-  /* ── Sidebar ── */
-  --sidebar-bg:          #1A1A2E;
-  --sidebar-text:        rgba(255,255,255,0.52);
-  --sidebar-text-active: #FFFFFF;
-  --sidebar-hover:       rgba(255,255,255,0.06);
-  --sidebar-active-bg:   rgba(255,255,255,0.10);
+  --sidebar-bg: #1a1a2e;
+  --sidebar-text: rgba(255, 255, 255, 0.52);
+  --sidebar-text-active: #ffffff;
+  --sidebar-hover: rgba(255, 255, 255, 0.06);
+  --sidebar-active-bg: rgba(255, 255, 255, 0.1);
 
-  /* ── 卡片 ── */
-  --card-bg:           rgba(255,255,255,0.82);
-  --card-border:       rgba(255,255,255,0.88);
-  --card-shadow:       0 1px 3px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.04);
-  --card-shadow-hover: 0 4px 8px rgba(0,0,0,0.07), 0 8px 32px rgba(0,0,0,0.05);
+  --card-bg: rgba(255, 255, 255, 0.82);
+  --card-border: rgba(255, 255, 255, 0.88);
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 16px rgba(0, 0, 0, 0.04);
+  --card-shadow-hover: 0 4px 8px rgba(0, 0, 0, 0.07), 0 8px 32px rgba(0, 0, 0, 0.05);
 
-  /* ── 间距 ── */
-  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
-  --space-4: 16px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
 
-  /* ── 圆角 ── */
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 20px;
 }
 
-/* ── Reset & Base ── */
-*, *::before, *::after { box-sizing: border-box; }
+@supports (animation-timing-function: linear(0, 1)) {
+  :root {
+    --spring-bounce: linear(
+      0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.4%, 0.938 16%,
+      1.017, 1.046, 1.06, 1.064, 1.058 24.3%, 0.999 28.4%, 0.984,
+      0.985 34%, 1.001 40%, 1.003 44%, 1 50%, 1
+    );
+    --spring-smooth: linear(
+      0, 0.006, 0.025 2.8%, 0.101 6.1%, 0.539 15%, 0.721 18.7%,
+      0.844 22.4%, 0.925 26%, 0.972 29.7%, 1.001 35%, 1
+    );
+    --spring-snappy: linear(
+      0, 0.004, 0.016, 0.035, 0.063 4.2%, 0.431 13.3%, 0.641 18%,
+      0.823 24.1%, 0.929 29.4%, 0.991 35.1%, 1.015 39.4%,
+      1.017 45.3%, 0.999 52.2%, 1
+    );
+  }
+}
+
+@keyframes floatUp {
+  from { opacity: 0; transform: translateY(20px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes tabFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cardBounceIn {
+  0% { opacity: 0; transform: translateY(24px) scale(0.97); }
+  60% { opacity: 1; transform: translateY(-6px) scale(1.01); }
+  80% { transform: translateY(3px) scale(0.995); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes modalFlipIn {
+  from {
+    opacity: 0;
+    transform: scale(0.06);
+    transform-origin: var(--flip-ox, 50%) var(--flip-oy, 50%);
+  }
+  60% { opacity: 1; }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    transform-origin: var(--flip-ox, 50%) var(--flip-oy, 50%);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
-  font-family: -apple-system, 'PingFang SC', 'SF Pro Display', 'Helvetica Neue', sans-serif;
+  font-family: -apple-system, "PingFang SC", "SF Pro Display", "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: linear-gradient(150deg,
-  #FAF8FF 0%,
-  #FFF0F5 25%,
-  #FFFBF0 50%,
-  #F0FBF5 75%,
-  #F0F5FF 100%
-);
+  background: linear-gradient(150deg, #faf8ff 0%, #fff0f5 25%, #fffbf0 50%, #f0fbf5 75%, #f0f5ff 100%);
   background-attachment: fixed;
   min-height: 100vh;
   color: var(--gray-700);
 }
 
-/* ── 通用卡片 ── */
 .ds-card {
   background: var(--card-bg);
   backdrop-filter: blur(20px);
@@ -117,26 +162,24 @@ body {
   box-shadow: var(--card-shadow);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
+
 .ds-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--card-shadow-hover);
 }
 
-/* ── 页面容器 ── */
 .ds-page {
   padding: 24px 40px;
 }
 
-/* ── 大标题 ── */
 .ds-page-title {
   font-size: 28px;
   font-weight: 800;
   color: var(--gray-900);
   letter-spacing: -0.8px;
-  margin: 0 0 24px 0;
+  margin: 0 0 24px;
 }
 
-/* ── Section 标题（卡片内用） ── */
 .ds-section-title {
   font-size: 11px;
   font-weight: 600;
@@ -149,7 +192,6 @@ body {
   gap: 8px;
 }
 
-/* ── Pill 标签 ── */
 .ds-pill {
   display: inline-flex;
   align-items: center;
@@ -158,15 +200,19 @@ body {
   border-radius: 20px;
   font-size: 13px;
   font-weight: 500;
-  transition: all 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
   cursor: default;
 }
+
 .ds-pill:hover {
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* ── 数字气泡 ── */
 .ds-badge {
   display: inline-flex;
   align-items: center;
@@ -177,25 +223,93 @@ body {
   border-radius: 10px;
   font-size: 11px;
   font-weight: 700;
-  color: white;
+  color: #fff;
 }
 
-/* ── 入场动画 ── */
-@keyframes ds-fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+.pressable {
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  will-change: transform;
+  transition: transform 80ms var(--spring-press), box-shadow 80ms var(--spring-press);
 }
-.ds-fade-in {
-  animation: ds-fadeIn 0.3s ease forwards;
-  animation-delay: calc(var(--index, 0) * 0.05s);
+
+.pressable:active {
+  transform: scale(0.96) !important;
+}
+
+.card-bounce {
   opacity: 0;
+  animation: cardBounceIn 0.55s var(--spring-bounce) forwards;
+  animation-delay: calc(var(--ci, 0) * 70ms);
+  will-change: transform, opacity;
 }
 
-/* ── Ant Design 全局覆盖 ── */
+.tab-content-enter {
+  animation: tabFadeIn 0.24s var(--spring-snappy) forwards;
+  will-change: transform, opacity;
+}
+
+.page-header-anim {
+  animation: slideDown 0.4s var(--spring-smooth) forwards;
+  will-change: transform, opacity;
+}
+
+.toolbar-anim {
+  animation: floatUp 0.4s var(--spring-smooth) 60ms forwards;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.reveal-item {
+  opacity: 0;
+  transform: translateY(20px) scale(0.98);
+  transition:
+    opacity 0.45s var(--spring-smooth),
+    transform 0.45s var(--spring-smooth);
+  will-change: transform, opacity;
+}
+
+.reveal-item.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.role-card-body {
+  transition:
+    transform 0.28s var(--spring-bounce),
+    box-shadow 0.28s var(--spring-bounce);
+  will-change: transform;
+}
+
+.role-card-body:hover {
+  transform: translateY(-5px) scale(1.015);
+  box-shadow: 0 8px 32px rgba(139, 92, 246, 0.25);
+}
+
+.role-card-arrow {
+  display: inline-block;
+  transition: transform 0.3s var(--spring-bounce);
+  will-change: transform;
+}
+
+.role-card-body:hover .role-card-arrow {
+  transform: translateX(6px);
+}
+
+.skeleton-line {
+  background: linear-gradient(90deg, #1e1e2e 25%, #2a2a3e 50%, #1e1e2e 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 4px;
+  will-change: background-position;
+}
+
 .ant-layout,
 .ant-layout-content {
   background: transparent !important;
 }
+
 .ant-card {
   background: var(--card-bg) !important;
   backdrop-filter: blur(20px) !important;
@@ -204,19 +318,23 @@ body {
   box-shadow: var(--card-shadow) !important;
   transition: transform 0.2s ease, box-shadow 0.2s ease !important;
 }
+
 .ant-card:hover {
   transform: translateY(-2px) !important;
   box-shadow: var(--card-shadow-hover) !important;
 }
+
 .ant-card-head {
   border-bottom: 1px solid var(--gray-100) !important;
   background: transparent !important;
 }
+
 .ant-card-head-title {
   font-size: 13px !important;
   font-weight: 600 !important;
   color: var(--gray-700) !important;
 }
+
 .ant-statistic-title {
   font-size: 11px !important;
   font-weight: 600 !important;
@@ -224,35 +342,38 @@ body {
   text-transform: uppercase !important;
   letter-spacing: 0.08em !important;
 }
+
 .ant-statistic-content-value {
   font-size: 36px !important;
   font-weight: 800 !important;
   color: var(--gray-900) !important;
   letter-spacing: -1px !important;
 }
+
 .ant-btn-primary {
   background: var(--primary) !important;
   border-color: var(--primary) !important;
   border-radius: var(--radius-sm) !important;
   font-weight: 500 !important;
 }
+
 .ant-btn-primary:hover {
   background: var(--primary-dark) !important;
   border-color: var(--primary-dark) !important;
 }
-.ant-select-selector {
-  border-radius: var(--radius-sm) !important;
-  border-color: var(--gray-200) !important;
-}
+
+.ant-select-selector,
 .ant-input {
   border-radius: var(--radius-sm) !important;
   border-color: var(--gray-200) !important;
 }
+
 .ant-table {
   background: transparent !important;
 }
+
 .ant-table-thead > tr > th {
-  background: rgba(249,250,251,0.8) !important;
+  background: rgba(249, 250, 251, 0.8) !important;
   font-size: 11px !important;
   font-weight: 600 !important;
   color: var(--gray-400) !important;
@@ -260,14 +381,27 @@ body {
   letter-spacing: 0.05em !important;
   border-bottom: 1px solid var(--gray-200) !important;
 }
+
 .ant-table-tbody > tr > td {
   border-bottom: 1px solid var(--gray-100) !important;
   font-size: 14px !important;
   color: var(--gray-700) !important;
 }
-.ant-tabs-tab { font-size: 13px !important; color: var(--gray-500) !important; }
-.ant-tabs-tab-active .ant-tabs-tab-btn { color: var(--primary) !important; font-weight: 600 !important; }
-.ant-tabs-ink-bar { background: var(--primary) !important; }
+
+.ant-tabs-tab {
+  font-size: 13px !important;
+  color: var(--gray-500) !important;
+}
+
+.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--primary) !important;
+  font-weight: 600 !important;
+}
+
+.ant-tabs-ink-bar {
+  background: var(--primary) !important;
+}
+
 .ant-tag {
   border-radius: 8px !important;
   font-size: 12px !important;
@@ -275,310 +409,122 @@ body {
   border: none !important;
 }
 
-/* 技能标签云入场 */
-.skill-tag {
-  animation: ds-fadeIn 200ms ease-out forwards;
-  opacity: 0;
-}
-
-/* =============================================
-   MODULE-SCOPED ANT DESIGN OVERRIDES
-   data-module 属性驱动，各页面交互色独立
-   ============================================= */
-
-/* ── 通用 mixin（每个模块复用相同结构）── */
-/* Table hover */
 [data-module] .ant-table-tbody > tr.ant-table-row:hover > td,
 [data-module] .ant-table-tbody > tr > td.ant-table-cell-row-hover {
   background: var(--module-hover-bg) !important;
 }
 
-/* Pagination */
 [data-module] .ant-pagination-item-active {
   border-color: var(--module-color) !important;
   background: var(--module-bg) !important;
 }
-[data-module] .ant-pagination-item-active a {
-  color: var(--module-color) !important;
-}
+
+[data-module] .ant-pagination-item-active a,
 [data-module] .ant-pagination-item:hover a {
   color: var(--module-color) !important;
 }
+
 [data-module] .ant-pagination-prev:hover .ant-pagination-item-link,
 [data-module] .ant-pagination-next:hover .ant-pagination-item-link {
   color: var(--module-color) !important;
   border-color: var(--module-color) !important;
 }
 
-/* Tabs */
 [data-module] .ant-tabs-ink-bar {
   background: var(--module-color) !important;
 }
-[data-module] .ant-tabs-tab-active .ant-tabs-tab-btn {
-  color: var(--module-color) !important;
-}
+
+[data-module] .ant-tabs-tab-active .ant-tabs-tab-btn,
 [data-module] .ant-tabs-tab:hover .ant-tabs-tab-btn {
   color: var(--module-color) !important;
 }
 
-/* Select focus */
 [data-module] .ant-select-focused .ant-select-selector,
 [data-module] .ant-select-selector:focus,
-[data-module] .ant-select:not(.ant-select-disabled):hover .ant-select-selector {
-  border-color: var(--module-color) !important;
-  box-shadow: 0 0 0 2px rgba(var(--module-color-rgb), 0.12) !important;
-}
-
-/* Input focus */
+[data-module] .ant-select:not(.ant-select-disabled):hover .ant-select-selector,
 [data-module] .ant-input:focus,
-[data-module] .ant-input-focused {
-  border-color: var(--module-color) !important;
-  box-shadow: 0 0 0 2px rgba(var(--module-color-rgb), 0.12) !important;
-}
+[data-module] .ant-input-focused,
 [data-module] .ant-input:hover {
   border-color: var(--module-color) !important;
+  box-shadow: 0 0 0 2px rgba(var(--module-color-rgb), 0.12) !important;
 }
 
-/* Primary Button */
 [data-module] .ant-btn-primary {
   background: var(--module-color) !important;
   border-color: var(--module-color) !important;
 }
+
 [data-module] .ant-btn-primary:hover {
   background: var(--module-color-dark) !important;
   border-color: var(--module-color-dark) !important;
 }
 
-/* Checkbox checked */
-[data-module] .ant-checkbox-checked .ant-checkbox-inner {
+[data-module] .ant-checkbox-checked .ant-checkbox-inner,
+[data-module] .ant-switch-checked {
   background-color: var(--module-color) !important;
   border-color: var(--module-color) !important;
 }
 
-/* Switch checked */
-[data-module] .ant-switch-checked {
-  background: var(--module-color) !important;
-}
-
-/* ── 各模块变量定义 ── */
-
 [data-module="dashboard"] {
-  --module-color:     #E07B6A;
-  --module-color-dark:#C4604F;
-  --module-color-rgb: 224,123,106;
-  --module-bg:        #FFF2EF;
-  --module-hover-bg:  rgba(224,123,106,0.04);
+  --module-color: #e07b6a;
+  --module-color-dark: #c4604f;
+  --module-color-rgb: 224, 123, 106;
+  --module-bg: #fff2ef;
+  --module-hover-bg: rgba(224, 123, 106, 0.04);
 }
 
 [data-module="jobs"] {
-  --module-color:     #5E8F6E;
-  --module-color-dark:#4A7559;
-  --module-color-rgb: 94,143,110;
-  --module-bg:        #EEF6F2;
-  --module-hover-bg:  rgba(94,143,110,0.04);
+  --module-color: #5e8f6e;
+  --module-color-dark: #4a7559;
+  --module-color-rgb: 94, 143, 110;
+  --module-bg: #eef6f2;
+  --module-hover-bg: rgba(94, 143, 110, 0.04);
 }
 
 [data-module="profiles"] {
-  --module-color:     #7C6DC8;
-  --module-color-dark:#6355A8;
-  --module-color-rgb: 124,109,200;
-  --module-bg:        #F0EEFB;
-  --module-hover-bg:  rgba(124,109,200,0.04);
+  --module-color: #7c6dc8;
+  --module-color-dark: #6355a8;
+  --module-color-rgb: 124, 109, 200;
+  --module-bg: #f0eefb;
+  --module-hover-bg: rgba(124, 109, 200, 0.04);
 }
 
 [data-module="graph"] {
-  --module-color:     #4B9AB3;
-  --module-color-dark:#38829A;
-  --module-color-rgb: 75,154,179;
-  --module-bg:        #EBF6FB;
-  --module-hover-bg:  rgba(75,154,179,0.04);
+  --module-color: #4b9ab3;
+  --module-color-dark: #38829a;
+  --module-color-rgb: 75, 154, 179;
+  --module-bg: #ebf6fb;
+  --module-hover-bg: rgba(75, 154, 179, 0.04);
 }
 
 [data-module="resume"] {
-  --module-color:     #CB8A4A;
-  --module-color-dark:#B87235;
-  --module-color-rgb: 203,138,74;
-  --module-bg:        #FEF5E9;
-  --module-hover-bg:  rgba(203,138,74,0.04);
+  --module-color: #cb8a4a;
+  --module-color-dark: #b87235;
+  --module-color-rgb: 203, 138, 74;
+  --module-bg: #fef5e9;
+  --module-hover-bg: rgba(203, 138, 74, 0.04);
 }
 
 [data-module="students"] {
-  --module-color:     #C4758A;
-  --module-color-dark:#A85E73;
-  --module-color-rgb: 196,117,138;
-  --module-bg:        #FAECF0;
-  --module-hover-bg:  rgba(196,117,138,0.04);
+  --module-color: #c4758a;
+  --module-color-dark: #a85e73;
+  --module-color-rgb: 196, 117, 138;
+  --module-bg: #faecf0;
+  --module-hover-bg: rgba(196, 117, 138, 0.04);
 }
 
 [data-module="matching"] {
-  --module-color:     #5B6FD4;
-  --module-color-dark:#4455B8;
-  --module-color-rgb: 91,111,212;
-  --module-bg:        #ECEDFC;
-  --module-hover-bg:  rgba(91,111,212,0.04);
+  --module-color: #5b6fd4;
+  --module-color-dark: #4455b8;
+  --module-color-rgb: 91, 111, 212;
+  --module-bg: #ecedfc;
+  --module-hover-bg: rgba(91, 111, 212, 0.04);
 }
 
 [data-module="reports"] {
-  --module-color:     #5E8A7C;
-  --module-color-dark:#4A7568;
-  --module-color-rgb: 94,138,124;
-  --module-bg:        #EDF5F2;
-  --module-hover-bg:  rgba(94,138,124,0.04);
-}
-
-/* ── 真弹性曲线 — Chrome 117+, Safari 17+ */
-@supports (animation-timing-function: linear(0, 1)) {
-  :root {
-    /* 超射两次，像弹簧 */
-    --spring-bounce: linear(
-      0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.4%, 0.938 16%,
-      1.017, 1.046, 1.06, 1.064, 1.058 24.3%, 0.999 28.4%, 0.984,
-      0.985 34%, 1.001 40%, 1.003 44%, 1 50%, 1
-    );
-    /* 平滑进入，轻微超射 */
-    --spring-smooth: linear(
-      0, 0.006, 0.025 2.8%, 0.101 6.1%, 0.539 15%, 0.721 18.7%,
-      0.844 22.4%, 0.925 26%, 0.972 29.7%, 1.001 35%, 1
-    );
-    /* 快入快稳，无拖尾 */
-    --spring-snappy: linear(
-      0, 0.004, 0.016, 0.035, 0.063 4.2%, 0.431 13.3%, 0.641 18%,
-      0.823 24.1%, 0.929 29.4%, 0.991 35.1%, 1.015 39.4%,
-      1.017 45.3%, 0.999 52.2%, 1
-    );
-  }
-}
-
-/* ── 向上浮入，带轻微缩放 ── */
-@keyframes floatUp {
-  from { opacity: 0; transform: translateY(20px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-/* ── 向下滑入（Header/标题区）── */
-@keyframes slideDown {
-  from { opacity: 0; transform: translateY(-14px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* ── Tab 切换淡入 ── */
-@keyframes tabFadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* ── Modal FLIP：从 transform-origin 缩放展开 ── */
-@keyframes modalFlipIn {
-  from {
-    opacity: 0;
-    transform: scale(0.06);
-    transform-origin: var(--flip-ox, 50%) var(--flip-oy, 50%);
-  }
-  60% {
-    opacity: 1;
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-    transform-origin: var(--flip-ox, 50%) var(--flip-oy, 50%);
-  }
-}
-
-/* ── Modal 关闭：缩回原点 ── */
-@keyframes modalFlipOut {
-  from {
-    opacity: 1;
-    transform: scale(1);
-    transform-origin: var(--flip-ox, 50%) var(--flip-oy, 50%);
-  }
-  to {
-    opacity: 0;
-    transform: scale(0.06);
-    transform-origin: var(--flip-ox, 50%) var(--flip-oy, 50%);
-  }
-}
-
-/* ── Skeleton 闪烁 ── */
-@keyframes shimmer {
-  0%   { background-position: -400px 0; }
-  100% { background-position: 400px 0; }
-}
-
-/* ── Press 反馈（所有可点击元素）── */
-.pressable {
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  transition: transform 80ms var(--spring-press), box-shadow 80ms var(--spring-press);
-  will-change: transform;
-}
-.pressable:active {
-  transform: scale(0.96) !important;
-}
-
-/* ── Scroll reveal ── */
-.reveal-item {
-  opacity: 0;
-  transform: translateY(18px) scale(0.99);
-  transition:
-    opacity 0.45s var(--spring-smooth),
-    transform 0.45s var(--spring-smooth);
-  will-change: transform, opacity;
-}
-.reveal-item.is-visible {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-}
-
-/* ── Skeleton ── */
-.skeleton-line {
-  background: linear-gradient(
-    90deg,
-    rgba(229,231,235,0.6) 0px,
-    rgba(249,250,251,0.9) 120px,
-    rgba(229,231,235,0.6) 240px
-  );
-  background-size: 400px 100%;
-  border-radius: 6px;
-  animation: shimmer 1.4s ease-in-out infinite;
-}
-
-/* ── Tab 内容切换 ── */
-.tab-content-enter {
-  animation: tabFadeIn 0.24s var(--spring-snappy) forwards;
-}
-
-/* ── 页面标题区 ── */
-.page-header-anim {
-  animation: slideDown 0.4s var(--spring-smooth) forwards;
-}
-
-/* ── 页面工具栏 ── */
-.toolbar-anim {
-  animation: floatUp 0.4s var(--spring-smooth) 0.06s forwards;
-  opacity: 0;
-}
-
-/* ── RoleCard hover 完整 ── */
-.role-card-body {
-  transition:
-    transform 0.28s var(--spring-bounce),
-    box-shadow 0.28s var(--spring-smooth);
-  will-change: transform;
-}
-.role-card-body:hover {
-  transform: translateY(-5px) scale(1.015);
-  box-shadow:
-    0 16px 40px rgba(124,109,200,0.16),
-    0 4px 12px rgba(0,0,0,0.06);
-}
-.role-card-arrow {
-  transition:
-    transform 0.3s var(--spring-bounce),
-    color 0.15s ease;
-  display: inline-flex;
-}
-.role-card-body:hover .role-card-arrow {
-  transform: translateX(6px);
-  color: #7C6DC8 !important;
+  --module-color: #5e8a7c;
+  --module-color-dark: #4a7568;
+  --module-color-rgb: 94, 138, 124;
+  --module-bg: #edf5f2;
+  --module-hover-bg: rgba(94, 138, 124, 0.04);
 }

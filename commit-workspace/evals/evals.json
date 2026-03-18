@@ -1,0 +1,17 @@
+{
+  "skill_name": "commit",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "执行 /commit 命令提交当前的修改",
+      "expected_output": "1. 执行 git status/add/commit/push\n2. 分析上下文内容\n3. 动态展示相关记忆分类选项供用户选择\n4. 用户可点击选择或选择稍后再说",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "/commit",
+      "expected_output": "1. 如果没有修改文件，提示无文件需提交\n2. 如果有修改，执行完整流程并询问记忆保留策略",
+      "files": []
+    }
+  ]
+}

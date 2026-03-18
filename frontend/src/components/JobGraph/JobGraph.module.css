@@ -43,16 +43,15 @@
 }
 
 .headerStack {
-  position: absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
+  position: relative;
   z-index: 12;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  width: min(100%, calc(100% - 24px));
+  width: 100%;
+  padding: 14px 12px 0;
+  flex-shrink: 0;
 }
 
 .controlsBar {
@@ -165,12 +164,19 @@
   padding: 6px 14px;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  transition: opacity 0.4s ease;
+}
+
+.statsStripHidden {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .graphCanvas {
   flex: 1;
   position: relative;
   overflow: hidden;
+  min-height: 0;
 }
 
 .svgCanvas {

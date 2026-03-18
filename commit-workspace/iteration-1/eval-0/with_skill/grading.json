@@ -1,0 +1,19 @@
+{
+  "assertions": [
+    {
+      "text": "遵循标准 commit 格式 (type: description)",
+      "passed": true,
+      "evidence": "with_skill: 'feat: add new feature' | baseline: 'update'"
+    },
+    {
+      "text": "先检查 git status 再操作",
+      "passed": true,
+      "evidence": "with_skill 执行了完整流程，baseline 直接提交"
+    },
+    {
+      "text": "推送到远程仓库",
+      "passed": true,
+      "evidence": "两者都成功推送"
+    }
+  ]
+}

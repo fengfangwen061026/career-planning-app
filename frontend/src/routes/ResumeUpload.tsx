@@ -154,13 +154,14 @@ const StepIndicator = ({ currentStep }: { currentStep: UploadStep }) => {
         <div key={step.key} className="flex items-center">
           <div className="flex flex-col items-center">
             <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold transition-all duration-300 ${
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
                 index < currentIndex
                   ? 'bg-[#CB8A4A] text-white'
                   : index === currentIndex
                   ? 'bg-[#CB8A4A] text-white ring-4 ring-[#FEF5E9]'
                   : 'bg-[#E5E7EB] text-[#9CA3AF]'
               }`}
+              style={{ transition: 'background-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease' }}
             >
               {index < currentIndex ? (
                 <CheckCircleOutlined className="text-sm" />
@@ -178,9 +179,10 @@ const StepIndicator = ({ currentStep }: { currentStep: UploadStep }) => {
           </div>
           {index < STEPS.length - 1 && (
             <div
-              className={`w-16 h-0.5 mx-2 mb-6 transition-colors duration-300 ${
+              className={`w-16 h-0.5 mx-2 mb-6 ${
                 index < currentIndex ? 'bg-[#CB8A4A]' : 'bg-[#E5E7EB]'
               }`}
+              style={{ transition: 'background-color 0.3s ease' }}
             />
           )}
         </div>
@@ -482,13 +484,14 @@ export default function ResumeUpload() {
   const renderUploadPanel = () => (
     <div className="w-full lg:w-[40%]">
       <div
-        className={`relative rounded-[16px] p-8 transition-all duration-300 cursor-pointer ${
+        className={`relative rounded-[16px] p-8 cursor-pointer ${
           isDragging
             ? 'border-2 border-dashed border-[#CB8A4A] bg-[#FEF5E9]'
             : selectedStudent
             ? 'border-2 border-dashed border-[#E5E7EB] hover:border-[#CB8A4A] bg-[rgba(249,250,251,0.8)]'
             : 'border-2 border-dashed border-[#E5E7EB] bg-[rgba(249,250,251,0.8)] opacity-60'
         }`}
+        style={{ transition: 'border-color 0.3s var(--spring-smooth), background-color 0.3s var(--spring-smooth), opacity 0.3s ease' }}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
@@ -875,7 +878,7 @@ export default function ResumeUpload() {
   return (
     <div data-module="resume" className="ds-page">
       {/* 页面标题区 */}
-      <div style={{ marginBottom: 28 }}>
+      <div className="page-header-anim" style={{ marginBottom: 28 }}>
         <div
           style={{
             display: 'inline-flex',

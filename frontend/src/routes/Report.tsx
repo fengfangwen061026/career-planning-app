@@ -551,7 +551,7 @@ export default function Report() {
 
   // 页面标题区
   const pageHeader = (
-    <div style={{ marginBottom: 28, padding: '0 16px' }}>
+    <div className="page-header-anim" style={{ marginBottom: 28, padding: '0 16px' }}>
       <div
         style={{
           display: 'inline-flex',
@@ -915,11 +915,14 @@ export default function Report() {
         title="完整性检查结果"
         open={completenessVisible}
         onCancel={() => setCompletenessVisible(false)}
+        transitionName=""
+        maskTransitionName=""
         footer={[
           <Button key="close" type="primary" onClick={() => setCompletenessVisible(false)}>
             关闭
           </Button>,
         ]}
+        styles={{ content: { animation: 'modalFlipIn 0.45s var(--spring-smooth) both', opacity: 0 } }}
       >
         {completenessResult && (
           <div>
@@ -959,6 +962,8 @@ export default function Report() {
         title={`版本 ${selectedVersion?.version} 预览`}
         open={!!selectedVersion}
         onCancel={() => setSelectedVersion(null)}
+        transitionName=""
+        maskTransitionName=""
         width={800}
         footer={[
           <Button key="close" onClick={() => setSelectedVersion(null)}>
@@ -978,6 +983,7 @@ export default function Report() {
             </Button>
           ),
         ]}
+        styles={{ content: { animation: 'modalFlipIn 0.45s var(--spring-smooth) both', opacity: 0 } }}
       >
         {selectedVersion && (
           <pre className="max-h-96 overflow-auto bg-gray-50 p-4 rounded">

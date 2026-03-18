@@ -278,7 +278,7 @@ export default function JobManagement() {
   return (
     <div data-module="jobs" className="ds-page">
       {/* 页面标题区 */}
-      <div style={{ marginBottom: 28 }}>
+      <div className="page-header-anim" style={{ marginBottom: 28 }}>
         <div
           style={{
             display: 'inline-flex',
@@ -312,7 +312,7 @@ export default function JobManagement() {
       </div>
 
       {/* 顶部操作栏 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <div className="toolbar-anim" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <Space>
           <span style={{
             background: 'rgba(94,143,110,0.08)',
@@ -432,8 +432,10 @@ export default function JobManagement() {
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
+        transitionName=""
+        maskTransitionName=""
         width={600}
-        styles={{ content: { borderRadius: '16px' }, header: { borderRadius: '16px 16px 0 0' } }}
+        styles={{ content: { borderRadius: '16px', animation: 'modalFlipIn 0.45s var(--spring-smooth) both', opacity: 0 }, header: { borderRadius: '16px 16px 0 0' } }}
         style={{ borderRadius: '16px' }}
       >
         <Form form={form} layout="vertical">
@@ -464,13 +466,15 @@ export default function JobManagement() {
         title={<span style={{ fontSize: '16px', fontWeight: 700 }}>岗位详情</span>}
         open={detailModalVisible}
         onCancel={() => setDetailModalVisible(false)}
+        transitionName=""
+        maskTransitionName=""
         footer={[
           <Button key="close" onClick={() => setDetailModalVisible(false)} style={{ borderRadius: '8px' }}>
             关闭
           </Button>,
         ]}
         width={700}
-        styles={{ content: { borderRadius: '16px' }, header: { borderRadius: '16px 16px 0 0' } }}
+        styles={{ content: { borderRadius: '16px', animation: 'modalFlipIn 0.45s var(--spring-smooth) both', opacity: 0 }, header: { borderRadius: '16px 16px 0 0' } }}
       >
         {viewingJob && (
           <div className="space-y-4">

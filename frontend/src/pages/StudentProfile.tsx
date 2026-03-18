@@ -21,8 +21,6 @@ import {
   TrophyOutlined,
   BankOutlined,
 } from '@ant-design/icons';
-import {
-} from 'recharts';
 import { studentApi } from '../api/student';
 import type { StudentProfileResponse } from '../types/student';
 

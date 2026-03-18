@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Spin, message } from "antd";
 import { GraphCanvas } from "./GraphCanvas";
 import { GraphControls } from "./GraphControls";
@@ -13,6 +13,18 @@ export function JobGraph() {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<JobNode | null>(null);
+
+  // ── statsStrip 自动消失 ──────────────────────────
+  const [statsVisible, setStatsVisible] = useState(true);
+  const statsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    statsTimerRef.current = setTimeout(() => setStatsVisible(false), 4000);
+    return () => {
+      if (statsTimerRef.current) clearTimeout(statsTimerRef.current);
+    };
+  }, []);
+  // ────────────────────────────────────────────────
 
   const handleCategoryToggle = useCallback((category: string) => {
     setSelectedCategories((prev) =>
@@ -141,7 +153,11 @@ export function JobGraph() {
             loading={loading}
           />
 
-          <div className={styles.statsStrip}>
+          <div
+            className={`${styles.statsStrip} ${
+              statsVisible ? "" : styles.statsStripHidden
+            }`}
+          >
             共 {totals.role_count} 个岗位类型 · {totals.jd_count.toLocaleString()} 条招聘数据 · 覆盖 {totals.category_count} 个行业领域
           </div>
         </div>

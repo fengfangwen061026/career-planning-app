@@ -171,11 +171,11 @@ const ProgressBar = ({ percent, color }: ProgressBarProps) => {
   return (
     <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
       <div
-        className="h-full rounded-full transition-all duration-700 ease-out"
+        className="h-full rounded-full"
         style={{
           width: `${percent}%`,
           backgroundColor: color,
-          animation: 'elasticWidth 0.8s ease-out',
+          transition: 'width 0.7s var(--spring-smooth), background-color 0.3s ease',
         }}
       />
     </div>
@@ -220,6 +220,7 @@ export default function Matching() {
   const [matching, setMatching] = useState(false);
   const [selectedResult, setSelectedResult] = useState<MatchResultResponse | null>(null);
   const [activeTab, setActiveTab] = useState('1');
+  const [tabAnimKey, setTabAnimKey] = useState(0);
 
   // Fetch initial data
   useEffect(() => {
@@ -337,8 +338,12 @@ export default function Matching() {
     return (
       <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden mt-1">
         <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{ width: `${score}%`, backgroundColor: color }}
+          className="h-full rounded-full"
+          style={{
+            width: `${score}%`,
+            backgroundColor: color,
+            transition: 'width 0.5s var(--spring-smooth), background-color 0.3s ease',
+          }}
         />
       </div>
     );
@@ -402,11 +407,12 @@ export default function Matching() {
               return (
                 <GlassCard
                   key={result.id}
-                  className={`mb-2 cursor-pointer transition-all ${isSelected ? 'ring-2' : ''}`}
+                  className={`mb-2 cursor-pointer ${isSelected ? 'ring-2' : ''}`}
                   style={{
                     padding: '12px',
                     border: isSelected ? `2px solid ${MODULE_COLOR}` : '1px solid rgba(255,255,255,0.9)',
                     cursor: 'pointer',
+                    transition: 'transform 0.2s var(--spring-smooth), box-shadow 0.2s var(--spring-smooth), border-color 0.2s ease',
                   }}
                   onClick={() => setSelectedResult(result)}
                 >
@@ -890,7 +896,7 @@ export default function Matching() {
 
   // 页面标题区
   const renderPageHeader = () => (
-    <div style={{ marginBottom: 28 }}>
+    <div className="page-header-anim" style={{ marginBottom: 28 }}>
       <div
         style={{
           display: 'inline-flex',
@@ -966,7 +972,10 @@ export default function Matching() {
                 <div className="flex-1 overflow-auto p-4">
                   <Tabs
                     activeKey={activeTab}
-                    onChange={setActiveTab}
+                    onChange={(key) => {
+                      setActiveTab(key);
+                      setTabAnimKey(Date.now());
+                    }}
                     items={[
                       { key: '1', label: '匹配分析', children: renderMatchAnalysis() },
                       { key: '2', label: '差距清单', children: renderGapList() },

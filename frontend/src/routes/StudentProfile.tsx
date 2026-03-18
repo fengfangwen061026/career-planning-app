@@ -20,8 +20,6 @@ import {
   CrownOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import {
-} from 'recharts';
 import { User } from 'lucide-react';
 import { studentsApi } from '../api/students';
 import type { StudentResponse, StudentProfileResponse } from '../types/student';
@@ -93,6 +91,7 @@ const getInitials = (name: string): string => {
 
 // 饼图颜色
 const PIE_COLORS = ['#C4758A', '#CB8A4A', '#5B6FD4', '#5E8F6E'];
+const SOFT_SKILL_DIMENSIONS = ['学习能力', '沟通能力', '团队协作', '创新能力', '抗压能力'] as const;
 
 export default function StudentProfile() {
   const [students, setStudents] = useState<StudentResponse[]>([]);
@@ -139,6 +138,39 @@ export default function StudentProfile() {
   const competitivenessScoreRaw = Number(profileJson?.competitiveness_score || 0);
   const competitivenessScore =
     competitivenessScoreRaw <= 1 ? Math.round(competitivenessScoreRaw * 100) : Math.round(competitivenessScoreRaw);
+  const educationList = Array.isArray(profileJson?.education) ? profileJson.education : [];
+  const awards = Array.isArray(profileJson?.awards) ? profileJson.awards : [];
+  const certificateNames = Array.isArray(profileJson?.certificate_names)
+    ? profileJson.certificate_names
+    : Array.isArray(profileJson?.certificates)
+      ? profileJson.certificates.map((cert) => cert?.name).filter(Boolean)
+      : [];
+  const rawSoftSkills = profileJson?.soft_skills;
+  const softSkillMap =
+    Array.isArray(rawSoftSkills)
+      ? Object.fromEntries(rawSoftSkills.map((item) => [item.dimension, item]))
+      : Object.fromEntries(
+          Object.entries(rawSoftSkills || {}).map(([dimension, score]) => [
+            dimension,
+            {
+              dimension,
+              score: typeof score === 'number' ? (score <= 1 ? score : score / 100) : 0,
+              evidence: '暂无数据',
+            },
+          ]),
+        );
+  const softSkillItems = SOFT_SKILL_DIMENSIONS.map((dimension) => {
+    const item = softSkillMap[dimension];
+    if (!item) {
+      return { dimension, score: 0, evidence: '暂无数据' };
+    }
+    return {
+      dimension,
+      score: typeof item.score === 'number' ? (item.score <= 1 ? item.score : item.score / 100) : 0,
+      evidence: item.evidence || '暂无数据',
+    };
+  });
+  const experienceMonths = Number(profileJson?.experience_months || 0);
 
   // 技能分类
   const skillsByCategory = profileJson?.skills?.reduce((acc, skill) => {
@@ -194,7 +226,7 @@ export default function StudentProfile() {
   return (
     <div data-module="students" className="p-6">
       {/* 页面标题区 */}
-      <div style={{ marginBottom: 28 }}>
+      <div className="page-header-anim" style={{ marginBottom: 28 }}>
         <div
           style={{
             display: 'inline-flex',
@@ -329,6 +361,12 @@ export default function StudentProfile() {
                     </Descriptions.Item>
                     <Descriptions.Item label="学历">
                       {profileJson?.basic_info?.degree || '-'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="专业">
+                      {profileJson?.basic_info?.major || educationList[0]?.major || '-'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="经历月数">
+                      {experienceMonths > 0 ? `${experienceMonths} 个月` : '-'}
                     </Descriptions.Item>
                   </Descriptions>
                 </Col>
@@ -470,31 +508,25 @@ export default function StudentProfile() {
                     <Text strong type="secondary" style={{ color: '#6B7280' }}>
                       证书
                     </Text>
-                    {profileJson?.certificates && profileJson.certificates.length > 0 ? (
-                      <div className="mt-3">
-                        {profileJson.certificates.map((cert, index) => (
-                          <div
-                            key={index}
+                    {certificateNames.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {certificateNames.map((name, index) => (
+                          <Tag
+                            key={`${name}-${index}`}
                             style={{
-                              background: 'rgba(249,250,251,0.8)',
-                              borderRadius: '10px',
-                              padding: '12px 16px',
-                              marginBottom: '8px',
-                              borderLeft: '3px solid #C4758A',
+                              background: 'rgba(196,117,138,0.10)',
+                              color: '#8A3A50',
+                              border: '1px solid rgba(196,117,138,0.20)',
+                              borderRadius: '999px',
+                              padding: '4px 10px',
                             }}
                           >
-                            <Text strong style={{ color: '#0A0A0A' }}>{cert.name}</Text>
-                            <div>
-                              <Text type="secondary" className="text-sm">
-                                {cert.issuer}
-                                {cert.date && ` - ${cert.date}`}
-                              </Text>
-                            </div>
-                          </div>
+                            {name}
+                          </Tag>
                         ))}
                       </div>
                     ) : (
-                      <Text type="secondary">暂无证书数据</Text>
+                      <Text type="secondary">暂无证书信息</Text>
                     )}
                   </div>
 
@@ -503,25 +535,62 @@ export default function StudentProfile() {
                     <Text strong type="secondary" style={{ color: '#6B7280' }}>
                       软素养评估
                     </Text>
-                    {Object.keys(softSkills).length > 0 ? (
+                    {softSkillItems.some((item) => item.score > 0) ? (
                       <div className="mt-3">
-                        {Object.entries(softSkills).map(([key, value]) => (
-                          <div key={key} className="mb-3">
-                            <Space>
-                              <Text style={{ color: '#374151' }}>{key}</Text>
+                        {softSkillItems.map((item) => {
+                          const percent = Math.round(item.score * 100);
+                          return (
+                            <div key={item.dimension} className="mb-4">
+                              <div className="flex items-center justify-between mb-1">
+                                <Text style={{ color: '#374151' }}>{item.dimension}</Text>
+                                <Text type="secondary">{percent > 0 ? `${percent}%` : '暂无数据'}</Text>
+                              </div>
                               <Progress
-                                percent={value}
+                                percent={percent}
                                 size="small"
-                                status={getScoreStatus(value)}
-                                strokeColor={getScoreColor(value)}
-                                style={{ width: 120 }}
+                                status={percent > 0 ? getScoreStatus(percent) : 'normal'}
+                                strokeColor={percent > 0 ? getScoreColor(percent) : '#D1D5DB'}
                               />
-                            </Space>
+                              <Text type="secondary" className="block mt-1">
+                                {item.evidence || '暂无数据'}
+                              </Text>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <Text type="secondary">暂无软素养数据</Text>
+                    )}
+                  </div>
+
+                  <div className="mt-6">
+                    <Text strong type="secondary" style={{ color: '#6B7280' }}>
+                      获奖信息
+                    </Text>
+                    {awards.length > 0 ? (
+                      <div className="mt-3 space-y-2">
+                        {awards.map((award: { name: string; level?: string; date?: string }, index: number) => (
+                          <div
+                            key={`${award.name}-${index}`}
+                            style={{
+                              background: 'rgba(249,250,251,0.8)',
+                              borderRadius: '10px',
+                              padding: '12px 16px',
+                              marginBottom: '8px',
+                              borderLeft: '3px solid #CB8A4A',
+                            }}
+                          >
+                            <Text strong style={{ color: '#0A0A0A' }}>{award.name}</Text>
+                            <div>
+                              <Text type="secondary" className="text-sm">
+                                {[award.level, award.date].filter(Boolean).join(' | ') || '暂无级别/时间'}
+                              </Text>
+                            </div>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <Text type="secondary">暂无软素养数据</Text>
+                      <Text type="secondary">暂无获奖信息</Text>
                     )}
                   </div>
                 </GlassCard>
