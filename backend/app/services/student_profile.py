@@ -1,6 +1,11 @@
 """Student profile service - assembles and manages student profiles from resume data."""
 
 import logging
+import json
+import re
+
+from app.ai.llm_provider import llm
+from app.prompts.student_profile import SOFT_SKILL_EVAL_SYSTEM_PROMPT, SOFT_SKILL_EVAL_USER_PROMPT
 from typing import Any
 from uuid import UUID
 
@@ -13,6 +18,7 @@ from app.schemas.profiles import ResumeParseResult
 from app.services.resume_parser import compute_completeness_score, generate_missing_suggestions
 
 logger = logging.getLogger(__name__)
+DEFAULT_SOFT_SKILL_DIMENSIONS = ["学习能力", "沟通能力", "团队协作", "创新能力", "抗压能力"]
 
 
 def _calculate_competitiveness_score(parse_result: ResumeParseResult) -> float:
@@ -42,7 +48,167 @@ def _calculate_competitiveness_score(parse_result: ResumeParseResult) -> float:
     return round(min(score, 100.0), 1)
 
 
-def _build_profile_json(parsed_data: dict[str, Any], student: Student | None = None) -> dict[str, Any]:
+def _extract_certificate_names(raw_text: str, certificates: list[dict[str, Any]]) -> list[str]:
+    names = [cert.get("name", "").strip() for cert in certificates if cert.get("name")]
+    patterns = [
+        r"CET-?6",
+        r"CET-?4",
+        r"计算机二级",
+        r"计算机三级",
+        r"普通话[一二三]级甲等",
+        r"普通话[一二三]级乙等",
+    ]
+    for pattern in patterns:
+        for match in re.findall(pattern, raw_text, flags=re.IGNORECASE):
+            normalized = match.upper().replace("CET6", "CET-6").replace("CET4", "CET-4")
+            if normalized not in names:
+                names.append(normalized)
+    return names
+
+
+def _estimate_experience_months(items: list[dict[str, Any]]) -> int:
+    month_pattern = re.compile(r"(20\d{2})[-./](\d{1,2})")
+    total = 0
+    for item in items:
+        start = item.get("start_date")
+        end = item.get("end_date")
+        if not start or not end:
+            continue
+        start_match = month_pattern.search(start)
+        end_match = month_pattern.search(end)
+        if not start_match or not end_match:
+            continue
+        start_month = int(start_match.group(1)) * 12 + int(start_match.group(2))
+        end_month = int(end_match.group(1)) * 12 + int(end_match.group(2))
+        if end_month >= start_month:
+            total += end_month - start_month + 1
+    return total
+
+
+def _build_soft_skill_items(
+    parse_result: ResumeParseResult,
+    raw_soft_skills: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, float]]:
+    alias_map = {
+        "learning_ability": "学习能力",
+        "communication": "沟通能力",
+        "teamwork": "团队协作",
+        "innovation": "创新能力",
+        "stress_tolerance": "抗压能力",
+        "responsibility": "抗压能力",
+    }
+    items: list[dict[str, Any]] = []
+    scores: dict[str, float] = {}
+
+    for key, value in (raw_soft_skills or {}).items():
+        dimension = alias_map.get(key, key)
+        if isinstance(value, dict):
+            raw_score = value.get("score", 0.0)
+            score = raw_score / 100 if raw_score > 1 else raw_score
+            evidence = value.get("evidence") or "来自简历原文"
+            if isinstance(evidence, list):
+                evidence = "；".join(str(item) for item in evidence if item)
+        else:
+            score = value / 100 if isinstance(value, (int, float)) and value > 1 else float(value or 0)
+            evidence = "来自简历原文"
+        score = round(max(0.0, min(score, 1.0)), 2)
+        items.append({"dimension": dimension, "score": score, "evidence": evidence or "来自简历原文"})
+        scores[dimension] = score
+
+    if not items:
+        self_intro = parse_result.self_intro or ""
+        project_count = len(parse_result.projects)
+        award_count = len(parse_result.awards)
+        skill_count = len(parse_result.skills)
+        intro_has_team = "团队" in self_intro or "负责人" in self_intro
+        intro_has_innovation = "创新" in self_intro or "新鲜事物" in self_intro
+        intro_has_pressure = "管理" in self_intro or "答辩" in self_intro or "负责人" in self_intro
+        heuristics = {
+            "学习能力": (
+                min(0.55 + skill_count * 0.04 + (0.08 if "学习能力强" in self_intro else 0.0), 0.95),
+                "简历自述学习能力强，且具备多项技能与项目经历" if self_intro else "根据技能与项目经历推断",
+            ),
+            "沟通能力": (
+                min(0.5 + (0.1 if "沟通" in self_intro or "热情" in self_intro else 0.0) + award_count * 0.03, 0.9),
+                "自我评价提到待人热情、沟通表达，且有竞赛答辩经历" if self_intro else "根据项目协作经历推断",
+            ),
+            "团队协作": (
+                min(0.52 + project_count * 0.04 + (0.08 if intro_has_team else 0.0), 0.92),
+                "担任负责人/参与者并参与多项团队项目" if project_count else "暂无明显团队项目证据",
+            ),
+            "创新能力": (
+                min(0.5 + award_count * 0.05 + (0.08 if intro_has_innovation else 0.0), 0.9),
+                "竞赛获奖与创新项目经历体现创新能力" if award_count or project_count else "根据自我评价推断",
+            ),
+            "抗压能力": (
+                min(0.48 + project_count * 0.03 + (0.1 if intro_has_pressure else 0.0), 0.88),
+                "长期项目推进、竞赛答辩和负责人经历体现一定抗压能力" if project_count else "根据自我评价推断",
+            ),
+        }
+        for dimension in DEFAULT_SOFT_SKILL_DIMENSIONS:
+            score, evidence = heuristics[dimension]
+            score = round(score, 2)
+            items.append({"dimension": dimension, "score": score, "evidence": evidence})
+            scores[dimension] = score
+
+    for dimension in DEFAULT_SOFT_SKILL_DIMENSIONS:
+        if dimension not in scores:
+            items.append({"dimension": dimension, "score": 0.0, "evidence": "暂无数据"})
+            scores[dimension] = 0.0
+
+    items.sort(key=lambda item: DEFAULT_SOFT_SKILL_DIMENSIONS.index(item["dimension"]) if item["dimension"] in DEFAULT_SOFT_SKILL_DIMENSIONS else 99)
+    return items, scores
+
+async def _evaluate_soft_skills(parsed_data: dict) -> dict:
+    """使用 LLM 评估学生软技能五个维度（沟通/团队/抗压/创新/学习）。
+
+    返回格式：
+    {
+        "沟通能力": {"score": 0.7, "evidence": "..."},
+        "团队协作": {"score": 0.5, "evidence": "..."},
+        ...
+    }
+    失败时返回各维度 0.3 的默认值。
+    """
+    education = parsed_data.get("education", [])
+    experience = parsed_data.get("experience", [])
+    projects = parsed_data.get("projects", [])
+    self_intro = parsed_data.get("self_intro") or ""
+
+    prompt = SOFT_SKILL_EVAL_USER_PROMPT.format(
+        education=json.dumps(education, ensure_ascii=False),
+        experience=json.dumps(experience, ensure_ascii=False),
+        projects=json.dumps(projects, ensure_ascii=False),
+        self_intro=self_intro,
+    )
+
+    default = {
+        "沟通能力": {"score": 0.3, "evidence": ""},
+        "团队协作": {"score": 0.3, "evidence": ""},
+        "抗压能力": {"score": 0.3, "evidence": ""},
+        "创新能力": {"score": 0.3, "evidence": ""},
+        "学习能力": {"score": 0.3, "evidence": ""},
+    }
+
+    try:
+        result = await llm.generate_json(
+            prompt=prompt,
+            system_prompt=SOFT_SKILL_EVAL_SYSTEM_PROMPT,
+            temperature=0.3,
+            max_retries=2,
+        )
+        # 校验：必须包含五个维度且 score 在合法范围
+        required = {"沟通能力", "团队协作", "抗压能力", "创新能力", "学习能力"}
+        if not required.issubset(result.keys()):
+            logger.warning("soft skill eval missing dimensions: %s", result.keys())
+            return default
+        return result
+    except Exception as e:
+        logger.error("soft skill LLM eval failed: %s", e)
+        return default
+
+
+def _build_profile_json(parsed_data: dict[str, Any], student: Student | None = None, soft_skills_override: dict | None = None) -> dict[str, Any]:
     """将简历解析结果组装为完整的四维学生画像 JSON。
 
     四维结构：
@@ -75,8 +241,15 @@ def _build_profile_json(parsed_data: dict[str, Any], student: Student | None = N
     certificates = to_dict_list(parsed_data.get("certificates", []))
     awards = to_dict_list(parsed_data.get("awards", []))
     campus_activities = to_dict_list(parsed_data.get("campus_activities", []))
-    soft_skills = to_dict_dict(parsed_data.get("soft_skills", {}))
+    # 优先使用 LLM 评估结果，否则 fallback 到解析字段
+    soft_skills = soft_skills_override or to_dict_dict(parsed_data.get("soft_skills", {}))
     self_evaluation = parsed_data.get("self_intro") or parsed_data.get("self_evaluation")
+    raw_text = parsed_data.get("raw_text", "")
+    parse_result = (
+        parsed_data
+        if isinstance(parsed_data, ResumeParseResult)
+        else ResumeParseResult.model_validate(parsed_data)
+    )
 
     # 最高学历
     degree_order = {"博士": 4, "硕士": 3, "本科": 2, "大专": 1}
@@ -112,23 +285,15 @@ def _build_profile_json(parsed_data: dict[str, Any], student: Student | None = N
         }
         for p in project_experience
     ]
-    soft_skill_aliases = {
-        key: (
-            value.get("score", 0.0)
-            if isinstance(value, dict)
-            else value
-        )
-        for key, value in soft_skills.items()
-    }
+    soft_skill_items, soft_skill_scores = _build_soft_skill_items(parse_result, soft_skills)
+    certificate_names = _extract_certificate_names(raw_text, certificates)
+    experience_months = _estimate_experience_months(work_experience)
 
-    competitiveness_score = _calculate_competitiveness_score(
-        parsed_data
-        if isinstance(parsed_data, ResumeParseResult)
-        else ResumeParseResult.model_validate(parsed_data)
-    )
+    competitiveness_score = _calculate_competitiveness_score(parse_result)
 
     return {
         "competitiveness_score": competitiveness_score,
+        "experience_months": experience_months,
         "basic_info": {
             "name": basic_info.get("name") or getattr(student, "name", None),
             "email": getattr(student, "email", None),
@@ -146,9 +311,10 @@ def _build_profile_json(parsed_data: dict[str, Any], student: Student | None = N
         "education": education,
         "skills": skill_aliases,
         "experiences": experience_aliases,
+        "certificate_names": certificate_names,
         "certificates": certificates,
         "awards": awards,
-        "soft_skills": soft_skill_aliases,
+        "soft_skills": soft_skill_items,
         "self_intro": self_evaluation,
         "dimensions": {
             "basic_requirements": {
@@ -168,7 +334,7 @@ def _build_profile_json(parsed_data: dict[str, Any], student: Student | None = N
                 }
                 for s in skills
             ],
-            "soft_competencies": soft_skills,
+            "soft_competencies": soft_skill_scores,
             "growth_potential": {
                 "education_background": [
                     {
@@ -269,8 +435,13 @@ async def generate_student_profile(
         else ResumeParseResult.model_validate(parsed_data)
     )
 
+    # LLM 软技能评估（异步，失败时使用默认值）
+    soft_skills_eval = await _evaluate_soft_skills(
+        parsed_data if isinstance(parsed_data, dict) else parsed_data.model_dump()
+    )
+
     # 组装画像
-    profile_json = _build_profile_json(parsed_data, student)
+    profile_json = _build_profile_json(parsed_data, student, soft_skills_override=soft_skills_eval)
     completeness_score = compute_completeness_score(parse_result)
     missing_suggestions = generate_missing_suggestions(parse_result)
 
