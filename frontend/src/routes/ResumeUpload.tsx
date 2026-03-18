@@ -86,6 +86,12 @@ interface ParsedResumeData {
   self_intro?: string | null;
 }
 
+interface ParseMeta {
+  status?: string;
+  is_fallback?: boolean;
+  retrying?: boolean;
+}
+
 function extractNameFromRawText(rawText: string): string | undefined {
   const firstLine = rawText.split('\n').find((line) => line.trim());
   if (!firstLine) {
@@ -207,6 +213,7 @@ export default function ResumeUpload() {
   const [parsedData, setParsedData] = useState<ParsedResumeData | null>(null);
   const [resumeResponse, setResumeResponse] = useState<ResumeUploadResponse | null>(null);
   const [profileCreated, setProfileCreated] = useState(false);
+  const [parseMeta, setParseMeta] = useState<ParseMeta | null>(null);
 
   // Drag state
   const [isDragging, setIsDragging] = useState(false);
@@ -315,9 +322,61 @@ export default function ResumeUpload() {
     }, 60000);
   };
 
+  const applyParsedPayload = (
+    responseData: Partial<ResumeUploadResponse> & { parsed_data?: Record<string, unknown> },
+    nextMeta?: ParseMeta,
+    options?: { preserveResume?: boolean },
+  ) => {
+    const parsedRecord = responseData.parsed_data as Record<string, unknown> | undefined;
+    const rawText = (parsedRecord?.raw_text as string) || '';
+    const extractedName = extractNameFromRawText(rawText);
+    const extractedContact = extractContactFromRawText(rawText);
+
+    const backendEducation = (parsedRecord?.education as Array<Record<string, unknown>>) || [];
+    const transformedEducation = backendEducation.map((edu) => ({
+      school: edu.school as string,
+      degree: edu.degree as string,
+      major: edu.major as string | undefined,
+      duration: edu.start_year && edu.end_year ? `${edu.start_year} - ${edu.end_year}` : undefined,
+      gpa: edu.gpa as number | undefined,
+    }));
+
+    const backendProjects = (parsedRecord?.projects as Array<Record<string, unknown>>) || [];
+    const transformedProjects = backendProjects.map((proj) => ({
+      name: proj.name as string,
+      description: proj.description as string | undefined,
+      skills: proj.tech_stack as string[] | undefined,
+      duration: undefined,
+    }));
+
+    const backendExperience = (parsedRecord?.experience as Array<Record<string, unknown>>) || [];
+    const transformedExperience = backendExperience.map((exp) => ({
+      company: exp.company as string,
+      position: (exp.role as string | undefined) || '',
+      duration: exp.start_date && exp.end_date ? `${exp.start_date} - ${exp.end_date}` : undefined,
+      description: exp.description as string | undefined,
+    }));
+
+    setParsedData({
+      name: extractedName,
+      contact: extractedContact,
+      education: transformedEducation,
+      projects: transformedProjects,
+      experience: transformedExperience,
+      skills: (parsedRecord?.skills as ParsedResumeData['skills']) || [],
+      awards: (parsedRecord?.awards as ParsedResumeData['awards']) || [],
+      self_intro: (parsedRecord?.self_intro as string | null | undefined) || null,
+    });
+
+    if (!options?.preserveResume) {
+      setResumeResponse(responseData as ResumeUploadResponse);
+    }
+    setParseMeta(nextMeta ?? (responseData.parse_meta as ParseMeta | undefined) ?? null);
+  };
+
   const handleUpload = async (file: File) => {
     if (!selectedStudent) {
-      message.warning('请先选择学生');
+      message.warning('??????');
       return false;
     }
 
@@ -326,26 +385,24 @@ export default function ResumeUpload() {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     ];
     if (!validTypes.includes(file.type)) {
-      message.error('仅支持 PDF 和 DOCX 格式');
+      message.error('??? PDF ? DOCX ??');
       return false;
     }
 
     setLoading(true);
     setProfileCreated(false);
+    setParseMeta(null);
     startParsingFeedback();
 
     const formData = new FormData();
     formData.append('file', file);
 
     try {
-      const response = await fetch(
-        `/api/students/${selectedStudent}/upload-resume/stream`,
-        {
-          method: 'POST',
-          body: formData,
-          headers: { Accept: 'text/event-stream' },
-        }
-      );
+      const response = await fetch(`/api/students/${selectedStudent}/upload-resume/stream`, {
+        method: 'POST',
+        body: formData,
+        headers: { Accept: 'text/event-stream' },
+      });
 
       if (!response.ok || !response.body) {
         throw new Error(`HTTP ${response.status}`);
@@ -365,6 +422,7 @@ export default function ResumeUpload() {
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
+
           let event: Record<string, unknown>;
           try {
             event = JSON.parse(line.slice(6));
@@ -374,61 +432,42 @@ export default function ResumeUpload() {
 
           if (event.type === 'heartbeat' || event.type === 'stage') {
             setParseProgress(event.progress as number);
+            continue;
           }
 
           if (event.type === 'error') {
             throw new Error(event.message as string);
           }
 
+          if (event.type === 'fallback') {
+            clearParsingFeedback();
+            setParseProgress((event.progress as number) || 72);
+            setParseMessage((event.message as string) || 'AI ???????????');
+            setParseAlert('?????????????????? AI ??');
+
+            const responseData = (event.data as Partial<ResumeUploadResponse>) || {};
+            applyParsedPayload(responseData, responseData.parse_meta as ParseMeta, {
+              preserveResume: true,
+            });
+            setUploadStep('preview');
+            continue;
+          }
+
+          if (event.type === 'retrying') {
+            setParseProgress((event.progress as number) || 84);
+            setParseMessage((event.message as string) || 'AI ?????????');
+            setParseAlert('?????????????????????');
+            continue;
+          }
+
           if (event.type === 'complete') {
             clearParsingFeedback();
             setParseProgress(100);
-            setParseMessage('解析完成！');
+            setParseMessage('????');
             setParseAlert(null);
 
             const responseData = event.data as ResumeUploadResponse;
-            const parsedRecord = responseData.parsed_data as Record<string, unknown> | undefined;
-
-            const rawText = (parsedRecord?.raw_text as string) || '';
-            const extractedName = extractNameFromRawText(rawText);
-            const extractedContact = extractContactFromRawText(rawText);
-
-            const backendEducation = (parsedRecord?.education as Array<Record<string, unknown>>) || [];
-            const transformedEducation = backendEducation.map((edu) => ({
-              school: edu.school as string,
-              degree: edu.degree as string,
-              major: edu.major as string | undefined,
-              duration: edu.start_year && edu.end_year ? `${edu.start_year} - ${edu.end_year}` : undefined,
-              gpa: edu.gpa as number | undefined,
-            }));
-
-            const backendProjects = (parsedRecord?.projects as Array<Record<string, unknown>>) || [];
-            const transformedProjects = backendProjects.map((proj) => ({
-              name: proj.name as string,
-              description: proj.description as string | undefined,
-              skills: proj.tech_stack as string[] | undefined,
-              duration: undefined,
-            }));
-
-            const backendExperience = (parsedRecord?.experience as Array<Record<string, unknown>>) || [];
-            const transformedExperience = backendExperience.map((exp) => ({
-              company: exp.company as string,
-              position: (exp.role as string | undefined) || '',
-              duration: exp.start_date && exp.end_date ? `${exp.start_date} - ${exp.end_date}` : undefined,
-              description: exp.description as string | undefined,
-            }));
-
-            setParsedData({
-              name: extractedName,
-              contact: extractedContact,
-              education: transformedEducation,
-              projects: transformedProjects,
-              experience: transformedExperience,
-              skills: (parsedRecord?.skills as ParsedResumeData['skills']) || [],
-              awards: (parsedRecord?.awards as ParsedResumeData['awards']) || [],
-              self_intro: (parsedRecord?.self_intro as string | null | undefined) || null,
-            });
-            setResumeResponse(responseData);
+            applyParsedPayload(responseData, responseData.parse_meta as ParseMeta);
 
             await new Promise<void>((resolve) => setTimeout(resolve, 500));
             setUploadStep('preview');
@@ -437,9 +476,10 @@ export default function ResumeUpload() {
       }
     } catch (error: unknown) {
       clearParsingFeedback();
-      const msg = error instanceof Error ? error.message : '上传失败，请重试';
+      const msg = error instanceof Error ? error.message : '????????';
       setParseAlert(msg);
-      setParseMessage('解析遇到问题');
+      setParseMeta(null);
+      setParseMessage('??????');
     } finally {
       setLoading(false);
     }
@@ -507,6 +547,7 @@ export default function ResumeUpload() {
     setParsedData(null);
     setResumeResponse(null);
     setProfileCreated(false);
+    setParseMeta(null);
     profileForm.resetFields();
     clearParsingFeedback();
   };
@@ -604,6 +645,19 @@ export default function ResumeUpload() {
   // Render preview step
   const renderPreviewPanel = () => (
     <Form form={profileForm} layout="vertical" className="w-full lg:w-[60%] space-y-4">
+      {(parseMeta?.retrying || parseMeta?.is_fallback) && (
+        <Alert
+          type="warning"
+          showIcon
+          message={parseMeta?.retrying ? 'AI ???????????' : '????????????'}
+          description={
+            parseMeta?.retrying
+              ? '????????????????????? AI ?????'
+              : 'AI ?????????????????????????'
+          }
+        />
+      )}
+
       <GlassCard>
         <div className="ds-section-title" style={{ color: MODULE_COLOR }}>
           <UserOutlined />
@@ -856,6 +910,7 @@ export default function ResumeUpload() {
           type="primary"
           icon={<CheckCircleOutlined />}
           onClick={handleConfirmProfile}
+          disabled={Boolean(parseMeta?.retrying) || !resumeResponse?.resume?.id}
           size="large"
           style={{
             background: '#CB8A4A',
@@ -864,7 +919,7 @@ export default function ResumeUpload() {
             fontWeight: 600,
           }}
         >
-          确认并创建画像
+          {parseMeta?.retrying ? '??????' : '???????'}
         </Button>
       </div>
     </Form>
@@ -985,9 +1040,7 @@ export default function ResumeUpload() {
       </GlassCard>
 
       {/* Main Content */}
-      {loading || uploadStep === 'parsing' ? (
-        renderParsingStep()
-      ) : uploadStep === 'complete' ? (
+      {uploadStep === 'complete' ? (
         renderCompleteStep()
       ) : uploadStep === 'preview' ? (
         // Two-column layout for preview
@@ -995,6 +1048,8 @@ export default function ResumeUpload() {
           {renderUploadPanel()}
           {renderPreviewPanel()}
         </div>
+      ) : loading || uploadStep === 'parsing' ? (
+        renderParsingStep()
       ) : (
         // Two-column layout for upload
         <div className="flex flex-col lg:flex-row gap-6">

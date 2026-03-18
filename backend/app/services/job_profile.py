@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_JD_TOKENS = 180_000
 _AVG_CHARS_PER_TOKEN = 1.5
+_JOB_PROFILE_MAX_OUTPUT_TOKENS = 4096
 
 # ---------------------------------------------------------------------------
 # 0. JD噪音黑名单（用于过滤非技能内容）
@@ -493,6 +494,7 @@ async def _generate_job_profile_with_fallback(role_name: str, jobs: list[Job], j
                 system_prompt=messages[0]["content"],
                 temperature=0.3,
                 max_retries=3,
+                max_tokens=_JOB_PROFILE_MAX_OUTPUT_TOKENS,
             )
             return llm_profile, strategy, len(candidate_jds)
         except APIStatusError as exc:

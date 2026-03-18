@@ -130,6 +130,11 @@ export interface ResumeUploadResponse {
   completeness_score: number;
   missing_suggestions: string[];
   normalization_log: Array<{ original: string; normalized: string }>;
+  parse_meta?: {
+    status?: string;
+    is_fallback?: boolean;
+    retrying?: boolean;
+  };
 }
 
 // Student Profile types
