@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Input,
@@ -108,31 +108,24 @@ const RoleCard = ({
   onCardClick: () => void;
 }) => {
   return (
-    <div style={{
-      background: 'rgba(255,255,255,0.7)',
-      backdropFilter: 'blur(10px)',
-      borderRadius: 16,
-      border: '1px solid rgba(255,255,255,0.5)',
-      boxShadow: '0 4px 24px rgba(0,0,0,0.04)',
-      overflow: 'hidden',
-    }}>
-      {/* Card Header */}
+    <div
+      className="pressable role-card-body"
+      onClick={onCardClick}
+      style={{
+        background: 'rgba(255,255,255,0.7)',
+        backdropFilter: 'blur(10px)',
+        borderRadius: 16,
+        border: '1px solid rgba(255,255,255,0.5)',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.04)',
+        overflow: 'hidden',
+      }}
+    >
       <div
-        onClick={onCardClick}
-        onMouseEnter={(e) => {
-          const arrow = e.currentTarget.querySelector('[data-arrow]') as HTMLElement;
-          if (arrow) arrow.style.color = '#7C6DC8';
-        }}
-        onMouseLeave={(e) => {
-          const arrow = e.currentTarget.querySelector('[data-arrow]') as HTMLElement;
-          if (arrow) arrow.style.color = '#9CA3AF';
-        }}
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '16px 20px',
-          cursor: 'pointer',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -160,11 +153,8 @@ const RoleCard = ({
           }}>
             {role.job_count} 个岗位
           </span>
-          <span data-arrow>
-            <ArrowRight
-              size={18}
-              style={{ color: '#9CA3AF', transition: 'color 0.15s ease' }}
-            />
+          <span className="role-card-arrow">
+            <ArrowRight size={18} style={{ color: '#9CA3AF' }} />
           </span>
         </div>
       </div>
@@ -179,6 +169,9 @@ export default function JobProfiles() {
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState(searchParams.get('keyword') || '');
   const [detailModalRoleId, setDetailModalRoleId] = useState<string | null>(null);
+  const cardRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
+  const flipOriginRef = useRef<{ ox: string; oy: string } | null>(null);
+  const [modalAnimKey, setModalAnimKey] = useState(0);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingProfile, setEditingProfile] = useState<JobProfileResponse | null>(null);
   const [editForm] = Form.useForm();
@@ -206,6 +199,45 @@ export default function JobProfiles() {
     fetchRoles();
   }, []);
 
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const items = Array.from(
+              document.querySelectorAll('.reveal-item')
+            );
+            const idx = items.indexOf(entry.target as Element);
+            (entry.target as HTMLElement).style.transitionDelay = `${idx * 40}ms`;
+            entry.target.classList.add('is-visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.08, rootMargin: '0px 0px -20px 0px' }
+    );
+
+    const bindObserver = () => {
+      document.querySelectorAll('.reveal-item').forEach((el) => {
+        observer.observe(el);
+      });
+    };
+
+    const mutationObs = new MutationObserver(() => {
+      bindObserver();
+    });
+    const container = document.querySelector('[data-module="profiles"]');
+    if (container) {
+      mutationObs.observe(container, { childList: true, subtree: true });
+    }
+    bindObserver();
+
+    return () => {
+      observer.disconnect();
+      mutationObs.disconnect();
+    };
+  }, [roles]);
+
   const fetchRoles = async () => {
     setLoading(true);
     try {
@@ -232,7 +264,28 @@ export default function JobProfiles() {
   };
 
   const handleCardClick = (role: RoleWithProfile) => {
-    // 打开详情 Modal
+    // 计算 FLIP 起点：卡片中心相对于 Modal content 的偏移
+    const cardEl = cardRefsMap.current.get(role.id);
+    if (cardEl) {
+      const cardRect = cardEl.getBoundingClientRect();
+      const cardCX = cardRect.left + cardRect.width / 2;
+      const cardCY = cardRect.top + cardRect.height / 2;
+
+      // Modal 尺寸（与 Modal width="90vw" maxWidth=1400 对应）
+      const modalW = Math.min(window.innerWidth * 0.9, 1400);
+      const modalLeft = (window.innerWidth - modalW) / 2;
+      const modalTop = 20 + 55; // top:20 + Ant Design header ~55px
+
+      // 起点 (px 相对于 Modal content 左上角)
+      const ox = Math.round(cardCX - modalLeft);
+      const oy = Math.round(cardCY - modalTop);
+
+      flipOriginRef.current = { ox: `${ox}px`, oy: `${oy}px` };
+    } else {
+      flipOriginRef.current = null;
+    }
+
+    setModalAnimKey(prev => prev + 1);  // 每次点击刷新动画
     setDetailModalRoleId(role.id);
   };
 
@@ -293,7 +346,7 @@ export default function JobProfiles() {
   return (
     <div data-module="profiles" className="p-6">
       {/* Page Title Area */}
-      <div className="mb-8">
+      <div className="mb-8 page-header-anim">
         <div
           style={{
             display: 'inline-flex',
@@ -325,7 +378,7 @@ export default function JobProfiles() {
       </div>
 
       {/* Search and Filter Area */}
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex items-center gap-4 mb-6 toolbar-anim">
         {/* Custom Search Box */}
         <div style={{
           display: 'flex',
@@ -396,11 +449,16 @@ export default function JobProfiles() {
             </div>
           ) : (
             filteredRoles.map((role) => (
-              <RoleCard
+              <div
                 key={role.id}
-                role={role}
-                onCardClick={() => handleCardClick(role)}
-              />
+                className="reveal-item"
+                ref={(el) => {
+                  if (el) cardRefsMap.current.set(role.id, el);
+                  else cardRefsMap.current.delete(role.id);
+                }}
+              >
+                <RoleCard role={role} onCardClick={() => handleCardClick(role)} />
+              </div>
             ))
           )}
         </div>
@@ -413,7 +471,16 @@ export default function JobProfiles() {
         footer={null}
         width="90vw"
         style={{ top: 20, maxWidth: 1400 }}
+        transitionName="" /* 禁用 Ant Design 默认动画 */
+        maskTransitionName="" /* 禁用遮罩默认动画 */
         styles={{
+          mask: {
+            animation: 'none',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            background: 'rgba(0,0,0,0.35)',
+            transition: 'opacity 0.3s ease',
+          },
           body: {
             padding: 0,
             maxHeight: '90vh',
@@ -425,9 +492,13 @@ export default function JobProfiles() {
             borderRadius: 16,
             overflow: 'hidden',
             padding: 0,
-          },
+            '--flip-ox': flipOriginRef.current?.ox ?? '50%',
+            '--flip-oy': flipOriginRef.current?.oy ?? '50%',
+            animation: `modalFlipIn 0.5s var(--spring-smooth) forwards`,
+          } as React.CSSProperties,
         }}
         destroyOnClose
+        key={`modal-${modalAnimKey}`}
       >
         {detailModalRoleId && (
           <JobProfileDetail

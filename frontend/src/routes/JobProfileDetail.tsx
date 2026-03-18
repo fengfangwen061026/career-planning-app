@@ -141,6 +141,74 @@ interface JobProfileDetailProps {
   onClose?: () => void;
 }
 
+function JobProfileSkeleton({ embedded }: { embedded: boolean }) {
+  const line = (w: string, h = '14px', mb = '10px') => (
+    <div className="skeleton-line" style={{ width: w, height: h, marginBottom: mb, borderRadius: 6 }} />
+  );
+
+  return (
+    <div style={{
+      padding: embedded ? '24px' : '24px',
+      fontFamily: "-apple-system, 'PingFang SC', sans-serif",
+      animation: 'floatUp 0.3s var(--spring-smooth) forwards',
+    }}>
+      {/* Header skeleton */}
+      <div style={{
+        background: 'rgba(255,255,255,0.85)',
+        borderRadius: 16,
+        padding: '20px 40px',
+        marginBottom: 16,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+      }}>
+        <div>
+          {line('180px', '22px', '10px')}
+          {line('120px', '14px')}
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          {line('60px', '32px', '6px')}
+          {line('80px', '11px')}
+        </div>
+      </div>
+
+      {/* Tab skeleton */}
+      <div style={{
+        background: 'rgba(255,255,255,0.85)',
+        borderRadius: 16,
+        padding: '24px',
+      }}>
+        <div style={{ display: 'flex', gap: 24, marginBottom: 24, paddingBottom: 12, borderBottom: '1px solid #E5E7EB' }}>
+          {line('80px', '14px', '0')}
+          {line('80px', '14px', '0')}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16 }}>
+          <div>
+            {line('100px', '11px', '16px')}
+            {[90, 75, 68, 55, 82, 60, 45, 70, 50, 65].map((w, i) => (
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 44px', gap: 12, marginBottom: 14, alignItems: 'center' }}>
+                <div className="skeleton-line" style={{ height: 12, borderRadius: 4 }} />
+                <div className="skeleton-line" style={{ height: 8, borderRadius: 4, width: `${w}%` }} />
+                <div className="skeleton-line" style={{ height: 12, borderRadius: 4 }} />
+              </div>
+            ))}
+          </div>
+          <div>
+            {line('80px', '11px', '12px')}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+              {[60, 80, 70, 90, 65].map((w, i) => (
+                <div key={i} className="skeleton-line" style={{ height: 28, width: w, borderRadius: 14 }} />
+              ))}
+            </div>
+            {line('80px', '11px', '12px')}
+            <div className="skeleton-line" style={{ height: 120, borderRadius: 8 }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfileDetailProps = {}) {
   const params = useParams<{ roleId: string }>();
   const navigate = useNavigate();
@@ -166,6 +234,7 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
 
   // 动画状态
   const [animated, setAnimated] = useState(false);
+  const [tabKey, setTabKey] = useState(0);
 
   useEffect(() => {
     if (roleId) {
@@ -175,9 +244,10 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
 
   // Tab 切换时触发动画
   const handleTabChange = (key: string) => {
+    setTabKey(prev => prev + 1);
     if (key === 'profile') {
       setAnimated(false);
-      setTimeout(() => setAnimated(true), 100);
+      setTimeout(() => setAnimated(true), 120);
     }
   };
 
@@ -474,7 +544,7 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
       <div style={{ padding: '0 8px' }}>
         <Row gutter={[16, 16]}>
           {/* 技术技能 - 占满左侧两行高度 (58%) */}
-          <Col span={24} lg={14}>
+          <Col span={24} lg={14} style={{ animation: 'floatUp 0.4s var(--spring-smooth) forwards', opacity: 0 }}>
             <div
               style={{ ...cardStyle, minHeight: 400 }}
               className="profile-card"
@@ -501,7 +571,7 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
                           borderRadius: 4,
                           width: animated ? `${percentage}%` : '0%',
                           background: barStyle.fill,
-                          transition: animated ? `width 0.9s cubic-bezier(0.34, 1.56, 0.64, 1)` : 'none',
+                          transition: animated ? `width 0.9s var(--spring-bounce)` : 'none',
                         }}
                       />
                     </div>
@@ -515,7 +585,7 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
           </Col>
 
           {/* 右侧：软素养 + 福利待遇 (42%) */}
-          <Col span={24} lg={10}>
+          <Col span={24} lg={10} style={{ animation: 'floatUp 0.45s var(--spring-smooth) 0.06s forwards', opacity: 0 }}>
             {/* 软素养 */}
             <div style={{ ...cardStyle, marginBottom: 16 }} className="profile-card">
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -685,7 +755,7 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
                     <XAxis type="number" />
                     <YAxis dataKey="range" type="category" width={60} />
                     <Tooltip />
-                    <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                    <Bar dataKey="count" radius={[0, 4, 4, 0]} isAnimationActive={true} animationDuration={700} animationEasing="ease-out">
                       {salaryDist.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={filters.salaryRange === entry.range ? COLORS[1] : COLORS[0]} style={{ cursor: 'pointer' }} />
                       ))}
@@ -814,12 +884,28 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
     );
   };
 
-  if (loading) return <LoadingState />;
+  if (loading) return <JobProfileSkeleton embedded={!!embeddedRoleId} />;
   if (!role) return <Empty description="角色不存在" />;
 
   const items = [
-    { key: 'profile', label: '画像分析', children: renderTab1() },
-    { key: 'companies', label: '关联公司', children: renderTab2() },
+    {
+      key: 'profile',
+      label: '画像分析',
+      children: (
+        <div key={`profile-${tabKey}`} className="tab-content-enter">
+          {renderTab1()}
+        </div>
+      ),
+    },
+    {
+      key: 'companies',
+      label: '关联公司',
+      children: (
+        <div key={`companies-${tabKey}`} className="tab-content-enter">
+          {renderTab2()}
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -855,6 +941,7 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'flex-start',
+          animation: 'slideDown 0.4s var(--spring-smooth) forwards',
         }}
       >
         {/* 左侧 */}

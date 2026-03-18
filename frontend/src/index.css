@@ -425,3 +425,160 @@ body {
   --module-bg:        #EDF5F2;
   --module-hover-bg:  rgba(94,138,124,0.04);
 }
+
+/* ── 真弹性曲线 — Chrome 117+, Safari 17+ */
+@supports (animation-timing-function: linear(0, 1)) {
+  :root {
+    /* 超射两次，像弹簧 */
+    --spring-bounce: linear(
+      0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.4%, 0.938 16%,
+      1.017, 1.046, 1.06, 1.064, 1.058 24.3%, 0.999 28.4%, 0.984,
+      0.985 34%, 1.001 40%, 1.003 44%, 1 50%, 1
+    );
+    /* 平滑进入，轻微超射 */
+    --spring-smooth: linear(
+      0, 0.006, 0.025 2.8%, 0.101 6.1%, 0.539 15%, 0.721 18.7%,
+      0.844 22.4%, 0.925 26%, 0.972 29.7%, 1.001 35%, 1
+    );
+    /* 快入快稳，无拖尾 */
+    --spring-snappy: linear(
+      0, 0.004, 0.016, 0.035, 0.063 4.2%, 0.431 13.3%, 0.641 18%,
+      0.823 24.1%, 0.929 29.4%, 0.991 35.1%, 1.015 39.4%,
+      1.017 45.3%, 0.999 52.2%, 1
+    );
+  }
+}
+
+/* ── 向上浮入，带轻微缩放 ── */
+@keyframes floatUp {
+  from { opacity: 0; transform: translateY(20px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ── 向下滑入（Header/标题区）── */
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Tab 切换淡入 ── */
+@keyframes tabFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Modal FLIP：从 transform-origin 缩放展开 ── */
+@keyframes modalFlipIn {
+  from {
+    opacity: 0;
+    transform: scale(0.06);
+    transform-origin: var(--flip-ox, 50%) var(--flip-oy, 50%);
+  }
+  60% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    transform-origin: var(--flip-ox, 50%) var(--flip-oy, 50%);
+  }
+}
+
+/* ── Modal 关闭：缩回原点 ── */
+@keyframes modalFlipOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+    transform-origin: var(--flip-ox, 50%) var(--flip-oy, 50%);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.06);
+    transform-origin: var(--flip-ox, 50%) var(--flip-oy, 50%);
+  }
+}
+
+/* ── Skeleton 闪烁 ── */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+/* ── Press 反馈（所有可点击元素）── */
+.pressable {
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 80ms var(--spring-press), box-shadow 80ms var(--spring-press);
+  will-change: transform;
+}
+.pressable:active {
+  transform: scale(0.96) !important;
+}
+
+/* ── Scroll reveal ── */
+.reveal-item {
+  opacity: 0;
+  transform: translateY(18px) scale(0.99);
+  transition:
+    opacity 0.45s var(--spring-smooth),
+    transform 0.45s var(--spring-smooth);
+  will-change: transform, opacity;
+}
+.reveal-item.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* ── Skeleton ── */
+.skeleton-line {
+  background: linear-gradient(
+    90deg,
+    rgba(229,231,235,0.6) 0px,
+    rgba(249,250,251,0.9) 120px,
+    rgba(229,231,235,0.6) 240px
+  );
+  background-size: 400px 100%;
+  border-radius: 6px;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+/* ── Tab 内容切换 ── */
+.tab-content-enter {
+  animation: tabFadeIn 0.24s var(--spring-snappy) forwards;
+}
+
+/* ── 页面标题区 ── */
+.page-header-anim {
+  animation: slideDown 0.4s var(--spring-smooth) forwards;
+}
+
+/* ── 页面工具栏 ── */
+.toolbar-anim {
+  animation: floatUp 0.4s var(--spring-smooth) 0.06s forwards;
+  opacity: 0;
+}
+
+/* ── RoleCard hover 完整 ── */
+.role-card-body {
+  transition:
+    transform 0.28s var(--spring-bounce),
+    box-shadow 0.28s var(--spring-smooth);
+  will-change: transform;
+}
+.role-card-body:hover {
+  transform: translateY(-5px) scale(1.015);
+  box-shadow:
+    0 16px 40px rgba(124,109,200,0.16),
+    0 4px 12px rgba(0,0,0,0.06);
+}
+.role-card-arrow {
+  transition:
+    transform 0.3s var(--spring-bounce),
+    color 0.15s ease;
+  display: inline-flex;
+}
+.role-card-body:hover .role-card-arrow {
+  transform: translateX(6px);
+  color: #7C6DC8 !important;
+}
