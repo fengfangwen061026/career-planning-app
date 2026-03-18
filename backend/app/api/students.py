@@ -1,5 +1,7 @@
 """Students API routes."""
 
+import asyncio
+import json as json_lib
 import logging
 import os
 import shutil
@@ -7,6 +9,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +28,7 @@ from app.schemas.student import (
 )
 from app.services.resume_parser import parse_resume, parse_resume_text, update_student_basic_info
 from app.utils.file_extractor import extract_text
+from app.utils.evidence_filler import fill_parse_result_evidence
 from app.services.student_profile import (
     generate_student_profile,
     update_student_profile,
@@ -253,6 +257,123 @@ async def upload_resume(
         "missing_suggestions": suggestions,
         "normalization_log": [],
     }
+
+
+@router.post("/{student_id}/upload-resume/stream")
+async def upload_resume_stream(
+    student_id: UUID,
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """SSE 流式简历上传解析端点。"""
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in (".pdf", ".docx", ".doc"):
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix}")
+
+    file_content = await file.read()
+    if len(file_content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 5MB)")
+
+    filename = file.filename
+
+    async def event_generator():
+        logger_inner = logging.getLogger(__name__)
+
+        def sse(data: dict) -> str:
+            return f"data: {json_lib.dumps(data, ensure_ascii=False)}\n\n"
+
+        yield sse({"type": "stage", "stage": "extracting", "progress": 10})
+
+        try:
+            raw_text, _ = extract_text(file_content, filename)
+        except Exception as e:
+            yield sse({"type": "error", "message": f"文本提取失败: {e}"})
+            return
+
+        yield sse({"type": "stage", "stage": "parsing", "progress": 30})
+
+        parse_task = asyncio.create_task(parse_resume_text(raw_text))
+
+        progress = 30
+        while not parse_task.done():
+            await asyncio.sleep(2)
+            if not parse_task.done():
+                progress = min(progress + 8, 90)
+                yield sse({"type": "heartbeat", "progress": progress})
+
+        try:
+            parse_result = await parse_task
+        except Exception as e:
+            yield sse({"type": "error", "message": f"解析失败: {e}"})
+            return
+
+        parsed_dict = parse_result.model_dump(mode="json")
+        parsed_dict = fill_parse_result_evidence(parsed_dict, raw_text)
+
+        try:
+            upload_dir = Path(settings.upload_dir) / str(student_id)
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            file_path = upload_dir / filename
+            with open(file_path, "wb") as f:
+                f.write(file_content)
+
+            resume = Resume(
+                student_id=student_id,
+                filename=filename,
+                file_path=str(file_path),
+                file_type=suffix.lstrip("."),
+                raw_text=raw_text,
+                parsed_json=parsed_dict,
+                is_primary=True,
+            )
+            db.add(resume)
+            await db.flush()
+            await db.refresh(resume)
+            await db.commit()
+        except Exception as e:
+            logger_inner.error(f"DB save failed: {e}")
+            yield sse({"type": "error", "message": "保存失败，请重试"})
+            return
+
+        from app.schemas.profiles import ResumeParseResult
+        from app.services.resume_parser import _calculate_completeness, _generate_suggestions
+
+        pr = ResumeParseResult.model_validate(parsed_dict)
+
+        yield sse({
+            "type": "complete",
+            "progress": 100,
+            "data": {
+                "resume": {
+                    "id": str(resume.id),
+                    "student_id": str(resume.student_id),
+                    "filename": resume.filename,
+                    "file_type": resume.file_type,
+                    "is_primary": resume.is_primary,
+                    "created_at": resume.created_at.isoformat() if resume.created_at else None,
+                },
+                "parsed_data": parsed_dict,
+                "completeness_score": _calculate_completeness(pr),
+                "missing_suggestions": _generate_suggestions(pr),
+                "normalization_log": [],
+            },
+        })
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/{student_id}/resumes", response_model=list[ResumeResponse])

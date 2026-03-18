@@ -321,94 +321,121 @@ export default function ResumeUpload() {
       return false;
     }
 
-    const validTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    const validTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ];
     if (!validTypes.includes(file.type)) {
-      message.error('仅支持 PDF 和文件 DOCX 格式');
+      message.error('仅支持 PDF 和 DOCX 格式');
       return false;
     }
 
     setLoading(true);
     setProfileCreated(false);
+    startParsingFeedback();
+
+    const formData = new FormData();
+    formData.append('file', file);
 
     try {
-      startParsingFeedback();
-
-      // Upload resume
-      const response = await studentsApi.uploadResume(selectedStudent, file);
-      console.info('[ResumeUpload] upload response', response.data);
-      console.info('[ResumeUpload] response.data keys', Object.keys(response.data ?? {}));
-      console.info(
-        '[ResumeUpload] parsed_data keys',
-        Object.keys((response.data?.parsed_data as Record<string, unknown>) ?? {})
+      const response = await fetch(
+        `/api/students/${selectedStudent}/upload-resume/stream`,
+        { method: 'POST', body: formData }
       );
 
+      if (!response.ok || !response.body) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let event: Record<string, unknown>;
+          try {
+            event = JSON.parse(line.slice(6));
+          } catch {
+            continue;
+          }
+
+          if (event.type === 'heartbeat' || event.type === 'stage') {
+            setParseProgress(event.progress as number);
+          }
+
+          if (event.type === 'error') {
+            throw new Error(event.message as string);
+          }
+
+          if (event.type === 'complete') {
+            clearParsingFeedback();
+            setParseProgress(100);
+            setParseMessage('解析完成！');
+            setParseAlert(null);
+
+            const responseData = event.data as ResumeUploadResponse;
+            const parsedRecord = responseData.parsed_data as Record<string, unknown> | undefined;
+
+            const rawText = (parsedRecord?.raw_text as string) || '';
+            const extractedName = extractNameFromRawText(rawText);
+            const extractedContact = extractContactFromRawText(rawText);
+
+            const backendEducation = (parsedRecord?.education as Array<Record<string, unknown>>) || [];
+            const transformedEducation = backendEducation.map((edu) => ({
+              school: edu.school as string,
+              degree: edu.degree as string,
+              major: edu.major as string | undefined,
+              duration: edu.start_year && edu.end_year ? `${edu.start_year} - ${edu.end_year}` : undefined,
+              gpa: edu.gpa as number | undefined,
+            }));
+
+            const backendProjects = (parsedRecord?.projects as Array<Record<string, unknown>>) || [];
+            const transformedProjects = backendProjects.map((proj) => ({
+              name: proj.name as string,
+              description: proj.description as string | undefined,
+              skills: proj.tech_stack as string[] | undefined,
+              duration: undefined,
+            }));
+
+            const backendExperience = (parsedRecord?.experience as Array<Record<string, unknown>>) || [];
+            const transformedExperience = backendExperience.map((exp) => ({
+              company: exp.company as string,
+              position: (exp.role as string | undefined) || '',
+              duration: exp.start_date && exp.end_date ? `${exp.start_date} - ${exp.end_date}` : undefined,
+              description: exp.description as string | undefined,
+            }));
+
+            setParsedData({
+              name: extractedName,
+              contact: extractedContact,
+              education: transformedEducation,
+              projects: transformedProjects,
+              experience: transformedExperience,
+              skills: (parsedRecord?.skills as ParsedResumeData['skills']) || [],
+              awards: (parsedRecord?.awards as ParsedResumeData['awards']) || [],
+              self_intro: (parsedRecord?.self_intro as string | null | undefined) || null,
+            });
+            setResumeResponse(responseData);
+
+            await new Promise<void>((resolve) => setTimeout(resolve, 500));
+            setUploadStep('preview');
+          }
+        }
+      }
+    } catch (error: unknown) {
       clearParsingFeedback();
-      setParseProgress(100);
-      setParseMessage('解析完成！');
-      setParseAlert(null);
-
-      // Brief delay for animation
-      await new Promise<void>((resolve) => setTimeout(resolve, 500));
-
-      // Extract parsed data from the ResumeUploadResponse
-      const parsedRecord = response.data.parsed_data as Record<string, unknown> | undefined;
-      console.info('[ResumeUpload] parsed_data', parsedRecord);
-      // Extract name from raw_text (first line typically contains name)
-      const rawText = (parsedRecord?.raw_text as string) || '';
-      const extractedName = extractNameFromRawText(rawText);
-      const extractedContact = extractContactFromRawText(rawText);
-
-      // Transform backend education format to form format
-      const backendEducation = (parsedRecord?.education as Array<Record<string, unknown>>) || [];
-      const transformedEducation = backendEducation.map((edu) => ({
-        school: edu.school as string,
-        degree: edu.degree as string,
-        major: edu.major as string | undefined,
-        duration: edu.start_year && edu.end_year ? `${edu.start_year} - ${edu.end_year}` : undefined,
-        gpa: edu.gpa as number | undefined,
-      }));
-
-      // Transform backend project format to form format
-      const backendProjects = (parsedRecord?.projects as Array<Record<string, unknown>>) || [];
-      const transformedProjects = backendProjects.map((proj) => ({
-        name: proj.name as string,
-        description: proj.description as string | undefined,
-        skills: proj.tech_stack as string[] | undefined,
-        duration: undefined,
-      }));
-
-      // Transform backend experience format to form format
-      const backendExperience = (parsedRecord?.experience as Array<Record<string, unknown>>) || [];
-      const transformedExperience = backendExperience.map((exp) => ({
-        company: exp.company as string,
-        position: (exp.role as string | undefined) || (exp.position as string | undefined) || '',
-        duration: exp.start_date && exp.end_date ? `${exp.start_date} - ${exp.end_date}` : undefined,
-        description: exp.description as string | undefined,
-      }));
-
-      const extractedData: ParsedResumeData = {
-        name: extractedName,
-        contact: extractedContact,
-        education: transformedEducation,
-        projects: transformedProjects,
-        experience: transformedExperience,
-        skills: (parsedRecord?.skills as ParsedResumeData['skills']) || [],
-        awards: (parsedRecord?.awards as ParsedResumeData['awards']) || [],
-        self_intro: (parsedRecord?.self_intro as string | null | undefined) || null,
-      };
-      console.info('[ResumeUpload] extracted form data', extractedData);
-
-      setParsedData(extractedData);
-      setResumeResponse(response.data);
-
-      setTimeout(() => {
-        setUploadStep('preview');
-      }, 500);
-    } catch (error: any) {
-      clearParsingFeedback();
-      setParseAlert('解析时间较长，请稍候或重新上传');
-      setParseMessage('AI 仍在尝试处理中...');
-      setUploadStep('parsing');
+      const msg = error instanceof Error ? error.message : '上传失败，请重试';
+      setParseAlert(msg);
+      setParseMessage('解析遇到问题');
     } finally {
       setLoading(false);
     }

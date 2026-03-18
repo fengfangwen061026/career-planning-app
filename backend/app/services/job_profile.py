@@ -25,6 +25,9 @@ from app.models.job import Job, JobProfile, Role
 
 logger = logging.getLogger(__name__)
 
+_MAX_JD_TOKENS = 180_000
+_AVG_CHARS_PER_TOKEN = 1.5
+
 # ---------------------------------------------------------------------------
 # 0. JD噪音黑名单（用于过滤非技能内容）
 # ---------------------------------------------------------------------------
@@ -327,48 +330,113 @@ def _extract_hard_anchors(jd_texts: list[str], top_n: int = 50) -> dict[str, Any
 # 2. 代表性 JD 筛选
 # ---------------------------------------------------------------------------
 
-def _select_representative_jds(jobs: list[Job], max_count: int = 10) -> list[str]:
-    """从 Job 列表中按信息密度筛选代表性 JD。
+def _format_job_for_llm(
+    job: Job,
+    desc: str,
+    *,
+    include_company: bool = True,
+    include_salary: bool = True,
+    include_skills: bool = True,
+) -> str:
+    """Format a JD into LLM-friendly text."""
+    parts = [f"岗位: {job.title}"]
+    if include_company and job.company_name:
+        parts.append(f"公司: {job.company_name}")
+    if job.city:
+        parts.append(f"城市: {job.city}")
+    if include_salary and job.salary_min and job.salary_max:
+        parts.append(f"薪资: {job.salary_min}-{job.salary_max}元/月")
+    if job.education_req:
+        parts.append(f"学历: {job.education_req}")
+    if job.experience_req:
+        parts.append(f"经验: {job.experience_req}")
+    if include_skills and job.skills:
+        parts.append(f"技能标签: {', '.join(job.skills)}")
+    parts.append(f"描述:\n{desc}")
+    return "\n".join(parts)
 
-    策略：按 description 长度排序取中间段（避免过短无信息、过长噪声）。
-    """
-    with_desc = [(j, len(j.description or "")) for j in jobs if j.description]
+
+def _select_diverse_jds(jobs: list[Job], max_count: int = 50) -> list[str]:
+    """Token 超限时的 fallback：按技能词覆盖最大化选取 JD。"""
+    with_desc = [(j, j.description or "") for j in jobs if j.description]
     if not with_desc:
         return []
 
-    # 按长度排序
-    with_desc.sort(key=lambda x: x[1])
+    jd_skill_sets: list[tuple[Job, str, set[str]]] = []
+    for job, desc in with_desc:
+        tokens = set(_tokenize_jd(desc))
+        jd_skill_sets.append((job, desc, tokens))
 
-    # 移除最短 10% 和最长 10%
-    n = len(with_desc)
-    lo = max(0, n // 10)
-    hi = max(lo + 1, n - n // 10)
-    candidates = with_desc[lo:hi]
+    selected: list[tuple[Job, str, set[str]]] = []
+    selected_ids: set[Any] = set()
+    covered: set[str] = set()
 
-    if not candidates:
-        candidates = with_desc
+    for _ in range(max_count):
+        best: tuple[Job, str, set[str]] | None = None
+        best_gain = -1
+        for job, desc, tokens in jd_skill_sets:
+            if job.id in selected_ids:
+                continue
+            gain = len(tokens - covered)
+            if gain > best_gain:
+                best = (job, desc, tokens)
+                best_gain = gain
+        if best is None or best_gain == 0:
+            break
+        selected.append(best)
+        selected_ids.add(best[0].id)
+        covered |= best[2]
 
-    # 均匀采样 max_count 条
-    step = max(1, len(candidates) // max_count)
-    selected = [candidates[i][0] for i in range(0, len(candidates), step)][:max_count]
+    return [
+        _format_job_for_llm(job, desc, include_company=False, include_salary=False, include_skills=False)
+        for job, desc, _ in selected
+    ]
+
+
+def _prepare_all_jds(jobs: list[Job]) -> list[str]:
+    """将该 role 下所有 JD 格式化为文本列表，按 token 预算截断。"""
+    with_desc = [(j, j.description or "") for j in jobs if j.description]
+    if not with_desc:
+        return []
+
+    with_desc.sort(key=lambda x: len(x[1]), reverse=True)
 
     result: list[str] = []
-    for job in selected:
-        parts = [f"岗位: {job.title}"]
-        if job.company_name:
-            parts.append(f"公司: {job.company_name}")
-        if job.city:
-            parts.append(f"城市: {job.city}")
-        if job.salary_min and job.salary_max:
-            parts.append(f"薪资: {job.salary_min}-{job.salary_max}元/月")
-        if job.education_req:
-            parts.append(f"学历: {job.education_req}")
-        if job.experience_req:
-            parts.append(f"经验: {job.experience_req}")
-        if job.skills:
-            parts.append(f"技能标签: {', '.join(job.skills)}")
-        parts.append(f"描述:\n{job.description}")
-        result.append("\n".join(parts))
+    total_chars = 0
+    budget_chars = int(_MAX_JD_TOKENS * _AVG_CHARS_PER_TOKEN)
+
+    for job, desc in with_desc:
+        text = _format_job_for_llm(job, desc)
+        if total_chars + len(text) > budget_chars:
+            if not result:
+                result.append(text[:budget_chars])
+            logger.warning(
+                "Token budget reached at %d/%d JDs, consider using diverse fallback",
+                len(result), len(with_desc),
+            )
+            fallback = _select_diverse_jds(jobs)
+            if fallback:
+                fallback_chars = 0
+                fallback_limited: list[str] = []
+                for item in fallback:
+                    if fallback_chars + len(item) > budget_chars:
+                        break
+                    fallback_limited.append(item)
+                    fallback_chars += len(item)
+                if len(fallback_limited) > len(result):
+                    logger.info(
+                        "Using diverse fallback set: %d JDs instead of %d",
+                        len(fallback_limited), len(result),
+                    )
+                    return fallback_limited
+            logger.info(
+                "Token budget reached: included %d/%d JDs (%d chars)",
+                len(result), len(with_desc), total_chars,
+            )
+            break
+
+        result.append(text)
+        total_chars += len(text)
 
     return result
 
@@ -417,12 +485,19 @@ def _merge_statistical_and_llm(
 
     for term, freq in skill_freq.items():
         if freq >= high_freq_threshold and term.lower() not in all_llm_skill_names:
+            freq_ratio = freq / total_jds if total_jds else 0
+            if freq_ratio >= 0.5:
+                importance = "required"
+            elif freq_ratio >= 0.25:
+                importance = "preferred"
+            else:
+                importance = "bonus"
             supplemented.append({
                 "skill_name": term,
                 "category": "统计补充",
-                "importance": "bonus",
-                "weight": round(min(freq / total_jds, 1.0), 2) if total_jds else 0.5,
-                "proficiency_evidence": f"在{total_jds}条JD中出现{freq}次，LLM未识别",
+                "importance": importance,
+                "weight": round(min(freq_ratio, 1.0), 2),
+                "proficiency_evidence": f"在{total_jds}条JD中出现{freq}次（{freq_ratio:.0%}），LLM未识别",
             })
 
     # 从统计分布中取最常见的学历（作为字符串）
@@ -565,7 +640,7 @@ async def generate_role_profile(
     logger.info("Statistical extraction done: %d anchor terms", len(stat_anchors.get("skill_freq", {})))
 
     # Step 2: LLM 结构化抽取
-    representative_jds = _select_representative_jds(jobs, max_count=10)
+    representative_jds = _prepare_all_jds(jobs)
     if not representative_jds:
         raise ValueError(f"Role '{role.name}' has no JDs with descriptions")
 
@@ -614,7 +689,7 @@ async def generate_role_profile(
         "stats": {
             "total_jds": len(jobs),
             "jds_with_description": len(all_descriptions),
-            "representative_jds_used": len(representative_jds),
+            "jds_sent_to_llm": len(representative_jds),
             "statistical_anchor_terms": len(stat_anchors.get("skill_freq", {})),
             "supplemented_skills": len(evidence.get("supplemented_skills", [])),
             "llm_inferred_skills": len(evidence.get("llm_inferred_fields", [])),

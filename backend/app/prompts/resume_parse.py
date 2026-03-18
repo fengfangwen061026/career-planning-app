@@ -3,37 +3,30 @@
 This module provides simplified prompt templates for LLM-based resume parsing.
 """
 
-RESUME_PARSE_SYSTEM_PROMPT = """你是专业的简历解析器。
-从用户提供的简历原文中提取结构化信息。
-
-重要：直接输出 JSON，不要输出任何思考过程、解释或 markdown 代码块。
-不要输出 "<think>" 或任何思考内容。
-只输出纯 JSON 格式的数据。
-
+RESUME_PARSE_SYSTEM_PROMPT = """你是专业的简历解析器。从用户提供的简历原文中提取结构化信息。
+重要：直接输出 JSON，不要输出任何思考过程、解释或 markdown 代码块。不要输出 "<think>" 或任何思考内容。只输出纯 JSON 格式的数据。
 规则：
 - 只输出 JSON，不输出任何其他内容
-- 不要加 markdown 代码块（不要加 ```json）
+- 不要加 markdown 代码块，不要加 ```json
 - 即使简历格式混乱也要尽力提取
 - 没有的字段填空数组[]或 null，不要省略任何字段
-- evidence 字段填写简历中对应的原文片段
 - proficiency 只能是以下之一：熟练、掌握、了解、入门
 - degree 只能是以下之一：大专、本科、硕士、博士
-- award level 只能是以下之一：国家级、省级、校级、其他
-"""
+- award level 只能是以下之一：国家级、省级、校级、其他"""
 
 RESUME_PARSE_USER_TEMPLATE = """简历格式可能不规范，请从任意格式中尽力提取，哪怕零散关键词也要填入对应字段，不要返回空数组。
 
 注意事项：
 1. 荣誉奖项（awards）：竞赛获奖、比赛名次都要提取，level 判断规则：
-   - 含“全国” -> 国家级
-   - 含“省” -> 省级
-   - 含“校”或学校名 -> 校级
+   - 含"全国" -> 国家级
+   - 含"省" -> 省级
+   - 含"校"或学校名 -> 校级
    - 其他 -> 其他
 2. 项目经历（projects）：竞赛项目、课题、开发项目都算，不要遗漏。
-3. 技能（skills）：AI 工具使用、办公软件、通用能力归类为“其他”，也要提取。
+3. 技能（skills）：AI 工具使用、办公软件、通用能力归类为"其他"，也要提取。
 4. 自我评价（self_intro）：找到自我评价段落后直接提取原文。
-5. 如果同一项目出现在“项目经历”和“荣誉奖项”两个位置，projects 和 awards 两个字段都要填。
-6. 日期格式识别：日期可能以“YYYY-MM~YYYY-MM”或“YYYY-MM~至今”格式出现在行首，紧跟项目名或学校名，用空格分隔（如“2025-12~2026-01  项目名  奖项”）。必须将行首日期范回回拆分为 start_date 和 end_date 填入对应字段，不要遗漏。“至今” 对应的 end_date 直接填 “至今”，start_date 和 end_date 格式统一个为 “YYYY-MM”。
+5. 如果同一项目出现在"项目经历"和"荣誉奖项"两个位置，projects 和 awards 两个字段都要填。
+6. 日期格式识别：日期可能以"YYYY-MM~YYYY-MM"或"YYYY-MM~至今"格式出现在行首，紧跟项目名或学校名，用空格分隔（如"2025-12~2026-01  项目名  奖项"）。必须将行首日期拆分为 start_date 和 end_date，"至今"的 end_date 直接填 "至今"，格式统一为 "YYYY-MM"。
 
 请解析以下简历，严格按照 Schema 输出 JSON：
 
@@ -43,22 +36,22 @@ RESUME_PARSE_USER_TEMPLATE = """简历格式可能不规范，请从任意格式
 输出 Schema（直接输出 JSON，不加任何说明文字）：
 {{
   "education": [
-    {{"school": "学校名", "degree": "本科", "major": "专业", "start_year": 2020, "end_year": 2024, "evidence": "原文片段"}}
+    {{"school": "学校名", "degree": "本科", "major": "专业", "start_year": 2020, "end_year": 2024}}
   ],
   "experience": [
-    {{"company": "公司名", "role": "职位", "start_date": "2023-06", "end_date": "2023-09", "description": "工作描述", "is_internship": true, "evidence": "原文片段"}}
+    {{"company": "公司名", "role": "职位", "start_date": "2023-06", "end_date": "2023-09", "description": "工作描述", "is_internship": true}}
   ],
   "projects": [
-    {{"name": "项目名", "description": "项目描述", "tech_stack": ["React", "Python"], "role": "角色", "outcome": "成果", "evidence": "原文片段"}}
+    {{"name": "项目名", "description": "项目描述", "tech_stack": ["React", "Python"], "role": "角色", "outcome": "成果"}}
   ],
   "skills": [
-    {{"name": "Python", "category": "编程语言", "proficiency": "熟练", "evidence": "原文片段"}}
+    {{"name": "Python", "category": "编程语言", "proficiency": "熟练"}}
   ],
   "certificates": [
-    {{"name": "证书名", "level": "级别", "obtained_date": "2023-06", "evidence": "原文片段"}}
+    {{"name": "证书名", "level": "级别", "obtained_date": "2023-06"}}
   ],
   "awards": [
-    {{"name": "奖项名", "level": "校级", "date": "2023-05", "evidence": "原文片段"}}
+    {{"name": "奖项名", "level": "校级", "date": "2023-05"}}
   ],
   "self_intro": "自我评价原文或null",
   "parse_confidence": 0.8,
