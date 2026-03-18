@@ -796,6 +796,47 @@ async def match_student_job(
     return mr
 
 
+# 并发控制信号量（避免 LLM 限流）
+_MATCH_SEMAPHORE = asyncio.Semaphore(5)  # 最多同时处理 5 个岗位
+# 预筛选阈值：basic * 0.3（不含 LLM 部分），低于此值则跳过 LLM 评分
+_PRE_FILTER_BASIC_WEIGHT = 0.3
+_PRE_FILTER_THRESHOLD = 20.0  # basic * 0.3 < 20 => basic < 67 分的岗位跳过
+
+
+async def _match_single_job(
+    db: AsyncSession,
+    student_id: UUID,
+    jp: JobProfile,
+) -> MatchResult | None:
+    """对单个岗位执行匹配（带并发控制信号量）."""
+    async with _MATCH_SEMAPHORE:
+        try:
+            return await match_student_job(db, student_id, jp.id)
+        except Exception as e:
+            logger.warning("Match failed for job_profile %s: %s", jp.id, e)
+            return None
+
+
+def _prefilter_candidates(
+    student_profile_json: dict,
+    job_profiles: list[JobProfile],
+) -> list[tuple[JobProfile, float]]:
+    """用纯规则（无 LLM）快速预筛选岗位，返回 (job_profile, basic_score) 列表.
+
+    只用 score_basic_requirements（同步，无 LLM），只做快速过滤。
+    """
+    results: list[tuple[JobProfile, float]] = []
+    for jp in job_profiles:
+        try:
+            basic = score_basic_requirements(student_profile_json, jp.profile_json)
+            results.append((jp, basic.score))
+        except Exception as e:
+            logger.debug("Pre-filter failed for job %s: %s", jp.id, e)
+    # 按 basic_score 降序
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results
+
+
 async def recommend_jobs(
     db: AsyncSession,
     student_id: UUID,
@@ -805,8 +846,8 @@ async def recommend_jobs(
     """为学生推荐 Top-N 匹配岗位.
 
     步骤：
-    1. 向量预筛选（若有 embedding）：从所有 job_profiles 中取 top_k*3 候选
-    2. 对候选逐个执行四维评分
+    1. 纯规则预筛选（basic，无 LLM）：从所有岗位中取 basic_score 最高的 top_k*3 候选
+    2. 并发执行四维评分（受信号量控制，最多同时 5 个）
     3. 按总分排序，返回 top_k
     """
     # 查询学生画像
@@ -826,31 +867,30 @@ async def recommend_jobs(
     if not all_jps:
         return []
 
-    # 向量预筛选
-    candidates = all_jps
-    if sp.embedding and len(all_jps) > top_k * 3:
-        jps_with_emb = [(jp, jp.embedding) for jp in all_jps if jp.embedding]
-        if jps_with_emb:
-            sims = [
-                (jp, _cosine_similarity(sp.embedding, emb))
-                for jp, emb in jps_with_emb
-            ]
-            sims.sort(key=lambda x: x[1], reverse=True)
-            candidates = [jp for jp, _ in sims[: top_k * 3]]
-            # 补充没有 embedding 的
-            no_emb = [jp for jp in all_jps if not jp.embedding]
-            candidates.extend(no_emb[:top_k])
+    # 第一轮：纯规则快速预筛选（无 LLM，毫秒级）
+    prefilt = _prefilter_candidates(sp.profile_json, all_jps)
+    # 严格限制候选数量：只取 basic_score 最高的 top_k+2 个，再由阈值过滤
+    cap = top_k + 2  # 最多候选数
+    threshold = _PRE_FILTER_THRESHOLD
+    candidates = [jp for jp, score in prefilt[:cap] if score >= threshold]
+    # 兜底：若过滤后少于 top_k，补入最高分的
+    if len(candidates) < top_k:
+        for jp, score in prefilt[cap:]:
+            if jp not in candidates:
+                candidates.append(jp)
+            if len(candidates) >= top_k:
+                break
 
-    # 逐个计算四维评分
-    match_results: list[MatchResult] = []
-    for jp in candidates:
-        try:
-            mr = await match_student_job(db, student_id, jp.id)
-            match_results.append(mr)
-        except Exception as e:
-            logger.warning("Match failed for job_profile %s: %s", jp.id, e)
+    if not candidates:
+        # 兜底：直接返回 basic_score 最高的前 top_k（即使分数低）
+        candidates = [jp for jp, _ in prefilt[:top_k]]
 
-    # 按总分排序
+    # 第二轮：只对候选岗位并发做 LLM 评分
+    tasks = [_match_single_job(db, student_id, jp) for jp in candidates]
+    results = await asyncio.gather(*tasks)
+
+    # 过滤失败结果并按总分排序
+    match_results = [mr for mr in results if mr is not None]
     match_results.sort(key=lambda m: m.total_score, reverse=True)
     return match_results[:top_k]
 

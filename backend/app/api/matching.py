@@ -1,4 +1,6 @@
 """Matching API routes - 人岗匹配接口."""
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
@@ -80,9 +82,14 @@ async def recommend(
 ) -> MatchingResponse:
     """为学生推荐 Top-N 匹配岗位（按总分排序）."""
     try:
-        results = await recommend_jobs(
-            db, student_id, top_k=request.top_k, role_category=request.role_category,
+        results = await asyncio.wait_for(
+            recommend_jobs(
+                db, student_id, top_k=request.top_k, role_category=request.role_category,
+            ),
+            timeout=60.0,
         )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="匹配超时，请稍后重试")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     return MatchingResponse(
