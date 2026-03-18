@@ -110,7 +110,12 @@ class EmbeddingProvider:
                 response.raise_for_status()
                 data = response.json()
                 for item in data["data"]:
-                    idx = uncached_indices[item["index"]]
+                    item_idx = item.get("index")
+                    if item_idx is None or item_idx >= len(uncached_indices):
+                        logger.warning("Embedding API returned invalid index %s (expected 0-%d), skipping. Response data: %s",
+                                       item_idx, len(uncached_indices) - 1, str(data)[:200])
+                        continue
+                    idx = uncached_indices[item_idx]
                     vec = item["embedding"]
                     results[idx] = vec
                     self._put_cache(uncached_texts[idx], vec)
