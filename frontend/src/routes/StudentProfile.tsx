@@ -21,15 +21,6 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  Radar,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
 } from 'recharts';
 import { User } from 'lucide-react';
 import { studentsApi } from '../api/students';
@@ -100,19 +91,6 @@ const getInitials = (name: string): string => {
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 };
 
-interface PieChartData {
-  name: string;
-  value: number;
-}
-
-// 四维能力数据（用于雷达图）
-const defaultRadarData = [
-  { subject: '基础要求', A: 0, fullMark: 100 },
-  { subject: '技术技能', A: 0, fullMark: 100 },
-  { subject: '软技能', A: 0, fullMark: 100 },
-  { subject: '发展潜力', A: 0, fullMark: 100 },
-];
-
 // 饼图颜色
 const PIE_COLORS = ['#C4758A', '#CB8A4A', '#5B6FD4', '#5E8F6E'];
 
@@ -158,12 +136,9 @@ export default function StudentProfile() {
   const studentEmail = profileJson?.basic_info?.email || students.find(s => s.id === selectedStudentId)?.email || '';
   const completenessScoreRaw = currentProfile?.completeness_score || 0;
   const completenessScore = completenessScoreRaw <= 1 ? Math.round(completenessScoreRaw * 100) : completenessScoreRaw;
-
-  // 计算完整度饼图数据
-  const completenessData: PieChartData[] = [
-    { name: '完整度', value: completenessScore },
-    { name: '缺失', value: Math.max(0, 100 - completenessScore) },
-  ];
+  const competitivenessScoreRaw = Number(profileJson?.competitiveness_score || 0);
+  const competitivenessScore =
+    competitivenessScoreRaw <= 1 ? Math.round(competitivenessScoreRaw * 100) : Math.round(competitivenessScoreRaw);
 
   // 技能分类
   const skillsByCategory = profileJson?.skills?.reduce((acc, skill) => {
@@ -214,35 +189,7 @@ export default function StudentProfile() {
       ),
     })) || [];
 
-  // 软技能数据
   const softSkills = profileJson?.soft_skills || {};
-  const softSkillsData = Object.entries(softSkills).map(([key, value]) => ({
-    subject: key,
-    A: typeof value === 'number' && value <= 1 ? Math.round(value * 100) : value,
-    fullMark: 100,
-  }));
-
-  // 四维能力数据 - 使用软技能或默认值
-  const getRadarData = () => {
-    if (softSkillsData.length > 0) {
-      // 如果有软技能数据，填充到四维
-      const mapped = softSkillsData.slice(0, 4);
-      while (mapped.length < 4) {
-        mapped.push({ subject: defaultRadarData[mapped.length].subject, A: 0, fullMark: 100 });
-      }
-      return mapped;
-    }
-    // 使用默认四维数据，但如果有completeness_score可以展示
-    const avgScore = completenessScore;
-    return [
-      { subject: '基础要求', A: avgScore, fullMark: 100 },
-      { subject: '技术技能', A: avgScore * 0.9, fullMark: 100 },
-      { subject: '软技能', A: avgScore * 0.85, fullMark: 100 },
-      { subject: '发展潜力', A: avgScore * 0.8, fullMark: 100 },
-    ];
-  };
-
-  const radarData = getRadarData();
 
   return (
     <div data-module="students" className="p-6">
@@ -359,7 +306,7 @@ export default function StudentProfile() {
       {selectedStudentId ? (
         currentProfile ? (
           <div>
-            {/* 基本信息卡片 + 完整度评分 */}
+            {/* 基本信息卡片 + 核心评分 */}
             <GlassCard className="mb-6">
               <Row gutter={24}>
                 <Col xs={24} md={14}>
@@ -388,52 +335,51 @@ export default function StudentProfile() {
                 <Col xs={24} md={10}>
                   <Title level={4} className="text-center" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
                     <CrownOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
-                    完整度评分
+                    画像摘要
                   </Title>
-                  <div className="flex justify-center items-center" style={{ height: 180 }}>
-                    <ResponsiveContainer width={180} height={180}>
-                      <PieChart>
-                        <Pie
-                          data={completenessData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={50}
-                          outerRadius={80}
-                          paddingAngle={2}
-                          dataKey="value"
-                          startAngle={90}
-                          endAngle={-270}
-                        >
-                          <Cell
-                            fill={PIE_COLORS[0]}
-                            key="complete"
-                          />
-                          <Cell fill="#f0f0f0" key="missing" />
-                        </Pie>
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div
-                      className="absolute"
-                      style={{
-                        position: 'absolute',
-                        transform: 'translateX(-50%)',
-                        left: '50%',
-                      }}
-                    >
-                        <Title
-                          level={2}
-                          style={{
-                            color: getScoreColor(completenessScore),
-                            margin: 0,
-                          }}
-                        >
-                        {completenessScore}
-                      </Title>
-                      <Text type="secondary">分</Text>
+                  <div className="flex flex-wrap justify-center gap-6">
+                    <div className="text-center">
+                      <Progress
+                        type="circle"
+                        percent={completenessScore}
+                        size={112}
+                        strokeColor={PIE_COLORS[0]}
+                        format={(percent) => `${percent}`}
+                      />
+                      <div className="mt-3">
+                        <Text strong style={{ color: '#374151' }}>完整度评分</Text>
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <Progress
+                        type="circle"
+                        percent={competitivenessScore}
+                        size={112}
+                        strokeColor={PIE_COLORS[1]}
+                        format={(percent) => `${percent}`}
+                      />
+                      <div className="mt-3">
+                        <Text strong style={{ color: '#374151' }}>综合竞争力</Text>
+                      </div>
                     </div>
                   </div>
                 </Col>
               </Row>
+              <div className="mt-6">
+                <Title level={5} style={{ color: '#0A0A0A', marginBottom: '12px' }}>
+                  <WarningOutlined className="mr-2" style={{ color: '#CB8A4A' }} />
+                  缺失项建议
+                </Title>
+                {currentProfile.missing_suggestions && currentProfile.missing_suggestions.length > 0 ? (
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    {currentProfile.missing_suggestions.map((suggestion, index) => (
+                      <Alert key={index} message={suggestion} type="warning" showIcon />
+                    ))}
+                  </Space>
+                ) : (
+                  <Alert message="画像信息较完整，当前没有额外完善建议。" type="success" showIcon />
+                )}
+              </div>
             </GlassCard>
 
             {/* 三栏布局 */}
@@ -582,63 +528,6 @@ export default function StudentProfile() {
               </Col>
             </Row>
 
-            {/* 底部：竞争力评分 + 缺失项建议 */}
-            <Row gutter={24}>
-              {/* 左侧：竞争力综合评分（雷达图） */}
-              <Col xs={24} lg={12}>
-                <GlassCard>
-                  <Title level={4} className="m-0" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
-                    竞争力综合评分
-                  </Title>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-                      <PolarGrid stroke="#E5E7EB" />
-                      <PolarAngleAxis
-                        dataKey="subject"
-                        tick={{ fill: '#6B7280', fontSize: 13 }}
-                      />
-                      <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                      <Radar
-                        name="能力值"
-                        dataKey="A"
-                        stroke="#C4758A"
-                        fill="rgba(196,117,138,0.12)"
-                        fillOpacity={1}
-                      />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                </GlassCard>
-              </Col>
-
-              {/* 右侧：缺失项建议 */}
-              <Col xs={24} lg={12}>
-                <GlassCard>
-                  <Title level={4} className="m-0" style={{ color: '#0A0A0A', marginBottom: '16px' }}>
-                    <WarningOutlined className="mr-2" style={{ color: MODULE_COLOR }} />
-                    缺失项建议
-                  </Title>
-                  {currentProfile.missing_suggestions &&
-                  currentProfile.missing_suggestions.length > 0 ? (
-                    <Space direction="vertical" style={{ width: '100%' }}>
-                      {currentProfile.missing_suggestions.map((suggestion, index) => (
-                        <Alert
-                          key={index}
-                          message={suggestion}
-                          type="warning"
-                          showIcon
-                          className="mb-2"
-                        />
-                      ))}
-                    </Space>
-                  ) : (
-                    <Empty
-                      description="恭喜！您的画像已完整"
-                      image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    />
-                  )}
-                </GlassCard>
-              </Col>
-            </Row>
           </div>
         ) : (
           <GlassCard>

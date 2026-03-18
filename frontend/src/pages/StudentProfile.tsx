@@ -22,12 +22,6 @@ import {
   BankOutlined,
 } from '@ant-design/icons';
 import {
-  Radar,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  ResponsiveContainer,
 } from 'recharts';
 import { studentApi } from '../api/student';
 import type { StudentProfileResponse } from '../types/student';
@@ -46,15 +40,6 @@ const proficiencyBgColors: Record<string, string> = {
   了解: '#f5f5f5',
   入门: '#fafafa',
 };
-
-// 软技能维度
-const SOFT_SKILL_DIMENSIONS = [
-  '沟通能力',
-  '团队协作',
-  '抗压能力',
-  '创新能力',
-  '学习能力',
-];
 
 export default function StudentProfile() {
   const { studentId } = useParams<{ studentId: string }>();
@@ -112,17 +97,11 @@ export default function StudentProfile() {
   const certificates = (profile_json?.certificates || []) as any[];
   const awards = (profile_json?.awards || []) as any[];
 
-  // 计算竞争力评分（如果有的话）
-  const competitivenessScore = Math.round(
-    ((completeness_score || 0) * 0.6 + (profile_json?.skills?.length || 0) / 20) * 100
-  );
-
-  // 软技能雷达图数据
-  const radarData = SOFT_SKILL_DIMENSIONS.map((dim) => ({
-    subject: dim,
-    value: softSkills?.[dim]?.score ? Math.round(softSkills[dim].score * 100) : 0,
-    fullMark: 100,
-  }));
+  const completenessPercent =
+    (completeness_score || 0) <= 1 ? Math.round((completeness_score || 0) * 100) : Math.round(completeness_score || 0);
+  const competitivenessRaw = Number(profile_json?.competitiveness_score || 0);
+  const competitivenessScore =
+    competitivenessRaw <= 1 ? Math.round(competitivenessRaw * 100) : Math.round(competitivenessRaw);
 
   // 按 category 分组技能
   const skillsByCategory: Record<string, typeof skills> = {};
@@ -215,7 +194,7 @@ export default function StudentProfile() {
               <div className="text-center">
                 <Progress
                   type="circle"
-                  percent={Math.round((completeness_score || 0) * 100)}
+                  percent={completenessPercent}
                   size={80}
                   strokeColor="#1890ff"
                   format={(percent) => (
@@ -242,17 +221,25 @@ export default function StudentProfile() {
                   )}
                 />
               </div>
-              {missing_suggestions.length > 0 && (
-                <Badge
-                  count={missing_suggestions.length}
-                  overflowCount={10}
-                >
-                  <ExclamationCircleOutlined className="text-2xl text-orange-500" />
-                </Badge>
-              )}
             </div>
           </Col>
         </Row>
+        {missing_suggestions.length > 0 && (
+          <div className="mt-4">
+            <Alert
+              type="warning"
+              showIcon
+              icon={<ExclamationCircleOutlined />}
+              message={
+                <ul className="m-0 pl-4">
+                  {(missing_suggestions as string[]).map((suggestion: string, idx: number) => (
+                    <li key={idx}>{suggestion}</li>
+                  ))}
+                </ul>
+              }
+            />
+          </div>
+        )}
       </Card>
 
       {/* 主要内容区域 */}
@@ -319,23 +306,27 @@ export default function StudentProfile() {
         {/* 右列：软素养、证书、获奖 */}
         <Col span={8}>
           <Card title="软素养" className="mb-4">
-            {radarData.every((d) => d.value === 0) ? (
+            {Object.keys(softSkills).length === 0 ? (
               <Empty description="暂无软素养评估" />
             ) : (
-              <ResponsiveContainer width="100%" height={250}>
-                <RadarChart data={radarData}>
-                  <PolarGrid />
-                  <PolarAngleAxis dataKey="subject" tick={{ fontSize: 12 }} />
-                  <PolarRadiusAxis angle={30} domain={[0, 100]} />
-                  <Radar
-                    name="Score"
-                    dataKey="value"
-                    stroke="#8884d8"
-                    fill="#8884d8"
-                    fillOpacity={0.6}
-                  />
-                </RadarChart>
-              </ResponsiveContainer>
+              <div className="space-y-3">
+                {Object.entries(softSkills).map(([key, value]) => {
+                  const percent = typeof value === 'number'
+                    ? (value <= 1 ? Math.round(value * 100) : Math.round(value))
+                    : (value as any)?.score
+                      ? Math.round((value as any).score * 100)
+                      : 0;
+                  return (
+                    <div key={key}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span>{key}</span>
+                        <span>{percent}%</span>
+                      </div>
+                      <Progress percent={percent} size="small" />
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </Card>
 
@@ -369,23 +360,6 @@ export default function StudentProfile() {
         </Col>
       </Row>
 
-      {/* 底部：缺失项建议 */}
-      {missing_suggestions.length > 0 && (
-        <Card title="完善建议" className="mt-4">
-          <Alert
-            type="warning"
-            showIcon
-            icon={<ExclamationCircleOutlined />}
-            message={
-              <ul className="m-0 pl-4">
-                {(missing_suggestions as string[]).map((suggestion: string, idx: number) => (
-                  <li key={idx}>{suggestion}</li>
-                ))}
-              </ul>
-            }
-          />
-        </Card>
-      )}
     </div>
   );
 }

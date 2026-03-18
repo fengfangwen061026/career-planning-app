@@ -37,6 +37,7 @@ export interface ProfileCertificate {
 }
 
 export interface ProfileJson {
+  competitiveness_score?: number;
   basic_info?: ProfileBasicInfo;
   skills?: ProfileSkill[];
   experiences?: ProfileExperience[];
