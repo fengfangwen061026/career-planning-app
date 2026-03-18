@@ -15,6 +15,33 @@ from app.services.resume_parser import compute_completeness_score, generate_miss
 logger = logging.getLogger(__name__)
 
 
+def _calculate_competitiveness_score(parse_result: ResumeParseResult) -> float:
+    """Calculate a student competitiveness score on a 0-100 scale."""
+    score = 35.0
+
+    degree_bonus = {
+        "博士": 25.0,
+        "硕士": 20.0,
+        "本科": 15.0,
+        "大专": 10.0,
+    }
+    if parse_result.education:
+        highest_degree = max(
+            (item.degree or "" for item in parse_result.education),
+            key=lambda degree: degree_bonus.get(degree, 0.0),
+            default="",
+        )
+        score += degree_bonus.get(highest_degree, 8.0)
+
+    score += min(len(parse_result.skills) * 4.0, 20.0)
+    score += min(len(parse_result.projects) * 4.0, 16.0)
+    score += min(len(parse_result.awards) * 5.0, 12.0)
+    if parse_result.experience:
+        score += min(len(parse_result.experience) * 4.0, 12.0)
+
+    return round(min(score, 100.0), 1)
+
+
 def _build_profile_json(parsed_data: dict[str, Any], student: Student | None = None) -> dict[str, Any]:
     """将简历解析结果组装为完整的四维学生画像 JSON。
 
@@ -94,7 +121,14 @@ def _build_profile_json(parsed_data: dict[str, Any], student: Student | None = N
         for key, value in soft_skills.items()
     }
 
+    competitiveness_score = _calculate_competitiveness_score(
+        parsed_data
+        if isinstance(parsed_data, ResumeParseResult)
+        else ResumeParseResult.model_validate(parsed_data)
+    )
+
     return {
+        "competitiveness_score": competitiveness_score,
         "basic_info": {
             "name": basic_info.get("name") or getattr(student, "name", None),
             "email": getattr(student, "email", None),
