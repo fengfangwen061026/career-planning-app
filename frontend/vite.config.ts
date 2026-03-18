@@ -13,6 +13,17 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     proxy: {
+      '/api/students/[^/]+/upload-resume/stream': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        selfHandleResponse: false,
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            proxyRes.headers['x-accel-buffering'] = 'no'
+            proxyRes.headers['cache-control'] = 'no-cache'
+          })
+        },
+      },
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,

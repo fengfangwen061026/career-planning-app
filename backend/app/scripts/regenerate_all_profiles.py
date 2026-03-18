@@ -52,6 +52,7 @@ async def regenerate_all(specific_role: str | None = None):
         try:
             async with async_session_factory() as session:
                 result = await generate_role_profile(role.id, session)
+                await session.commit()
                 print(f"  [OK] Profile v{result['profile'].version} saved")
                 print(f"  Stats: {result['stats']}")
         except Exception as e:

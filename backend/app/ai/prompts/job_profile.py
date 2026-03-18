@@ -1,6 +1,6 @@
 """Job profile generation prompt templates (V3 - 8 fields).
 
-Input: Role name + up to 10 representative JD texts
+Input: Role name + all prepared JD texts within token budget
 Output: JobProfile JSON conforming to the 8-field schema
 """
 
@@ -66,7 +66,7 @@ JOB_PROFILE_SYSTEM_PROMPT_V3 = """\
 def build_job_profile_prompt(role_name: str, jd_texts: list[str]) -> list[dict[str, str]]:
     """Build messages for job profile generation (V3)."""
     jd_sections: list[str] = []
-    for i, jd in enumerate(jd_texts[:10], start=1):
+    for i, jd in enumerate(jd_texts, start=1):
         jd_sections.append(f"--- JD #{i} ---\n{jd.strip()}")
 
     example_output = """{

@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
+from openai import APIStatusError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -208,6 +209,38 @@ def _tokenize_jd(text: str) -> list[str]:
     return _filter_noise_tokens(tokens)
 
 
+def _sanitize_jd_for_llm(text: str) -> str:
+    """Remove noisy or provider-risky content before sending JD text to the LLM."""
+    cleaned = re.sub(r"https?://\S+|www\.\S+", " ", text, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b", " ", cleaned)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = re.sub(r"(?<!\d)(?:\+?86[-\s]?)?(1\d{10})(?!\d)", " ", cleaned)
+    cleaned = re.sub(r"\b\d{3,4}-\d{7,8}\b", " ", cleaned)
+
+    cutoff_markers = [
+        "关于我们",
+        "公司介绍",
+        "公司简介",
+        "投递方式",
+        "联系方式",
+        "联系邮箱",
+        "联系电话",
+        "简历投递",
+        "申请方式",
+        "公众号",
+    ]
+    cutoff = len(cleaned)
+    for marker in cutoff_markers:
+        pos = cleaned.find(marker)
+        if pos != -1:
+            cutoff = min(cutoff, pos)
+    cleaned = cleaned[:cutoff]
+
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
 def _extract_hard_anchors(jd_texts: list[str], top_n: int = 50) -> dict[str, Any]:
     """从所有 JD 文本中提取高频关键词（硬锚点），带黑名单过滤。
 
@@ -339,6 +372,7 @@ def _format_job_for_llm(
     include_skills: bool = True,
 ) -> str:
     """Format a JD into LLM-friendly text."""
+    clean_desc = _sanitize_jd_for_llm(desc) or desc.strip()
     parts = [f"岗位: {job.title}"]
     if include_company and job.company_name:
         parts.append(f"公司: {job.company_name}")
@@ -352,7 +386,7 @@ def _format_job_for_llm(
         parts.append(f"经验: {job.experience_req}")
     if include_skills and job.skills:
         parts.append(f"技能标签: {', '.join(job.skills)}")
-    parts.append(f"描述:\n{desc}")
+    parts.append(f"描述:\n{clean_desc}")
     return "\n".join(parts)
 
 
@@ -410,8 +444,8 @@ def _prepare_all_jds(jobs: list[Job]) -> list[str]:
         if total_chars + len(text) > budget_chars:
             if not result:
                 result.append(text[:budget_chars])
-            logger.warning(
-                "Token budget reached at %d/%d JDs, consider using diverse fallback",
+            logger.info(
+                "Token budget reached at %d/%d JDs, considering diverse fallback",
                 len(result), len(with_desc),
             )
             fallback = _select_diverse_jds(jobs)
@@ -439,6 +473,48 @@ def _prepare_all_jds(jobs: list[Job]) -> list[str]:
         total_chars += len(text)
 
     return result
+
+
+async def _generate_job_profile_with_fallback(role_name: str, jobs: list[Job], jd_texts: list[str]) -> tuple[dict[str, Any], str, int]:
+    """Call LLM with automatic fallback to smaller diverse JD sets on provider rejection."""
+    attempts: list[tuple[str, list[str]]] = [("full_budget", jd_texts)]
+    diverse_candidates = _select_diverse_jds(jobs, max_count=100)
+    for limit in (100, 50, 20, 10):
+        subset = diverse_candidates[:limit]
+        if subset and subset != jd_texts and all(existing[1] != subset for existing in attempts):
+            attempts.append((f"diverse_{limit}", subset))
+
+    last_exc: Exception | None = None
+    for strategy, candidate_jds in attempts:
+        try:
+            messages = build_job_profile_prompt(role_name, candidate_jds)
+            llm_profile = await llm.generate_json(
+                prompt=messages[1]["content"],
+                system_prompt=messages[0]["content"],
+                temperature=0.3,
+                max_retries=3,
+            )
+            return llm_profile, strategy, len(candidate_jds)
+        except APIStatusError as exc:
+            last_exc = exc
+            if exc.status_code != 405 or strategy == attempts[-1][0]:
+                raise
+            logger.warning(
+                "Job profile generation failed with status 405 using strategy %s (%d JDs); trying a smaller diverse fallback",
+                strategy, len(candidate_jds),
+            )
+        except Exception as exc:
+            last_exc = exc
+            if strategy == attempts[-1][0]:
+                raise
+            logger.warning(
+                "Job profile generation failed using strategy %s (%d JDs): %s; trying fallback",
+                strategy, len(candidate_jds), exc,
+            )
+
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Job profile generation failed without a captured exception")
 
 
 # ---------------------------------------------------------------------------
@@ -644,17 +720,13 @@ async def generate_role_profile(
     if not representative_jds:
         raise ValueError(f"Role '{role.name}' has no JDs with descriptions")
 
-    messages = build_job_profile_prompt(role.name, representative_jds)
-    system_prompt = messages[0]["content"]
-    user_prompt = messages[1]["content"]
-
-    llm_profile = await llm.generate_json(
-        prompt=user_prompt,
-        system_prompt=system_prompt,
-        temperature=0.3,
-        max_retries=3,
+    llm_profile, llm_strategy, llm_jd_count = await _generate_job_profile_with_fallback(
+        role.name, jobs, representative_jds,
     )
-    logger.info("LLM extraction done for role '%s'", role.name)
+    logger.info(
+        "LLM extraction done for role '%s' using strategy %s (%d JDs)",
+        role.name, llm_strategy, llm_jd_count,
+    )
 
     # Step 3: 融合校验
     merged_profile, evidence = _merge_statistical_and_llm(stat_anchors, llm_profile, role.name)
@@ -690,6 +762,8 @@ async def generate_role_profile(
             "total_jds": len(jobs),
             "jds_with_description": len(all_descriptions),
             "jds_sent_to_llm": len(representative_jds),
+            "llm_jd_strategy": llm_strategy,
+            "llm_jd_count": llm_jd_count,
             "statistical_anchor_terms": len(stat_anchors.get("skill_freq", {})),
             "supplemented_skills": len(evidence.get("supplemented_skills", [])),
             "llm_inferred_skills": len(evidence.get("llm_inferred_fields", [])),

@@ -67,6 +67,102 @@ const getSoftSkillIcon = (name: string) => {
   return key ? softSkillIcons[key] : <Sparkles size={13} />;
 };
 
+const SOFT_COMPETENCY_LABELS: Record<string, string> = {
+  communication: '沟通能力',
+  teamwork: '团队协作',
+  stress_tolerance: '抗压能力',
+  innovation: '创新能力',
+  learning_ability: '学习能力',
+};
+
+const normalizeTechnicalSkills = (technicalSkills: any): Array<{ name: string; weight: number; category: string }> => {
+  const categoryLabels: Record<string, string> = {
+    programming_languages: '编程语言',
+    frameworks_and_libraries: '框架/库',
+    tools_and_platforms: '工具平台',
+    domain_skills: '领域技能',
+    databases: '数据库',
+    methodologies: '方法论',
+  };
+
+  const allSkills: Array<{ name: string; weight: number; category: string }> = [];
+
+  if (Array.isArray(technicalSkills)) {
+    technicalSkills.forEach((item: any) => {
+      const name = item?.skill_name || item?.name;
+      if (!name) return;
+      const rawWeight =
+        typeof item?.weight === 'number'
+          ? item.weight
+          : typeof item?.frequency_pct === 'number'
+            ? item.frequency_pct / 100
+            : 0;
+      allSkills.push({
+        name,
+        weight: Math.max(0, Math.min(rawWeight || 0, 1)),
+        category: item?.category || '其他',
+      });
+    });
+  } else if (technicalSkills && typeof technicalSkills === 'object') {
+    Object.entries(technicalSkills).forEach(([cat, items]: [string, any]) => {
+      (Array.isArray(items) ? items : []).forEach((item: any) => {
+        const name = item?.skill_name || item?.name;
+        if (!name) return;
+        const rawWeight =
+          typeof item?.weight === 'number'
+            ? item.weight
+            : typeof item?.frequency === 'number'
+              ? item.frequency / 100
+              : 0;
+        allSkills.push({
+          name,
+          weight: Math.max(0, Math.min(rawWeight || 0, 1)),
+          category: categoryLabels[cat] || cat,
+        });
+      });
+    });
+  }
+
+  return allSkills.sort((a, b) => b.weight - a.weight);
+};
+
+const normalizeSoftSkills = (profileData: any): Array<{ name: string; weight?: number; evidence?: string }> => {
+  if (Array.isArray(profileData?.soft_skills)) {
+    return profileData.soft_skills
+      .map((item: any) => ({
+        name: item?.name,
+        weight: typeof item?.weight === 'number' ? item.weight : undefined,
+        evidence: typeof item?.evidence === 'string' ? item.evidence : undefined,
+      }))
+      .filter((item: { name?: string }) => Boolean(item.name));
+  }
+
+  const raw = profileData?.soft_competencies;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return [];
+  }
+
+  const items: Array<{ name: string; weight?: number; evidence?: string } | null> = Object.entries(raw).map(([key, value]: [string, any]) => {
+      if (!value || typeof value !== 'object') return null;
+      const numericValue =
+        typeof value.value === 'number'
+          ? value.value
+          : typeof value.value === 'string'
+            ? Number(value.value)
+            : undefined;
+      return {
+        name: SOFT_COMPETENCY_LABELS[key] || key,
+        weight:
+          typeof numericValue === 'number' && !Number.isNaN(numericValue)
+            ? Math.max(0, Math.min(numericValue / 5, 1))
+            : undefined,
+        evidence: typeof value.evidence === 'string' ? value.evidence : undefined,
+      };
+    });
+
+  return items.filter((item): item is { name: string; weight?: number; evidence?: string } => Boolean(item?.name));
+};
+
 // 薪资区间定义
 const SALARY_RANGES = [
   { label: '3K以下', min: 0, max: 3000 },
@@ -521,31 +617,8 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
     if (!profile) return <Empty description="暂无画像数据" />;
 
     const profileData = profile.profile_json as any;
-    const techSkillsRaw = profileData?.technical_skills;
-    const softSkills = Array.isArray(profileData?.soft_skills) ? profileData.soft_skills : [];
-
-    const allSkills: Array<{ name: string; weight: number; category: string }> = [];
-    const categoryLabels: Record<string, string> = {
-      programming_languages: '编程语言',
-      frameworks_and_libraries: '框架/库',
-      tools_and_platforms: '工具平台',
-      domain_skills: '领域技能',
-      databases: '数据库',
-      methodologies: '方法论',
-    };
-
-    if (Array.isArray(techSkillsRaw)) {
-      techSkillsRaw.forEach((item: any) => {
-        allSkills.push({ name: item.name, weight: (item.frequency_pct || 0) / 100, category: item.category || '其他' });
-      });
-    } else if (techSkillsRaw && typeof techSkillsRaw === 'object') {
-      Object.entries(techSkillsRaw).forEach(([cat, items]: [string, any]) => {
-        (Array.isArray(items) ? items : []).forEach((item: any) => {
-          allSkills.push({ name: item.name, weight: item.weight || 0, category: categoryLabels[cat] || cat });
-        });
-      });
-    }
-    allSkills.sort((a, b) => b.weight - a.weight);
+    const allSkills = normalizeTechnicalSkills(profileData?.technical_skills);
+    const softSkills = normalizeSoftSkills(profileData);
 
     const jdCount = role?.job_count || allJobs.length;
     const topBenefits = allJobsBenefitStats.slice(0, 3);

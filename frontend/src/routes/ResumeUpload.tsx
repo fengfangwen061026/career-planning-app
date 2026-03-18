@@ -340,7 +340,11 @@ export default function ResumeUpload() {
     try {
       const response = await fetch(
         `/api/students/${selectedStudent}/upload-resume/stream`,
-        { method: 'POST', body: formData }
+        {
+          method: 'POST',
+          body: formData,
+          headers: { Accept: 'text/event-stream' },
+        }
       );
 
       if (!response.ok || !response.body) {

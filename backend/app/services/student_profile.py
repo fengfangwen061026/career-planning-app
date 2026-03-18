@@ -198,6 +198,7 @@ async def _evaluate_soft_skills(parsed_data: dict) -> dict:
             max_tokens=2048,
             max_retries=1,
             disable_reasoning=True,
+            provider="profile",
         )
         # 校验：必须包含五个维度且 score 在合法范围
         required = {"沟通能力", "团队协作", "抗压能力", "创新能力", "学习能力"}

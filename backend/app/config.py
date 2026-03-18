@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     llm_base_url: str
     llm_api_key: str
     llm_model: str
+    profile_llm_base_url: str | None = None
+    profile_llm_api_key: str | None = None
+    profile_llm_model: str | None = None
 
     # Embedding Configuration
     embedding_base_url: str

@@ -1,30 +1,61 @@
 """LLM Provider - Unified interface for LLM calls."""
 
+import asyncio
 import json
 import logging
 import re
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Literal
 
-from openai import AsyncOpenAI
+from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+ProviderName = Literal["default", "profile"]
+_RETRYABLE_STATUS_CODES = {405, 408, 409, 429, 500, 502, 503, 504}
 
 
 class LLMProvider:
     """Unified LLM provider using OpenAI-compatible SDK."""
 
     def __init__(self) -> None:
-        self.client = AsyncOpenAI(
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
-        )
-        self.model = settings.llm_model
+        self._clients: dict[ProviderName, AsyncOpenAI] = {}
 
-    # ------------------------------------------------------------------
-    # Core: low-level chat
-    # ------------------------------------------------------------------
+    def _provider_config(self, provider: ProviderName) -> tuple[str, str, str]:
+        if provider == "profile":
+            return (
+                settings.profile_llm_base_url or settings.llm_base_url,
+                settings.profile_llm_api_key or settings.llm_api_key,
+                settings.profile_llm_model or settings.llm_model,
+            )
+        return (
+            settings.llm_base_url,
+            settings.llm_api_key,
+            settings.llm_model,
+        )
+
+    def _provider_headers(self, provider: ProviderName) -> dict[str, str] | None:
+        base_url, _, _ = self._provider_config(provider)
+        if "openrouter.ai" in base_url:
+            return {
+                "HTTP-Referer": "https://career-planning-app.local",
+                "X-Title": "Career Planning App",
+            }
+        return None
+
+    def _get_client(self, provider: ProviderName) -> AsyncOpenAI:
+        client = self._clients.get(provider)
+        if client is None:
+            base_url, api_key, _ = self._provider_config(provider)
+            headers = self._provider_headers(provider)
+            client = AsyncOpenAI(
+                base_url=base_url,
+                api_key=api_key,
+                default_headers=headers,
+            )
+            self._clients[provider] = client
+        return client
 
     async def chat(
         self,
@@ -32,37 +63,69 @@ class LLMProvider:
         temperature: float = 0.7,
         max_tokens: int | None = None,
         disable_reasoning: bool = False,
+        max_retries: int = 3,
+        provider: ProviderName = "default",
+        model: str | None = None,
+        **extra_kwargs: Any,
     ) -> str:
-        kwargs: dict = dict(
-            model=self.model,
+        client = self._get_client(provider)
+        _, _, default_model = self._provider_config(provider)
+        kwargs: dict[str, Any] = dict(
+            model=model or default_model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        response = await self.client.chat.completions.create(**kwargs)
-        content = response.choices[0].message.content or ""
-        return _strip_reasoning(content)
+        kwargs.update(extra_kwargs)
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = await client.chat.completions.create(**kwargs)
+                content = response.choices[0].message.content or ""
+                return _strip_reasoning(content)
+            except (RateLimitError, APIConnectionError) as exc:
+                if attempt >= max_retries:
+                    raise
+                wait_seconds = min(2 ** (attempt - 1), 8)
+                logger.warning(
+                    "LLM chat attempt %d/%d failed with retryable connection error: %s; retrying in %ss",
+                    attempt, max_retries, exc, wait_seconds,
+                )
+                await asyncio.sleep(wait_seconds)
+            except APIStatusError as exc:
+                if exc.status_code not in _RETRYABLE_STATUS_CODES or attempt >= max_retries:
+                    raise
+                wait_seconds = min(2 ** (attempt - 1), 8)
+                logger.warning(
+                    "LLM chat attempt %d/%d failed with status %s; retrying in %ss",
+                    attempt, max_retries, exc.status_code, wait_seconds,
+                )
+                await asyncio.sleep(wait_seconds)
+
+        raise RuntimeError("LLM chat failed unexpectedly after retries")
 
     async def chat_stream(
         self,
         messages: list[dict[str, str]],
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        provider: ProviderName = "default",
+        model: str | None = None,
+        **extra_kwargs: Any,
     ) -> AsyncIterator[str]:
-        stream = await self.client.chat.completions.create(
-            model=self.model,
+        client = self._get_client(provider)
+        _, _, default_model = self._provider_config(provider)
+        stream = await client.chat.completions.create(
+            model=model or default_model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
+            **extra_kwargs,
         )
         async for chunk in stream:
             if chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
-
-    # ------------------------------------------------------------------
-    # High-level helpers
-    # ------------------------------------------------------------------
 
     async def generate(
         self,
@@ -71,6 +134,10 @@ class LLMProvider:
         temperature: float = 0.7,
         max_tokens: int | None = None,
         disable_reasoning: bool = False,
+        max_retries: int = 3,
+        provider: ProviderName = "default",
+        model: str | None = None,
+        **extra_kwargs: Any,
     ) -> str:
         """Generate a plain-text response from a prompt."""
         messages: list[dict[str, str]] = []
@@ -82,6 +149,10 @@ class LLMProvider:
             temperature=temperature,
             max_tokens=max_tokens,
             disable_reasoning=disable_reasoning,
+            max_retries=max_retries,
+            provider=provider,
+            model=model,
+            **extra_kwargs,
         )
 
     async def generate_json(
@@ -93,26 +164,26 @@ class LLMProvider:
         temperature: float = 0.3,
         max_tokens: int | None = None,
         disable_reasoning: bool = False,
+        provider: ProviderName = "default",
+        model: str | None = None,
+        **extra_kwargs: Any,
     ) -> dict[str, Any]:
-        """Generate a structured JSON response with retry & parse tolerance.
-
-        Attempts to use the API's native json_object response_format first.
-        Falls back to extracting JSON from free-text on parse failure.
-        Retries up to *max_retries* times on JSON decode errors.
-        """
+        """Generate a structured JSON response with retry & parse tolerance."""
         messages: list[dict[str, str]] = []
 
-        # Build system prompt – always instruct JSON output
         sys_parts: list[str] = []
         if system_prompt:
             sys_parts.append(system_prompt)
         sys_parts.append("You MUST respond with valid JSON only. No extra text before or after the JSON.")
         if json_schema:
-            sys_parts.append(f"The JSON must conform to this schema:\n{json.dumps(json_schema, ensure_ascii=False, indent=2)}")
+            sys_parts.append(
+                f"The JSON must conform to this schema:\n{json.dumps(json_schema, ensure_ascii=False, indent=2)}"
+            )
         messages.append({"role": "system", "content": "\n\n".join(sys_parts)})
         messages.append({"role": "user", "content": prompt})
 
         last_error: Exception | None = None
+        raw = ""
         for attempt in range(1, max_retries + 1):
             try:
                 raw = await self.chat(
@@ -120,18 +191,23 @@ class LLMProvider:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     disable_reasoning=disable_reasoning,
+                    max_retries=max_retries,
+                    provider=provider,
+                    model=model,
+                    **extra_kwargs,
                 )
                 return _parse_json_tolerant(raw)
             except (json.JSONDecodeError, ValueError) as exc:
                 last_error = exc
                 logger.warning("generate_json attempt %d/%d failed: %s", attempt, max_retries, exc)
-                # Add a retry hint as an assistant→user exchange
                 if attempt < max_retries:
                     messages.append({"role": "assistant", "content": raw})
-                    messages.append({
-                        "role": "user",
-                        "content": "Your previous response was not valid JSON. Please reply with ONLY a valid JSON object.",
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": "Your previous response was not valid JSON. Please reply with ONLY a valid JSON object.",
+                        }
+                    )
 
         raise ValueError(f"Failed to get valid JSON after {max_retries} attempts: {last_error}")
 
@@ -140,12 +216,10 @@ def _parse_json_tolerant(text: str) -> dict[str, Any]:
     """Parse JSON from text, tolerating markdown fences and leading/trailing junk."""
     text = text.strip()
 
-    # Strip markdown code fences: ```json ... ``` or ``` ... ```
     fence_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
     if fence_match:
         text = fence_match.group(1).strip()
 
-    # Try direct parse first
     try:
         result = json.loads(text)
         if isinstance(result, dict):
@@ -153,7 +227,6 @@ def _parse_json_tolerant(text: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         pass
 
-    # Try to find the first { ... } block
     brace_match = re.search(r"\{.*\}", text, re.DOTALL)
     if brace_match:
         result = json.loads(brace_match.group())
@@ -164,15 +237,9 @@ def _parse_json_tolerant(text: str) -> dict[str, Any]:
 
 
 def _strip_reasoning(text: str) -> str:
-    """清除推理模型输出中的思维链标签（<think>...</think>）。
-
-    Step-3.5-Flash 等推理模型在非流式调用时可能将思考过程混入 content。
-    此函数确保返回内容只包含最终答案部分。
-    """
-    # 移除 <think>...</think> 块（含跨行情况）
+    """Strip reasoning tags from model output when providers include them in content."""
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
     return cleaned.strip()
 
 
-# Singleton instance
 llm = LLMProvider()
