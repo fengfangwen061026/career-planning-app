@@ -38,7 +38,8 @@ class LLMProvider:
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        return response.choices[0].message.content or ""
+        content = response.choices[0].message.content or ""
+        return _strip_reasoning(content)
 
     async def chat_stream(
         self,
@@ -146,6 +147,17 @@ def _parse_json_tolerant(text: str) -> dict[str, Any]:
             return result
 
     raise ValueError(f"Could not extract JSON object from response: {text[:200]}...")
+
+
+def _strip_reasoning(text: str) -> str:
+    """清除推理模型输出中的思维链标签（<think>...</think>）。
+
+    Step-3.5-Flash 等推理模型在非流式调用时可能将思考过程混入 content。
+    此函数确保返回内容只包含最终答案部分。
+    """
+    # 移除 <think>...</think> 块（含跨行情况）
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    return cleaned.strip()
 
 
 # Singleton instance
