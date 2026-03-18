@@ -544,10 +544,10 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
       <div style={{ padding: '0 8px' }}>
         <Row gutter={[16, 16]}>
           {/* 技术技能 - 占满左侧两行高度 (58%) */}
-          <Col span={24} lg={14} style={{ animation: 'floatUp 0.4s var(--spring-smooth) forwards', opacity: 0 }}>
+          <Col span={24} lg={14}>
             <div
-              style={{ ...cardStyle, minHeight: 400 }}
-              className="profile-card"
+              style={{ ...cardStyle, minHeight: 400, '--ci': 0 } as React.CSSProperties}
+              className="profile-card card-bounce"
             >
               {/* 卡片标题 */}
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -585,9 +585,9 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
           </Col>
 
           {/* 右侧：软素养 + 福利待遇 (42%) */}
-          <Col span={24} lg={10} style={{ animation: 'floatUp 0.45s var(--spring-smooth) 0.06s forwards', opacity: 0 }}>
+          <Col span={24} lg={10}>
             {/* 软素养 */}
-            <div style={{ ...cardStyle, marginBottom: 16 }} className="profile-card">
+            <div style={{ ...cardStyle, marginBottom: 16, '--ci': 1 } as React.CSSProperties} className="profile-card card-bounce">
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ width: 4, height: 14, borderRadius: 2, background: '#CB8A4A' }} />
                 软素养
@@ -641,7 +641,7 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
             </div>
 
             {/* 福利待遇 */}
-            <div style={{ ...cardStyle }} className="profile-card">
+            <div style={{ ...cardStyle, '--ci': 2 } as React.CSSProperties} className="profile-card card-bounce">
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ width: 4, height: 14, borderRadius: 2, background: '#5E8F6E' }} />
                 福利待遇
@@ -706,6 +706,20 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
           .profile-card:hover {
             transform: translateY(-2px);
             box-shadow: var(--card-shadow-hover);
+          }
+
+          @keyframes cardBounceIn {
+            0%   { opacity: 0; transform: translateY(24px) scale(0.97); }
+            60%  { opacity: 1; transform: translateY(-6px) scale(1.01); }
+            80%  { transform: translateY(3px) scale(0.995); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+          }
+
+          .card-bounce {
+            opacity: 0;
+            animation: cardBounceIn 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+            animation-delay: calc(var(--ci, 0) * 70ms);
+            will-change: transform, opacity;
           }
         `}</style>
       </div>
@@ -941,7 +955,7 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'flex-start',
-          animation: 'slideDown 0.4s var(--spring-smooth) forwards',
+          animation: 'cardBounceIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
         }}
       >
         {/* 左侧 */}
