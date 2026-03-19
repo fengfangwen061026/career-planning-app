@@ -92,6 +92,47 @@ interface ParseMeta {
   retrying?: boolean;
 }
 
+interface ResumeUploadDebugState {
+  events: Array<Record<string, unknown>>;
+  parseMeta: ParseMeta | null;
+  lastError: string | null;
+}
+
+type DebugWindow = Window & {
+  __resumeUploadDebug?: ResumeUploadDebugState;
+};
+
+function ensureResumeUploadDebugState() {
+  const debugWindow = window as DebugWindow;
+  if (!debugWindow.__resumeUploadDebug) {
+    debugWindow.__resumeUploadDebug = {
+      events: [],
+      parseMeta: null,
+      lastError: null,
+    };
+  }
+  return debugWindow.__resumeUploadDebug;
+}
+
+function resetResumeUploadDebugState() {
+  const debugState = ensureResumeUploadDebugState();
+  debugState.events = [];
+  debugState.parseMeta = null;
+  debugState.lastError = null;
+}
+
+function recordResumeUploadEvent(event: Record<string, unknown>) {
+  const debugState = ensureResumeUploadDebugState();
+  debugState.events.push(event);
+  console.info('[ResumeUpload] stream event', event);
+}
+
+function updateResumeUploadDebugState(parseMeta: ParseMeta | null, lastError: string | null = null) {
+  const debugState = ensureResumeUploadDebugState();
+  debugState.parseMeta = parseMeta;
+  debugState.lastError = lastError;
+}
+
 function extractNameFromRawText(rawText: string): string | undefined {
   const firstLine = rawText.split('\n').find((line) => line.trim());
   if (!firstLine) {
@@ -132,8 +173,17 @@ const STEPS = [
 ];
 
 // Custom glass-morphism card component
-const GlassCard = ({ children, className = '', style = {} }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) => (
+const GlassCard = ({
+  children,
+  className = '',
+  style = {},
+  ...rest
+}: React.HTMLAttributes<HTMLDivElement> & {
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+}) => (
   <div
+    {...rest}
     className={className}
     style={{
       background: 'rgba(255,255,255,0.82)',
@@ -371,7 +421,9 @@ export default function ResumeUpload() {
     if (!options?.preserveResume) {
       setResumeResponse(responseData as ResumeUploadResponse);
     }
-    setParseMeta(nextMeta ?? (responseData.parse_meta as ParseMeta | undefined) ?? null);
+    const resolvedMeta = nextMeta ?? (responseData.parse_meta as ParseMeta | undefined) ?? null;
+    setParseMeta(resolvedMeta);
+    updateResumeUploadDebugState(resolvedMeta);
   };
 
   const handleUpload = async (file: File) => {
@@ -392,6 +444,13 @@ export default function ResumeUpload() {
     setLoading(true);
     setProfileCreated(false);
     setParseMeta(null);
+    updateResumeUploadDebugState(null);
+    resetResumeUploadDebugState();
+    recordResumeUploadEvent({
+      type: 'upload_started',
+      fileName: file.name,
+      studentId: selectedStudent,
+    });
     startParsingFeedback();
 
     const formData = new FormData();
@@ -429,6 +488,8 @@ export default function ResumeUpload() {
           } catch {
             continue;
           }
+
+          recordResumeUploadEvent(event);
 
           if (event.type === 'heartbeat' || event.type === 'stage') {
             setParseProgress(event.progress as number);
@@ -480,6 +541,8 @@ export default function ResumeUpload() {
       setParseAlert(msg);
       setParseMeta(null);
       setParseMessage('??????');
+      updateResumeUploadDebugState(null, msg);
+      recordResumeUploadEvent({ type: 'ui_error', message: msg });
     } finally {
       setLoading(false);
     }
@@ -550,12 +613,14 @@ export default function ResumeUpload() {
     setParseMeta(null);
     profileForm.resetFields();
     clearParsingFeedback();
+    resetResumeUploadDebugState();
   };
 
   // Render upload step - left panel
   const renderUploadPanel = () => (
-    <div className="w-full lg:w-[40%]">
+    <div className="w-full lg:w-[40%]" data-testid="resume-upload-panel">
       <div
+        data-testid="resume-upload-dropzone"
         className={`relative rounded-[16px] p-8 cursor-pointer ${
           isDragging
             ? 'border-2 border-dashed border-[#CB8A4A] bg-[#FEF5E9]'
@@ -590,6 +655,7 @@ export default function ResumeUpload() {
 
         {/* Hidden file input */}
         <input
+          data-testid="resume-upload-input"
           type="file"
           accept=".pdf,.docx"
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
@@ -606,7 +672,7 @@ export default function ResumeUpload() {
 
   // Render parsing step
   const renderParsingStep = () => (
-    <GlassCard className="text-center py-12">
+    <GlassCard className="text-center py-12" data-testid="resume-parsing">
       <div className="mb-6">
         <Loader2 className="w-12 h-12 text-[#CB8A4A] animate-spin mx-auto" />
       </div>
@@ -625,7 +691,7 @@ export default function ResumeUpload() {
       </Text>
 
       {parseAlert && (
-        <div className="max-w-md mx-auto mt-6 text-left">
+        <div className="max-w-md mx-auto mt-6 text-left" data-testid="resume-parsing-alert">
           <Alert
             type="warning"
             showIcon
@@ -644,21 +710,40 @@ export default function ResumeUpload() {
 
   // Render preview step
   const renderPreviewPanel = () => (
-    <Form form={profileForm} layout="vertical" className="w-full lg:w-[60%] space-y-4">
+    <Form
+      form={profileForm}
+      layout="vertical"
+      className="w-full lg:w-[60%] space-y-4"
+      data-testid="resume-preview"
+      data-parse-status={parseMeta?.status || 'unknown'}
+    >
+      <div
+        data-testid="resume-field-counts"
+        data-education-count={parsedData?.education?.length || 0}
+        data-experience-count={parsedData?.experience?.length || 0}
+        data-project-count={parsedData?.projects?.length || 0}
+        data-skill-count={parsedData?.skills?.length || 0}
+        style={{ display: 'none' }}
+      />
       {(parseMeta?.retrying || parseMeta?.is_fallback) && (
-        <Alert
-          type="warning"
-          showIcon
-          message={parseMeta?.retrying ? 'AI ???????????' : '????????????'}
-          description={
-            parseMeta?.retrying
-              ? '????????????????????? AI ?????'
-              : 'AI ?????????????????????????'
-          }
-        />
+        <div
+          data-testid="resume-parse-warning"
+          data-status={parseMeta?.retrying ? 'retrying' : 'fallback'}
+        >
+          <Alert
+            type="warning"
+            showIcon
+            message={parseMeta?.retrying ? 'AI ???????????' : '????????????'}
+            description={
+              parseMeta?.retrying
+                ? '????????????????????? AI ?????'
+                : 'AI ?????????????????????????'
+            }
+          />
+        </div>
       )}
 
-      <GlassCard>
+      <GlassCard data-testid="resume-basic-section">
         <div className="ds-section-title" style={{ color: MODULE_COLOR }}>
           <UserOutlined />
           基本信息
@@ -698,7 +783,7 @@ export default function ResumeUpload() {
         </>
       </GlassCard>
 
-      <GlassCard>
+      <GlassCard data-testid="resume-education-section">
         <div className="ds-section-title" style={{ color: MODULE_COLOR }}>
           <BookOutlined />
           教育经历
@@ -745,7 +830,7 @@ export default function ResumeUpload() {
         ))}
       </GlassCard>
 
-      <GlassCard>
+      <GlassCard data-testid="resume-project-section">
         <div className="ds-section-title" style={{ color: MODULE_COLOR }}>
           <ProjectOutlined />
           项目经验
@@ -786,7 +871,7 @@ export default function ResumeUpload() {
         ))}
       </GlassCard>
 
-      <GlassCard>
+      <GlassCard data-testid="resume-experience-section">
         <div className="ds-section-title" style={{ color: MODULE_COLOR }}>
           <BankOutlined />
           实习经历
@@ -824,7 +909,7 @@ export default function ResumeUpload() {
         ))}
       </GlassCard>
 
-      <GlassCard>
+      <GlassCard data-testid="resume-skills-section">
         <div className="ds-section-title" style={{ color: MODULE_COLOR }}>
           <ToolOutlined />
           技能
@@ -854,7 +939,7 @@ export default function ResumeUpload() {
         </div>
       </GlassCard>
 
-      <GlassCard>
+      <GlassCard data-testid="resume-awards-section">
         <div className="ds-section-title" style={{ color: MODULE_COLOR }}>
           <CheckCircleOutlined />
           荣誉奖项
@@ -884,7 +969,7 @@ export default function ResumeUpload() {
         )}
       </GlassCard>
 
-      <GlassCard>
+      <GlassCard data-testid="resume-self-intro-section">
         <div className="ds-section-title" style={{ color: MODULE_COLOR }}>
           <FileText />
           自我评价
@@ -919,7 +1004,7 @@ export default function ResumeUpload() {
             fontWeight: 600,
           }}
         >
-          {parseMeta?.retrying ? '??????' : '???????'}
+          {parseMeta?.retrying ? '正在重试中' : '确认并创建画像'}
         </Button>
       </div>
     </Form>
@@ -927,7 +1012,7 @@ export default function ResumeUpload() {
 
   // Render complete step
   const renderCompleteStep = () => (
-    <GlassCard className="text-center py-12 max-w-md mx-auto">
+    <GlassCard className="text-center py-12 max-w-md mx-auto" data-testid="resume-complete">
       <div className="mb-6">
         <CheckCircleOutlined className="text-5xl text-[#5E8F6E]" />
       </div>
@@ -962,7 +1047,7 @@ export default function ResumeUpload() {
   );
 
   return (
-    <div data-module="resume" className="ds-page">
+    <div data-module="resume" data-testid="resume-page" className="ds-page">
       {/* 页面标题区 */}
       <div className="page-header-anim" style={{ marginBottom: 28 }}>
         <div
@@ -1011,7 +1096,7 @@ export default function ResumeUpload() {
       )}
 
       {/* Student Selection */}
-      <GlassCard className="mb-6">
+      <GlassCard className="mb-6" data-testid="resume-student-panel">
         <Space>
           <Select
             placeholder="选择学生"
@@ -1028,6 +1113,7 @@ export default function ResumeUpload() {
             }))}
           />
           <Button
+            data-testid="create-student-button"
             onClick={() => setStudentModalVisible(true)}
             style={{
               borderRadius: '10px',
@@ -1070,11 +1156,12 @@ export default function ResumeUpload() {
 
       {/* Create Student Modal */}
       <div style={{ display: studentModalVisible ? 'block' : 'none' }}>
-        <GlassCard className="mt-4">
+        <GlassCard className="mt-4" data-testid="create-student-modal">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-[#374151]">新建学生</h3>
             <Button
               type="primary"
+              data-testid="create-student-submit"
               onClick={handleCreateStudent}
               style={{
                 background: '#CB8A4A',
@@ -1095,13 +1182,13 @@ export default function ResumeUpload() {
                 { type: 'email', message: '请输入有效的邮箱地址' },
               ]}
             >
-              <Input />
+              <Input data-testid="create-student-email" />
             </Form.Item>
             <Form.Item name="name" label="姓名">
-              <Input />
+              <Input data-testid="create-student-name" />
             </Form.Item>
             <Form.Item name="phone" label="电话">
-              <Input />
+              <Input data-testid="create-student-phone" />
             </Form.Item>
           </Form>
         </GlassCard>

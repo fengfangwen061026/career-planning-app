@@ -43,6 +43,7 @@ from app.utils.evidence_filler import fill_parse_result_evidence
 from app.utils.file_extractor import extract_text
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/", response_model=StudentResponse, status_code=status.HTTP_201_CREATED)
@@ -238,11 +239,25 @@ async def upload_resume_stream(
     filename = file.filename
 
     async def event_generator():
-        logger_inner = logging.getLogger(__name__)
+        logger_inner = logger
+        retry_count = 0
+        final_status = "started"
 
         def sse(data: dict) -> str:
             return f"data: {json_lib.dumps(data, ensure_ascii=False)}\n\n"
 
+        def log_stream_event(stage: str, *, is_fallback: bool, detail: str = "") -> None:
+            logger_inner.info(
+                "Resume stream upload: filename=%s stage=%s is_fallback=%s retry_count=%d final_status=%s detail=%s",
+                filename,
+                stage,
+                is_fallback,
+                retry_count,
+                final_status,
+                detail,
+            )
+
+        log_stream_event("extracting_started", is_fallback=False)
         yield sse({"type": "stage", "stage": "extracting", "progress": 10})
 
         try:
@@ -251,12 +266,19 @@ async def upload_resume_stream(
             yield sse({"type": "error", "message": f"文本提取失败: {exc}"})
             return
 
+        final_status = "extract_ok"
+        log_stream_event("extracting_completed", is_fallback=False, detail=f"text_len={len(raw_text)}")
         yield sse({"type": "stage", "stage": "parsing", "progress": 30})
 
         try:
             parse_result = await resume_parser_service._llm_parse_resume_text(raw_text)
+            final_status = "ai_success"
+            log_stream_event("ai_parse_success", is_fallback=False)
         except Exception as first_error:
+            retry_count = 1
+            final_status = "fallback_retrying"
             logger_inner.warning("Primary AI parse failed, switching to fallback + retry: %s", first_error)
+            log_stream_event("ai_parse_failed", is_fallback=True, detail=str(first_error))
             fallback_result = _cheap_resume_fallback(raw_text, str(first_error))
             fallback_dict = fill_parse_result_evidence(fallback_result.model_dump(mode="json"), raw_text)
             fallback_validated = ResumeParseResult.model_validate(fallback_dict)
@@ -284,14 +306,27 @@ async def upload_resume_stream(
                 "message": "AI解析失败，正在重试",
             })
 
+            log_stream_event("fallback_preview_emitted", is_fallback=True)
+            log_stream_event("retrying_started", is_fallback=True)
             try:
-                parse_result = await resume_parser_service._llm_parse_resume_text(raw_text, max_tokens=1536)
+                parse_result = await resume_parser_service._llm_parse_resume_text(raw_text)
+                final_status = "ai_success_after_retry"
+                log_stream_event("ai_retry_success", is_fallback=False)
             except Exception as retry_error:
                 logger_inner.warning("AI retry failed, keeping fallback result: %s", retry_error)
+                final_status = "fallback_final"
+                log_stream_event("ai_retry_failed", is_fallback=True, detail=str(retry_error))
                 parse_result = fallback_validated
 
         parsed_dict = fill_parse_result_evidence(parse_result.model_dump(mode="json"), raw_text)
         parsed_result = ResumeParseResult.model_validate(parsed_dict)
+        is_final_fallback = is_fallback_result(parsed_result)
+        parse_meta_status = (
+            "fallback_final"
+            if is_final_fallback
+            else ("ai_success_after_retry" if retry_count else "ai_success")
+        )
+        final_status = parse_meta_status
 
         try:
             upload_dir = Path(settings.upload_dir) / str(student_id)
@@ -319,9 +354,12 @@ async def upload_resume_stream(
             await db.commit()
         except Exception as exc:
             logger_inner.error("DB save failed: %s", exc)
+            final_status = "save_error"
+            log_stream_event("db_save_failed", is_fallback=is_final_fallback, detail=str(exc))
             yield sse({"type": "error", "message": "保存失败，请重试"})
             return
 
+        log_stream_event("complete_emitted", is_fallback=is_final_fallback)
         yield sse({
             "type": "complete",
             "progress": 100,
@@ -339,8 +377,8 @@ async def upload_resume_stream(
                 "missing_suggestions": _generate_suggestions(parsed_result),
                 "normalization_log": [],
                 "parse_meta": {
-                    "status": "fallback_final" if is_fallback_result(parsed_result) else "ai_success",
-                    "is_fallback": is_fallback_result(parsed_result),
+                    "status": parse_meta_status,
+                    "is_fallback": is_final_fallback,
                     "retrying": False,
                 },
             },

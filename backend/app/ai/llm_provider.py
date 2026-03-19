@@ -97,7 +97,17 @@ class LLMProvider:
         for attempt in range(1, max_retries + 1):
             try:
                 response = await client.chat.completions.create(**kwargs)
-                content = response.choices[0].message.content or ""
+                choice = response.choices[0]
+                content = choice.message.content or ""
+                finish_reason = getattr(choice, "finish_reason", None)
+                log_fn = logger.warning if finish_reason and finish_reason != "stop" else logger.info
+                log_fn(
+                    "LLM chat completed: provider=%s model=%s finish_reason=%s content_len=%d",
+                    provider,
+                    model or default_model,
+                    finish_reason,
+                    len(content),
+                )
                 return _strip_reasoning(content)
             except (RateLimitError, APIConnectionError) as exc:
                 if attempt >= max_retries:
