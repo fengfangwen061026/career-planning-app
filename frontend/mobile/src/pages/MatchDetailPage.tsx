@@ -1,200 +1,401 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+
 import MobileShell from '../components/MobileShell'
+import { useMobileApp } from '../context/MobileAppContext'
+import { studentAppApi } from '@shared/api/studentApp'
+import type { MatchResultResponse } from '@shared/types/matching'
+import type { CareerPathResponse, StudentRecommendationItem } from '@shared/types/studentApp'
 import './MatchDetailPage.css'
+
+type DetailData = StudentRecommendationItem | MatchResultResponse
+
+function getDimensionScore(item: DetailData, key: 'basic' | 'skill' | 'competency' | 'potential') {
+  return Math.round(Number(item.scores?.[key]?.score || 0))
+}
+
+function getDetailTitle(detail: DetailData) {
+  if ('job_title' in detail && detail.job_title) {
+    return detail.job_title
+  }
+  return detail.role_name || detail.job_snapshot?.title || '岗位匹配详情'
+}
 
 const MatchDetailPage: React.FC = () => {
   const navigate = useNavigate()
-  const { jobId } = useParams<{ jobId: string }>()
+  const { matchId } = useParams<{ matchId: string }>()
+  const {
+    currentStudent,
+    recommendations,
+    selectedRecommendation,
+    selectRecommendation,
+    getMatchResultById,
+  } = useMobileApp()
 
-  // Mock 数据 - 固定显示后端开发工程师
-  const jobData = {
-    name: '后端开发工程师',
-    tags: ['互联网', '初级岗', '北京/上海'],
-    overallScore: 89,
-    dimensions: [
-      { score: 95, color: '#1D4ED8', label: '基础\n要求' },
-      { score: 82, color: '#3B82F6', label: '技术\n技能' },
-      { score: 78, color: '#10B981', label: '职业\n素养' },
-      { score: 88, color: '#D97706', label: '发展\n潜力' },
-    ],
-    skills: [
-      { name: 'Python', status: 'match', suffix: '✓' },
-      { name: 'MySQL', status: 'match', suffix: '✓' },
-      { name: 'Redis', status: 'miss', suffix: '✗' },
-      { name: '微服务', status: 'weak', suffix: '△' },
-      { name: 'Kafka', status: 'bonus', suffix: '加分' },
-      { name: 'K8s', status: 'bonus', suffix: '加分' },
-    ],
-    gaps: [
-      { dot: '#EF4444', name: 'Redis 缺失', desc: '必备技能 · 影响 -15分' },
-      { dot: '#EF4444', name: '量化成果不足', desc: '简历表达 · 影响 -8分' },
-      { dot: '#D97706', name: '微服务经验弱', desc: '加分项 · 可补充' },
-      { dot: '#10B981', name: 'Python 强匹配', desc: '核心技能完全匹配' },
-      { dot: '#10B981', name: '实习经历符合', desc: '互联网岗 2个月' },
-    ],
-    verticalPath: [
-      { label: '你', name: '后端开发（初级）', condition: '补 Redis + 量化描述' },
-      { label: '2', name: '后端开发（中级）', condition: '2年 · 微服务+高并发' },
-      { label: '3', name: '技术负责人', condition: '5年+ · 架构+带团队' },
-    ],
-    horizontalPath: [
-      { label: '你', name: '后端开发（初级）', condition: '补 Redis + 量化描述' },
-      { label: '→', name: '数据工程师', condition: '重叠 62% · 补 Spark' },
-    ],
-  }
+  const [detail, setDetail] = useState<DetailData | null>(selectedRecommendation)
+  const [careerPath, setCareerPath] = useState<CareerPathResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-  const getSkillClass = (status: string) => {
-    switch (status) {
-      case 'match':
-        return 'skill-tag-match'
-      case 'miss':
-        return 'skill-tag-miss'
-      case 'weak':
-        return 'skill-tag-weak'
-      case 'bonus':
-        return 'skill-tag-bonus'
-      default:
-        return ''
+  useEffect(() => {
+    let mounted = true
+
+    async function load() {
+      if (!matchId) {
+        setError('缺少匹配结果 ID')
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
+      setError('')
+
+      try {
+        let nextDetail: DetailData | null =
+          selectedRecommendation?.id === matchId
+            ? selectedRecommendation
+            : recommendations.find((item) => item.id === matchId) || null
+
+        if (!nextDetail) {
+          nextDetail = await getMatchResultById(matchId)
+        }
+
+        if (!mounted) {
+          return
+        }
+
+        setDetail(nextDetail)
+        if ('match_reasons' in nextDetail && 'job_profile_id' in nextDetail && 'total_score' in nextDetail) {
+          selectRecommendation(nextDetail as StudentRecommendationItem)
+        }
+
+        if (currentStudent && nextDetail.job_profile_id) {
+          const response = await studentAppApi.getCareerPath(currentStudent.id, nextDetail.job_profile_id)
+          if (mounted) {
+            setCareerPath(response.data)
+          }
+        }
+      } catch (loadError) {
+        if (!mounted) {
+          return
+        }
+        const message = loadError instanceof Error ? loadError.message : '加载匹配详情失败'
+        setError(message)
+      } finally {
+        if (mounted) {
+          setLoading(false)
+        }
+      }
     }
-  }
+
+    void load()
+    return () => {
+      mounted = false
+    }
+  }, [currentStudent?.id, matchId, recommendations.length, selectedRecommendation?.id])
+
+  const mainPath = Array.isArray(careerPath?.path?.main_path) ? (careerPath?.path?.main_path as Array<Record<string, unknown>>) : []
+  const alternativePaths = Array.isArray(careerPath?.path?.alternative_paths)
+    ? (careerPath?.path?.alternative_paths as Array<Record<string, unknown>>)
+    : []
+  const actionPlan = Array.isArray(careerPath?.path?.action_plan) ? (careerPath?.path?.action_plan as Array<Record<string, unknown>>) : []
+  const skillItems = detail?.scores?.skill?.items || []
 
   return (
     <MobileShell hasTabBar activeTab="explore">
-      <div className="match-detail-content">
-        {/* 1. 顶部信息区 */}
-        <div className="match-detail-header">
-          <div className="match-detail-back" onClick={() => navigate('/explore')}>
-            ← 返回探索
+      <div
+        style={{
+          minHeight: '100%',
+          padding: '18px 18px 120px',
+          background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 42%)',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => navigate('/explore')}
+          style={{ border: 'none', background: 'transparent', color: '#475569', fontWeight: 700, padding: 0 }}
+        >
+          返回岗位探索
+        </button>
+
+        {loading && <div style={{ marginTop: 18, color: '#334155' }}>正在加载匹配详情...</div>}
+
+        {error && (
+          <div
+            style={{
+              marginTop: 18,
+              borderRadius: 20,
+              padding: '16px 18px',
+              background: '#fef2f2',
+              color: '#b91c1c',
+              lineHeight: 1.7,
+            }}
+          >
+            {error}
           </div>
-          <div className="match-detail-info">
-            <div className="match-detail-left">
-              <div className="match-detail-title">{jobData.name}</div>
-              <div className="match-detail-tags">
-                {jobData.tags.map((tag, index) => (
-                  <span key={index} className="match-detail-tag">{tag}</span>
+        )}
+
+        {!loading && detail && (
+          <div style={{ display: 'grid', gap: 16, marginTop: 14 }}>
+            <div
+              style={{
+                borderRadius: 26,
+                padding: 20,
+                background: '#ffffff',
+                border: '1px solid #dbeafe',
+                boxShadow: '0 14px 30px rgba(15, 23, 42, 0.05)',
+              }}
+            >
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>
+                    {getDetailTitle(detail)}
+                  </div>
+                  <div style={{ marginTop: 8, color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
+                    {[detail.role_category, detail.job_snapshot?.city, detail.job_snapshot?.company_name].filter(Boolean).join(' · ')}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    width: 'fit-content',
+                    borderRadius: 22,
+                    padding: '12px 12px',
+                    background: '#eef2ff',
+                    color: '#4338ca',
+                    textAlign: 'center',
+                  }}
+                >
+                  <div style={{ fontSize: 28, fontWeight: 800 }}>{Math.round(detail.total_score)}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700 }}>综合匹配</div>
+                </div>
+              </div>
+
+              {detail.job_snapshot && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
+                  {[...(detail.job_snapshot.industries || []), ...(detail.job_snapshot.benefits || [])].slice(0, 5).map((tag) => (
+                    <span
+                      key={tag}
+                      style={{
+                        borderRadius: 999,
+                        padding: '8px 10px',
+                        background: '#f8fafc',
+                        color: '#334155',
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                borderRadius: 24,
+                padding: 18,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 14 }}>四维评分</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {[
+                  { label: '基础要求', value: getDimensionScore(detail, 'basic'), color: '#1d4ed8' },
+                  { label: '技能匹配', value: getDimensionScore(detail, 'skill'), color: '#2563eb' },
+                  { label: '职业素养', value: getDimensionScore(detail, 'competency'), color: '#10b981' },
+                  { label: '发展潜力', value: getDimensionScore(detail, 'potential'), color: '#f59e0b' },
+                ].map((dimension) => (
+                  <div
+                    key={dimension.label}
+                    style={{
+                      borderRadius: 18,
+                      padding: 14,
+                      background: '#f8fafc',
+                    }}
+                  >
+                    <div style={{ color: '#475569', fontSize: 12, fontWeight: 700 }}>{dimension.label}</div>
+                    <div style={{ marginTop: 8, fontSize: 28, fontWeight: 800, color: dimension.color }}>{dimension.value}</div>
+                  </div>
                 ))}
               </div>
             </div>
-            <div className="match-detail-score">
-              <div className="match-detail-score-num">{jobData.overallScore}</div>
-              <div className="match-detail-score-label">综合匹配</div>
-            </div>
-          </div>
-        </div>
 
-        {/* 2. 四维评分矩阵 */}
-        <div className="match-detail-dimensions">
-          {jobData.dimensions.map((dim, index) => (
-            <div key={index} className="match-detail-dimension">
-              <div className="match-detail-dimension-score" style={{ color: dim.color }}>
-                {dim.score}
+            <div
+              style={{
+                borderRadius: 24,
+                padding: 18,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 14 }}>技能匹配</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {skillItems.map((item) => {
+                  const matched = Boolean(item.matched)
+                  return (
+                    <span
+                      key={`${item.skill_name}-${item.importance}`}
+                      style={{
+                        borderRadius: 999,
+                        padding: '10px 12px',
+                        background: matched ? '#ecfdf5' : '#fff7ed',
+                        color: matched ? '#166534' : '#9a3412',
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {item.skill_name} · {matched ? '已命中' : '待补齐'}
+                    </span>
+                  )
+                })}
+                {skillItems.length === 0 && <span style={{ color: '#64748b', fontSize: 13 }}>当前匹配结果没有返回细化技能条目。</span>}
               </div>
-              <div className="match-detail-dimension-label">{dim.label}</div>
             </div>
-          ))}
-        </div>
 
-        {/* 3. 必备技能速览卡 */}
-        <div className="match-detail-card">
-          <div className="match-detail-card-title">
-            <span className="match-detail-card-indicator" style={{ background: '#3B82F6' }}></span>
-            岗位必备技能
-          </div>
-          <div className="match-detail-skills">
-            {jobData.skills.map((skill, index) => (
-              <span key={index} className={`match-detail-skill-tag ${getSkillClass(skill.status)}`}>
-                {skill.name} {skill.suffix}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* 4. 差距清单卡 */}
-        <div className="match-detail-card">
-          <div className="match-detail-card-title">
-            <span className="match-detail-card-indicator" style={{ background: '#EF4444' }}></span>
-            差距清单
-          </div>
-          <div className="match-detail-gaps">
-            {jobData.gaps.map((gap, index) => (
-              <div key={index} className="match-detail-gap-row">
-                <div className="match-detail-gap-dot" style={{ background: gap.dot }}></div>
-                <div className="match-detail-gap-content">
-                  <div className="match-detail-gap-name">{gap.name}</div>
-                  <div className="match-detail-gap-desc">{gap.desc}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* 5. 职业路径卡 */}
-        <div className="match-detail-card">
-          <div className="match-detail-card-title">
-            <span className="match-detail-card-indicator" style={{ background: '#10B981' }}></span>
-            职业路径
-          </div>
-
-          {/* 垂直晋升区 */}
-          <div className="match-detail-path-section">
-            <div className="match-detail-path-subtitle">垂直晋升</div>
-            <div className="match-detail-path-nodes">
-              {jobData.verticalPath.map((node, index) => (
-                <div key={index} className="match-detail-path-node">
-                  <div className="match-detail-path-left">
-                    <div className={`match-detail-path-circle ${node.label === '你' ? 'current' : 'future'}`}>
-                      {node.label === '你' ? (
-                        <svg width="10" height="10" viewBox="0 0 10 10">
-                          <path d="M2 5l3 3 5-5" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      ) : (
-                        node.label
-                      )}
+            <div
+              style={{
+                borderRadius: 24,
+                padding: 18,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 14 }}>差距清单</div>
+              <div style={{ display: 'grid', gap: 12 }}>
+                {(detail.gaps || []).map((gap, index) => (
+                  <div
+                    key={`${gap.gap_item}-${index}`}
+                    style={{
+                      borderRadius: 18,
+                      padding: 14,
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                      <div style={{ fontWeight: 700, color: '#0f172a' }}>{gap.gap_item}</div>
+                      <div style={{ color: '#b45309', fontSize: 12, fontWeight: 700 }}>{gap.priority}</div>
                     </div>
-                    {index < jobData.verticalPath.length - 1 && (
-                      <div className="match-detail-path-line"></div>
+                    <div style={{ marginTop: 8, color: '#475569', fontSize: 12, lineHeight: 1.7 }}>
+                      当前：{gap.current_level || '未知'} ｜ 目标：{gap.required_level || '未知'}
+                    </div>
+                    <div style={{ marginTop: 8, color: '#334155', fontSize: 13, lineHeight: 1.7 }}>{gap.suggestion}</div>
+                  </div>
+                ))}
+                {!detail.gaps?.length && <div style={{ color: '#64748b', fontSize: 13 }}>当前没有明显差距项。</div>}
+              </div>
+            </div>
+
+            <div
+              style={{
+                borderRadius: 24,
+                padding: 18,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 14 }}>职业路径</div>
+
+              <div style={{ color: '#475569', fontSize: 13, lineHeight: 1.7, marginBottom: 12 }}>
+                主路径目标：{String(careerPath?.path?.target_role || detail.role_name || '未命名岗位')}
+              </div>
+
+              <div style={{ display: 'grid', gap: 12 }}>
+                {mainPath.map((step, index) => (
+                  <div
+                    key={`${String(step.name || 'step')}-${index}`}
+                    style={{
+                      borderRadius: 18,
+                      padding: 14,
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                      {index + 1}. {String(step.name || step.role_name || '路径节点')}
+                    </div>
+                    <div style={{ marginTop: 6, color: '#475569', fontSize: 12 }}>
+                      {String(step.level || '')}
+                    </div>
+                    {Boolean(step.edge) && (
+                      <div style={{ marginTop: 8, color: '#334155', fontSize: 13, lineHeight: 1.7 }}>
+                        {String((step.edge as Record<string, unknown>).description || '该节点由图谱路径推导而来。')}
+                      </div>
                     )}
                   </div>
-                  <div className="match-detail-path-right">
-                    <div className="match-detail-path-name">{node.name}</div>
-                    <div className="match-detail-path-condition">{node.condition}</div>
+                ))}
+                {!mainPath.length && <div style={{ color: '#64748b', fontSize: 13 }}>当前没有可展示的主路径。</div>}
+              </div>
+
+              {alternativePaths.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 10 }}>备选转岗路径</div>
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {alternativePaths.map((path, index) => (
+                      <div
+                        key={`${String(path.intermediate_role || 'alternative')}-${index}`}
+                        style={{
+                          borderRadius: 18,
+                          padding: 14,
+                          background: '#eef6ff',
+                          color: '#1e3a8a',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700 }}>{String(path.intermediate_role || '备选方向')}</div>
+                        <div style={{ marginTop: 6, fontSize: 13 }}>预计步骤数：{String(path.steps || '未知')}</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
+              )}
 
-          <div className="match-detail-path-divider"></div>
-
-          {/* 横向转岗区 */}
-          <div className="match-detail-path-section">
-            <div className="match-detail-path-subtitle">横向转岗</div>
-            <div className="match-detail-path-nodes">
-              {jobData.horizontalPath.map((node, index) => (
-                <div key={index} className="match-detail-path-node">
-                  <div className="match-detail-path-left">
-                    <div className={`match-detail-path-circle ${index === 0 ? 'current' : 'transfer'}`}>
-                      {node.label}
-                    </div>
-                    {index < jobData.horizontalPath.length - 1 && (
-                      <div className="match-detail-path-line transfer-line"></div>
-                    )}
-                  </div>
-                  <div className="match-detail-path-right">
-                    <div className="match-detail-path-name">{node.name}</div>
-                    <div className="match-detail-path-condition">{node.condition}</div>
+              {actionPlan.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 10 }}>行动计划</div>
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {actionPlan.map((item, index) => (
+                      <div
+                        key={`${String(item.step || 'plan')}-${index}`}
+                        style={{
+                          borderRadius: 18,
+                          padding: 14,
+                          background: '#fff7ed',
+                          color: '#9a3412',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700 }}>步骤 {String(item.step || index + 1)}</div>
+                        <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.7 }}>
+                          {Array.isArray(item.actions)
+                            ? (item.actions as string[]).join('；')
+                            : String(item.target || item.description || '继续补齐目标岗位要求')}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
+              )}
             </div>
-          </div>
-        </div>
 
-        {/* 6. 底部主操作按钮 */}
-        <button className="match-detail-action-btn" onClick={() => navigate('/report')}>
-          生成职业规划报告 →
-        </button>
+            <button
+              type="button"
+              onClick={() => navigate('/report')}
+              style={{
+                width: '100%',
+                border: 'none',
+                borderRadius: 18,
+                padding: '16px 18px',
+                background: 'linear-gradient(135deg, #4f46e5 0%, #2563eb 100%)',
+                color: '#ffffff',
+                fontWeight: 800,
+                fontSize: 15,
+              }}
+            >
+              基于该岗位生成职业规划报告
+            </button>
+          </div>
+        )}
       </div>
     </MobileShell>
   )

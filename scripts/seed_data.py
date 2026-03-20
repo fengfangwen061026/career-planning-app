@@ -441,7 +441,7 @@ async def main():
         "--database-url",
         default=os.getenv(
             "DATABASE_URL",
-            "postgresql+asyncpg://postgres:postgres@localhost:5432/career_planning"
+            "postgresql+asyncpg://postgres:postgres@localhost:5432/career_planner"
         ),
         help="数据库连接 URL"
     )

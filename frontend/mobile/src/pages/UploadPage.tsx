@@ -1,74 +1,186 @@
-import React from 'react'
+import React, { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+
 import MobileShell from '../components/MobileShell'
+import { useMobileApp } from '../context/MobileAppContext'
 import './UploadPage.css'
 
 const UploadPage: React.FC = () => {
   const navigate = useNavigate()
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const { startResumeUpload, resetUploadState, currentStudent, profile } = useMobileApp()
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
 
-  const handleUploadClick = () => {
+  function openPicker() {
+    inputRef.current?.click()
+  }
+
+  async function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+
+    setSubmitting(true)
+    setError('')
+    resetUploadState()
     navigate('/parsing')
+
+    try {
+      await startResumeUpload(file)
+    } catch (uploadError) {
+      const message = uploadError instanceof Error ? uploadError.message : '上传失败，请稍后重试'
+      setError(message)
+    } finally {
+      setSubmitting(false)
+      event.target.value = ''
+    }
   }
 
   return (
     <MobileShell hasTabBar activeTab="upload">
-      <div className="upload-page">
-        {/* 上传拖拽区 */}
-        <div className="upload-zone" onClick={handleUploadClick}>
-          <div className="upload-icon">
-            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-              <rect width="32" height="32" rx="8" fill="#EEF2FF"/>
-              <path d="M16 10v10M11 15l5-5 5 5" stroke="#4F46E5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M10 22h12" stroke="#4F46E5" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
+      <div
+        style={{
+          padding: '20px 18px 110px',
+          background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 45%)',
+          minHeight: '100%',
+        }}
+      >
+        <div style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
+          上传简历
+        </div>
+        <p style={{ color: '#475569', fontSize: 14, lineHeight: 1.7, marginTop: 10 }}>
+          {currentStudent
+            ? `当前学生：${currentStudent.name || '未命名同学'}。上传后会自动完成解析、画像生成和后续推荐刷新。`
+            : '请先创建学生会话。'}
+        </p>
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".pdf,.doc,.docx"
+          hidden
+          onChange={handleFileSelected}
+        />
+
+        <button
+          type="button"
+          onClick={openPicker}
+          disabled={submitting}
+          style={{
+            width: '100%',
+            marginTop: 20,
+            borderRadius: 28,
+            border: '1px dashed #93c5fd',
+            background: '#eef6ff',
+            padding: '28px 18px',
+            textAlign: 'left',
+          }}
+        >
+          <div
+            style={{
+              width: 54,
+              height: 54,
+              borderRadius: 18,
+              display: 'grid',
+              placeItems: 'center',
+              background: '#dbeafe',
+              color: '#1d4ed8',
+              fontSize: 22,
+              fontWeight: 800,
+            }}
+          >
+            上
           </div>
-          <p className="upload-main-text">点击或拖拽上传</p>
-          <p className="upload-hint-text">PDF / DOCX · 最大 10MB</p>
-          <button className="upload-select-btn" onClick={(e) => { e.stopPropagation(); handleUploadClick() }}>
-            选择文件
+          <div style={{ marginTop: 16, fontWeight: 800, color: '#0f172a', fontSize: 18 }}>
+            {submitting ? '正在启动上传...' : '选择 PDF / Word 简历'}
+          </div>
+          <div style={{ marginTop: 8, color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
+            直接调用 `/api/students/{'{student_id}'}/upload-resume/stream`
+            <br />
+            支持 fallback、retrying、complete 全链路状态。
+          </div>
+        </button>
+
+        {error && (
+          <div
+            style={{
+              marginTop: 14,
+              borderRadius: 18,
+              padding: '14px 16px',
+              background: '#fef2f2',
+              color: '#b91c1c',
+              lineHeight: 1.6,
+              fontSize: 13,
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        <div
+          style={{
+            marginTop: 18,
+            borderRadius: 24,
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            padding: 18,
+            boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)',
+          }}
+        >
+          <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 10 }}>上传后会自动识别</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {['教育经历', '技能与工具', '项目与实习', '证书与奖项', '软技能证据', '缺失补全建议'].map((item) => (
+              <div
+                key={item}
+                style={{
+                  borderRadius: 16,
+                  padding: '12px 14px',
+                  background: '#f8fafc',
+                  color: '#334155',
+                  fontSize: 13,
+                  fontWeight: 600,
+                }}
+              >
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: 18,
+            borderRadius: 24,
+            padding: 18,
+            background: profile ? '#ecfdf5' : '#fff7ed',
+            border: `1px solid ${profile ? '#bbf7d0' : '#fed7aa'}`,
+          }}
+        >
+          <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 6 }}>
+            {profile ? '已经存在一份学生画像' : '首次使用建议先上传简历'}
+          </div>
+          <div style={{ color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
+            {profile
+              ? '重新上传会基于最新简历重建画像，推荐与报告也会随之刷新。'
+              : '如果现在没有简历，也可以先去画像页查看当前状态，再决定是否补充内容。'}
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/profile')}
+            style={{
+              marginTop: 12,
+              border: 'none',
+              borderRadius: 14,
+              padding: '12px 14px',
+              background: '#0f172a',
+              color: '#ffffff',
+              fontWeight: 700,
+            }}
+          >
+            前往画像页
           </button>
-        </div>
-
-        {/* 分隔线 */}
-        <div className="upload-divider">
-          <div className="upload-divider-line" />
-          <span className="upload-divider-text">或</span>
-          <div className="upload-divider-line" />
-        </div>
-
-        {/* 手动填写链接 */}
-        <a className="upload-manual-link" onClick={() => navigate('/profile')}>
-          手动填写基本信息 →
-        </a>
-
-        {/* 解析内容展示卡片 */}
-        <div className="upload-preview-card">
-          <div className="preview-card-header">
-            <span className="preview-card-indicator" />
-            <span className="preview-card-title">将自动解析以下内容</span>
-          </div>
-          <div className="preview-grid">
-            <div className="preview-item preview-item-blue">
-              <span className="preview-item-dot" />
-              <span className="preview-item-text">教育经历</span>
-            </div>
-            <div className="preview-item preview-item-blue">
-              <span className="preview-item-dot" />
-              <span className="preview-item-text">技能 & 工具</span>
-            </div>
-            <div className="preview-item preview-item-green">
-              <span className="preview-item-dot" />
-              <span className="preview-item-text">实习 & 项目</span>
-            </div>
-            <div className="preview-item preview-item-green">
-              <span className="preview-item-dot" />
-              <span className="preview-item-text">证书 & 奖项</span>
-            </div>
-            <div className="preview-item preview-item-orange preview-item-full">
-              <span className="preview-item-dot" />
-              <span className="preview-item-text">软素养信号 & 量化成果</span>
-            </div>
-          </div>
         </div>
       </div>
     </MobileShell>

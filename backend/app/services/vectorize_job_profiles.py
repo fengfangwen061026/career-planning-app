@@ -1,118 +1,104 @@
-"""Vectorize job profiles for semantic matching.
+"""Utilities for job-profile embeddings and similarity search."""
 
-This service ensures all JobProfile records have embeddings
-and provides utilities for profile similarity search.
-"""
+from __future__ import annotations
+
 import asyncio
 import logging
+import math
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.ai.embedding import embedding
 from app.database import async_session_factory
 from app.models.job import JobProfile, Role
 from app.services.job_profile import _build_profile_summary
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 20
 
 
-async def _ensure_pgvector_extension(session: AsyncSession) -> None:
-    """确保 pgvector 扩展已安装。"""
-    try:
-        await session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await session.commit()
-    except Exception as e:
-        logger.warning(f"Could not create vector extension: {e}")
+def _cosine_similarity(left: list[float] | None, right: list[float] | None) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    numerator = sum(a * b for a, b in zip(left, right))
+    left_norm = math.sqrt(sum(a * a for a in left))
+    right_norm = math.sqrt(sum(b * b for b in right))
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    return numerator / (left_norm * right_norm)
+
+
+async def _load_role_names(session) -> dict[UUID, str]:
+    result = await session.execute(select(Role.id, Role.name))
+    return {role_id: name for role_id, name in result.all()}
 
 
 async def vectorize_job_profiles(batch_size: int = BATCH_SIZE) -> int:
-    """为没有 embedding 的 JobProfile 生成向量。
-
-    Returns:
-        Number of profiles vectorized
-    """
-    await _ensure_pgvector_extension(async_session_factory)
-
+    """Generate embeddings for job profiles that do not have one."""
     async with async_session_factory() as session:
-        # 获取需要向量化的画像
         result = await session.execute(
-            select(JobProfile).where(
-                JobProfile.embedding.is_(None)
-            )
+            select(JobProfile).where(JobProfile.embedding.is_(None))
         )
-        profiles_to_vectorize = result.scalars().all()
-
-        if not profiles_to_vectorize:
+        profiles = list(result.scalars().all())
+        if not profiles:
             logger.info("All job profiles already have embeddings")
             return 0
 
-        logger.info(f"Vectorizing {len(profiles_to_vectorize)} job profiles...")
-
+        role_names = await _load_role_names(session)
         count = 0
-        for i in range(0, len(profiles_to_vectorize), batch_size):
-            batch = profiles_to_vectorize[i:i + batch_size]
-
+        for start in range(0, len(profiles), batch_size):
+            batch = profiles[start:start + batch_size]
             for profile in batch:
-                # 获取 role 名称
-                role = await session.get(Role, profile.role_id)
-                role_name = role.name if role else "unknown"
-
-                # 构建摘要并生成 embedding
+                role_name = role_names.get(profile.role_id, "unknown")
                 summary = _build_profile_summary(profile.profile_json, role_name)
                 profile.embedding = await embedding.embed(summary)
                 count += 1
-
             await session.commit()
-            logger.info(f"Processed {min(i + batch_size, len(profiles_to_vectorize))}/{len(profiles_to_vectorize)}")
+            logger.info(
+                "Vectorized %s/%s job profiles",
+                min(start + batch_size, len(profiles)),
+                len(profiles),
+            )
 
-        logger.info(f"Vectorized {count} job profiles")
         return count
 
 
 async def rebuild_job_profile_embeddings() -> int:
-    """重新生成所有 JobProfile 的 embedding。
-
-    Returns:
-        Number of profiles rebuilt
-    """
+    """Regenerate embeddings for all job profiles."""
     async with async_session_factory() as session:
         result = await session.execute(select(JobProfile))
-        all_profiles = result.scalars().all()
-
-        logger.info(f"Rebuilding embeddings for {len(all_profiles)} job profiles...")
+        profiles = list(result.scalars().all())
+        role_names = await _load_role_names(session)
 
         count = 0
-        for i in range(0, len(all_profiles), BATCH_SIZE):
-            batch = all_profiles[i:i + BATCH_SIZE]
-
+        for start in range(0, len(profiles), BATCH_SIZE):
+            batch = profiles[start:start + BATCH_SIZE]
             for profile in batch:
-                role = await session.get(Role, profile.role_id)
-                role_name = role.name if role else "unknown"
-
+                role_name = role_names.get(profile.role_id, "unknown")
                 summary = _build_profile_summary(profile.profile_json, role_name)
                 profile.embedding = await embedding.embed(summary)
                 count += 1
-
             await session.commit()
-            logger.info(f"Rebuilt {min(i + BATCH_SIZE, len(all_profiles))}/{len(all_profiles)}")
+            logger.info(
+                "Rebuilt %s/%s embeddings",
+                min(start + BATCH_SIZE, len(profiles)),
+                len(profiles),
+            )
 
-        logger.info(f"Rebuilt {count} job profile embeddings")
         return count
 
 
-def _cosine_similarity_sql(column: str, query_param: str) -> str:
-    """生成计算余弦相似度的 SQL 片段。
-
-    由于 embedding 是 float[] 类型，我们需要使用 pgvector 的操作符。
-    pgvector 的 <=> 操作符可以用于 float[] 类型。
-    """
-    return f"1 - ({column} <=> {query_param}::float[])"
+async def _load_profiles_with_embeddings() -> list[tuple[JobProfile, Role | None]]:
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(JobProfile, Role)
+            .join(Role, JobProfile.role_id == Role.id)
+            .where(JobProfile.embedding.is_not(None))
+        )
+        return list(result.all())
 
 
 async def find_similar_profiles(
@@ -120,56 +106,32 @@ async def find_similar_profiles(
     top_k: int = 5,
     threshold: float = 0.7,
 ) -> list[dict[str, Any]]:
-    """查找与指定画像相似的其他画像。
-
-    Args:
-        profile_id: 要查找相似的画像ID
-        top_k: 返回前K个最相似的画像
-        threshold: 最小相似度阈值
-
-    Returns:
-        相似画像列表，每个包含 id, role_name, version, similarity
-    """
+    """Find job profiles similar to the given profile id."""
     async with async_session_factory() as session:
-        # 获取目标画像的 embedding
-        profile = await session.get(JobProfile, profile_id)
-        if not profile or not profile.embedding:
+        current = await session.get(JobProfile, profile_id)
+        if current is None or not current.embedding:
             raise ValueError(f"Profile {profile_id} not found or has no embedding")
 
-        # 查询相似画像
         result = await session.execute(
-            text("""
-                SELECT
-                    jp.id,
-                    r.name as role_name,
-                    jp.version,
-                    1 - (jp.embedding <=> :query_vector::float[]) as similarity
-                FROM job_profiles jp
-                JOIN roles r ON jp.role_id = r.id
-                WHERE jp.id != :exclude_id
-                  AND jp.embedding IS NOT NULL
-                  AND 1 - (jp.embedding <=> :query_vector::float[]) > :threshold
-                ORDER BY jp.embedding <=> :query_vector::float[]
-                LIMIT :top_k
-            """),
-            {
-                "query_vector": profile.embedding,
-                "exclude_id": str(profile_id),
-                "threshold": threshold,
-                "top_k": top_k,
-            }
+            select(JobProfile, Role)
+            .join(Role, JobProfile.role_id == Role.id)
+            .where(JobProfile.id != profile_id, JobProfile.embedding.is_not(None))
         )
+        rows = list(result.all())
 
-        rows = result.fetchall()
-        return [
-            {
-                "id": str(row.id),
-                "role_name": row.role_name,
-                "version": row.version,
-                "similarity": float(row.similarity),
-            }
-            for row in rows
-        ]
+    scored = []
+    for profile, role in rows:
+        similarity = _cosine_similarity(current.embedding, profile.embedding)
+        if similarity >= threshold:
+            scored.append({
+                "id": str(profile.id),
+                "role_name": role.name if role else None,
+                "version": profile.version,
+                "similarity": round(similarity, 6),
+            })
+
+    scored.sort(key=lambda item: item["similarity"], reverse=True)
+    return scored[:top_k]
 
 
 async def find_similar_profiles_by_text(
@@ -177,116 +139,47 @@ async def find_similar_profiles_by_text(
     top_k: int = 5,
     threshold: float = 0.7,
 ) -> list[dict[str, Any]]:
-    """根据文本描述查找相似的岗位画像。
-
-    Args:
-        text_query: 文本描述（如：需要Python后端开发技能）
-        top_k: 返回前K个最相似的画像
-        threshold: 最小相似度阈值
-
-    Returns:
-        相似画像列表
-    """
-    # 生成查询文本的 embedding
+    """Find job profiles similar to a text query."""
     query_embedding = await embedding.embed(text_query)
+    rows = await _load_profiles_with_embeddings()
 
-    async with async_session_factory() as session:
-        result = await session.execute(
-            text("""
-                SELECT
-                    jp.id,
-                    r.name as role_name,
-                    jp.version,
-                    jp.profile_json->>'basic_info'->>'title' as title,
-                    1 - (jp.embedding <=> :query_vector::float[]) as similarity
-                FROM job_profiles jp
-                JOIN roles r ON jp.role_id = r.id
-                WHERE jp.embedding IS NOT NULL
-                  AND 1 - (jp.embedding <=> :query_vector::float[]) > :threshold
-                ORDER BY jp.embedding <=> :query_vector::float[]
-                LIMIT :top_k
-            """),
-            {
-                "query_vector": query_embedding,
-                "threshold": threshold,
-                "top_k": top_k,
-            }
-        )
+    scored = []
+    for profile, role in rows:
+        similarity = _cosine_similarity(query_embedding, profile.embedding)
+        if similarity >= threshold:
+            job_info = profile.profile_json or {}
+            scored.append({
+                "id": str(profile.id),
+                "role_name": role.name if role else None,
+                "version": profile.version,
+                "title": job_info.get("role_name") or role.name if role else None,
+                "similarity": round(similarity, 6),
+            })
 
-        rows = result.fetchall()
-        return [
-            {
-                "id": str(row.id),
-                "role_name": row.role_name,
-                "version": row.version,
-                "title": row.title,
-                "similarity": float(row.similarity),
-            }
-            for row in rows
-        ]
+    scored.sort(key=lambda item: item["similarity"], reverse=True)
+    return scored[:top_k]
 
 
 async def compute_profile_similarity(
     profile_id_a: UUID,
     profile_id_b: UUID,
 ) -> float:
-    """计算两个画像之间的相似度。
-
-    Args:
-        profile_id_a: 画像A的ID
-        profile_id_b: 画像B的ID
-
-    Returns:
-        相似度分数 (0-1)
-    """
+    """Compute cosine similarity between two embedded profiles."""
     async with async_session_factory() as session:
-        result = await session.execute(
-            text("""
-                SELECT
-                    1 - (a.embedding <=> b.embedding::float[]) as similarity
-                FROM job_profiles a
-                JOIN job_profiles b ON a.id = :id_a AND b.id = :id_b
-                WHERE a.embedding IS NOT NULL AND b.embedding IS NOT NULL
-            """),
-            {"id_a": str(profile_id_a), "id_b": str(profile_id_b)}
-        )
+        profile_a = await session.get(JobProfile, profile_id_a)
+        profile_b = await session.get(JobProfile, profile_id_b)
 
-        row = result.fetchone()
-        return float(row.similarity) if row else 0.0
+    if profile_a is None or profile_b is None:
+        return 0.0
+    return round(_cosine_similarity(profile_a.embedding, profile_b.embedding), 6)
 
 
 async def create_job_profile_index() -> None:
-    """为 job_profiles 表创建向量索引。"""
-    async with async_session_factory() as session:
-        try:
-            # 确保 pgvector 扩展已启用
-            await _ensure_pgvector_extension(session)
-
-            # 检查是否已存在索引
-            result = await session.execute(text("""
-                SELECT indexname FROM pg_indexes
-                WHERE tablename = 'job_profiles'
-                AND indexname LIKE '%embedding%'
-            """))
-            existing_indexes = result.fetchall()
-
-            if existing_indexes:
-                logger.info(f"Vector indexes already exist: {existing_indexes}")
-                return
-
-            # 创建 HNSW 索引
-            # 注意：embedding 列是 float[] 类型，pgvector 支持这种类型
-            await session.execute(text("""
-                CREATE INDEX IF NOT EXISTS ix_job_profiles_embedding_hnsw
-                ON job_profiles
-                USING hnsw (embedding vector_cosine_ops)
-                WITH (m = 16, ef_construction = 64)
-            """))
-
-            await session.commit()
-            logger.info("Job profile vector index created successfully")
-        except Exception as e:
-            logger.warning(f"Could not create vector index: {e}")
+    """Document the current non-pgvector indexing limitation."""
+    logger.info(
+        "Skipping vector index creation: job_profiles.embedding uses ARRAY(Float), "
+        "so pgvector operators and vector indexes are not valid in the current schema."
+    )
 
 
 if __name__ == "__main__":
@@ -303,4 +196,3 @@ if __name__ == "__main__":
     else:
         count = asyncio.run(vectorize_job_profiles())
         print(f"Vectorized {count} profiles")
-        asyncio.run(create_job_profile_index())

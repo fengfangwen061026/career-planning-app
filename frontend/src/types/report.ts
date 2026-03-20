@@ -53,7 +53,7 @@ export interface ReportVersionResponse extends ReportVersionBase {
 
 export interface ReportGenerateRequest {
   student_id: string;
-  job_ids?: string[];
+  job_profile_ids?: string[];
   include_export: boolean;
 }
 

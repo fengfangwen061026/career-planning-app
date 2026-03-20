@@ -24,7 +24,12 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5176",
+        "http://127.0.0.1:5176",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -32,7 +37,19 @@ app.add_middleware(
 
 
 # Import and register routers
-from app.api import jobs, job_profiles, roles, students, matching, reports, graph, companies, resumes, dashboard
+from app.api import (
+    companies,
+    dashboard,
+    graph,
+    job_profiles,
+    jobs,
+    matching,
+    reports,
+    resumes,
+    roles,
+    student_app,
+    students,
+)
 
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 app.include_router(job_profiles.router, prefix="/api/job-profiles", tags=["job-profiles"])
@@ -44,6 +61,7 @@ app.include_router(graph.router, prefix="/api/graph", tags=["graph"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(resumes.router, prefix="/api/resumes", tags=["resumes"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
+app.include_router(student_app.router, prefix="/api/student-app", tags=["student-app"])
 
 
 @app.get("/health")

@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Index, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -23,10 +23,10 @@ class MatchResult(Base):
     total_score = Column(Float, nullable=False, index=True)  # 总分 0-1
 
     # 详细评分（JSONB 存储四维评分结构）
-    scores_json = Column(JSON, nullable=False)  # 各维度评分详情
+    scores_json = Column(JSONB, nullable=False)  # 各维度评分详情
 
     # 技能差距分析
-    gaps_json = Column(JSON, default={})  # 技能缺口详情
+    gaps_json = Column(JSONB, default=list)  # 技能缺口详情
 
     # 版本管理
     version = Column(String(32), nullable=False, default="1.0")

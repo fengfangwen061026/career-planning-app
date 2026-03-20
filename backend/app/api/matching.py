@@ -1,11 +1,13 @@
 """Matching API routes - 人岗匹配接口."""
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.job import Job, JobProfile, Role
 from app.schemas.matching import (
     FourDimensionScores,
     GapItem,
@@ -24,17 +26,50 @@ from app.services.matching import (
 router = APIRouter()
 
 
+def _extract_benefits(description: str | None) -> list[str]:
+    if not description:
+        return []
+    keywords = ["五险一金", "双休", "带薪年假", "餐补", "下午茶", "年终奖", "培训"]
+    return [keyword for keyword in keywords if keyword in description][:4]
+
+
+async def _build_job_snapshot(role_id: UUID | None, db: AsyncSession | None) -> dict | None:
+    if not db or not role_id:
+        return None
+
+    result = await db.execute(
+        select(Job)
+        .where(Job.role_id == role_id)
+        .order_by(Job.created_at.desc())
+        .limit(1)
+    )
+    job = result.scalars().first()
+    if not job:
+        return None
+
+    return {
+        "title": job.title,
+        "city": job.city,
+        "company_name": job.company_name,
+        "company_stage": job.company_stage,
+        "industries": list(job.industries or []),
+        "benefits": _extract_benefits(job.description),
+    }
+
+
 async def _mr_to_response(mr, db: AsyncSession = None) -> MatchResultResponse:
     """将 ORM MatchResult 转为 API 响应."""
-    scores_json = mr.scores_json or {}
+    scores_json = dict(mr.scores_json or {}) if isinstance(mr.scores_json, dict) else {}
     gaps_json = mr.gaps_json or []
-    reasons = scores_json.pop("match_reasons", []) if isinstance(scores_json, dict) else []
+    reasons = list(scores_json.get("match_reasons") or [])
+    job_info = scores_json.get("job_info") or {}
 
     # 获取job_profile的role_name
     role_name = None
+    role_id = None
+    role_category = None
+    job_snapshot = None
     if db and mr.job_profile_id:
-        from sqlalchemy import select
-        from app.models.job import JobProfile, Role
         result = await db.execute(
             select(JobProfile, Role)
             .join(Role, JobProfile.role_id == Role.id)
@@ -42,16 +77,29 @@ async def _mr_to_response(mr, db: AsyncSession = None) -> MatchResultResponse:
         )
         jp_role = result.first()
         if jp_role:
-            _, role = jp_role
+            job_profile, role = jp_role
+            role_id = job_profile.role_id if job_profile else None
             role_name = role.name if role else None
+            role_category = role.category if role else None
+            job_snapshot = await _build_job_snapshot(role_id, db)
+
+    score_payload = {
+        key: value
+        for key, value in scores_json.items()
+        if key not in {"match_reasons", "job_info"}
+    }
 
     return MatchResultResponse(
         id=mr.id,
         student_profile_id=mr.student_profile_id,
         job_profile_id=mr.job_profile_id,
+        role_id=role_id,
+        role_category=role_category,
+        job_title=job_info.get("title"),
         role_name=role_name,
+        job_snapshot=job_snapshot,
         total_score=mr.total_score * 100,  # DB 存 0-1，API 返回 0-100
-        scores=FourDimensionScores(**{k: v for k, v in scores_json.items() if k != "match_reasons"}) if scores_json else FourDimensionScores(),
+        scores=FourDimensionScores(**score_payload) if score_payload else FourDimensionScores(),
         gaps=[GapItem(**g) for g in gaps_json] if gaps_json else [],
         match_reasons=reasons,
         created_at=mr.created_at,
@@ -86,7 +134,7 @@ async def recommend(
             recommend_jobs(
                 db, student_id, top_k=request.top_k, role_category=request.role_category,
             ),
-            timeout=60.0,
+            timeout=120.0,
         )
     except asyncio.TimeoutError:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="匹配超时，请稍后重试")

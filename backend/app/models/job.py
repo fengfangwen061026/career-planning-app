@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -121,8 +121,8 @@ class JobProfile(Base):
     role_id = Column(UUID(as_uuid=True), ForeignKey("roles.id"), nullable=False, index=True)
 
     # 画像内容（JSONB 存储四维结构化数据）
-    profile_json = Column(JSON, nullable=False)  # 完整画像结构
-    evidence_json = Column(JSON, default={})  # 证据来源
+    profile_json = Column(JSONB, nullable=False)  # 完整画像结构
+    evidence_json = Column(JSONB, default={})  # 证据来源
 
     # 版本管理（整数自增，同一 role 新版本不覆盖旧版本）
     version = Column(Integer, nullable=False, default=1)

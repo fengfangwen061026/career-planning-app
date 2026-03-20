@@ -1,313 +1,319 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+
 import MobileShell from '../components/MobileShell'
+import { useMobileApp } from '../context/MobileAppContext'
+import type { StudentRecommendationItem } from '@shared/types/studentApp'
 import './ExplorePage.css'
 
-interface JobDim {
-  label: string
-  score: number
-  color: string
+function scoreOf(item: StudentRecommendationItem, key: 'basic' | 'skill' | 'competency' | 'potential') {
+  const section = item.scores?.[key]
+  return Math.round(Number(section?.score || 0))
 }
-
-interface JobTag {
-  text: string
-  bg: string
-  color: string
-}
-
-interface Job {
-  id: string
-  name: string
-  icon: string
-  iconColor: string
-  industry: string
-  level: string
-  city: string
-  score: number
-  scoreColor: string
-  tags?: JobTag[]
-  dims: JobDim[]
-}
-
-const jobs: Job[] = [
-  {
-    id: 'backend-engineer',
-    name: '后端开发工程师',
-    icon: '后',
-    iconColor: '#4F46E5',
-    industry: '互联网',
-    level: '初级',
-    city: '北京/上海',
-    score: 89,
-    scoreColor: '#4F46E5',
-    dims: [
-      { label: '基', score: 95, color: '#1D4ED8' },
-      { label: '技', score: 82, color: '#3B82F6' },
-      { label: '素', score: 78, color: '#10B981' },
-      { label: '潜', score: 88, color: '#D97706' },
-    ]
-  },
-  {
-    id: 'data-analyst',
-    name: '数据分析师',
-    icon: '数',
-    iconColor: '#059669',
-    industry: '金融/电商',
-    level: '初级',
-    city: '全国',
-    score: 83,
-    scoreColor: '#10B981',
-    dims: [
-      { label: '基', score: 90, color: '#1D4ED8' },
-      { label: '技', score: 76, color: '#3B82F6' },
-      { label: '素', score: 72, color: '#10B981' },
-      { label: '潜', score: 80, color: '#D97706' },
-    ]
-  },
-  {
-    id: 'algorithm-engineer',
-    name: '算法工程师',
-    icon: '算',
-    iconColor: '#D97706',
-    industry: 'AI/大模型',
-    level: '初级',
-    city: '北京',
-    score: 76,
-    scoreColor: '#D97706',
-    dims: [
-      { label: '基', score: 88, color: '#1D4ED8' },
-      { label: '技', score: 60, color: '#3B82F6' },
-      { label: '素', score: 75, color: '#10B981' },
-      { label: '潜', score: 85, color: '#D97706' },
-    ]
-  },
-  {
-    id: 'frontend-engineer',
-    name: '前端开发工程师',
-    icon: '前',
-    iconColor: '#3B82F6',
-    industry: '互联网',
-    level: '初级',
-    city: '全国',
-    score: 72,
-    scoreColor: '#3B82F6',
-    dims: [
-      { label: '基', score: 85, color: '#1D4ED8' },
-      { label: '技', score: 68, color: '#3B82F6' },
-      { label: '素', score: 74, color: '#10B981' },
-      { label: '潜', score: 70, color: '#D97706' },
-    ]
-  },
-]
-
-const searchResults: Job[] = [
-  {
-    id: 'product-manager',
-    name: '产品经理',
-    icon: '产',
-    iconColor: '#7C3AED',
-    industry: '互联网',
-    level: '初级',
-    city: '全国',
-    score: 71,
-    scoreColor: '#7C3AED',
-    tags: [
-      { text: '匹配', bg: '#EEF2FF', color: '#4F46E5' },
-      { text: '需补充需求分析', bg: '#F3F4F6', color: '#9CA3AF' }
-    ],
-    dims: [
-      { label: '基', score: 85, color: '#1D4ED8' },
-      { label: '技', score: 65, color: '#3B82F6' },
-      { label: '素', score: 70, color: '#10B981' },
-      { label: '潜', score: 72, color: '#D97706' },
-    ]
-  },
-  {
-    id: 'growth-pm',
-    name: '增长产品经理',
-    icon: '增',
-    iconColor: '#7C3AED',
-    industry: '互联网',
-    level: '初级',
-    city: '全国',
-    score: 65,
-    scoreColor: '#7C3AED',
-    tags: [
-      { text: '需 A/B测试经验', bg: '#F3F4F6', color: '#9CA3AF' }
-    ],
-    dims: [
-      { label: '基', score: 80, color: '#1D4ED8' },
-      { label: '技', score: 55, color: '#3B82F6' },
-      { label: '素', score: 68, color: '#10B981' },
-      { label: '潜', score: 70, color: '#D97706' },
-    ]
-  }
-]
-
-const filters = ['全部', '互联网', 'AI/算法', '数据', '金融']
 
 const ExplorePage: React.FC = () => {
   const navigate = useNavigate()
+  const {
+    profile,
+    recommendations,
+    refreshRecommendations,
+    isLoadingRecommendations,
+    selectRecommendation,
+  } = useMobileApp()
+
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeFilter, setActiveFilter] = useState('全部')
-  const [activeSegment, setActiveSegment] = useState<'list' | 'graph'>('list')
-  const [searchActive, setSearchActive] = useState(false)
+  const [activeCategory, setActiveCategory] = useState('全部')
+  const [error, setError] = useState('')
 
-  const displayedJobs = searchQuery
-    ? searchResults
-    : jobs.filter(j => activeFilter === '全部' || j.industry.includes(activeFilter))
+  useEffect(() => {
+    let mounted = true
+    async function load() {
+      setError('')
+      try {
+        await refreshRecommendations({ top_k: 12 })
+      } catch (loadError) {
+        if (!mounted) {
+          return
+        }
+        const message = loadError instanceof Error ? loadError.message : '加载推荐失败'
+        setError(message)
+      }
+    }
 
-  const handleSearchFocus = () => {
-    setSearchActive(true)
-  }
+    if (profile && recommendations.length === 0 && !isLoadingRecommendations) {
+      void load()
+    }
 
-  const handleSearchClear = () => {
-    setSearchQuery('')
-    setSearchActive(false)
-  }
+    return () => {
+      mounted = false
+    }
+  }, [isLoadingRecommendations, profile, recommendations.length])
 
-  const handleJobClick = (jobId: string) => {
-    navigate(`/match/${jobId}`)
+  const categoryValues = new Set<string>()
+  recommendations.forEach((item) => {
+    if (item.role_category) {
+      categoryValues.add(item.role_category)
+    }
+  })
+  const categories = ['全部', ...categoryValues]
+
+  const keyword = searchQuery.trim().toLowerCase()
+  const displayedJobs = recommendations.filter((item) => {
+    const matchesCategory = activeCategory === '全部' || item.role_category === activeCategory
+    const searchable = [
+      item.role_name,
+      item.role_category,
+      item.job_snapshot?.title,
+      item.job_snapshot?.city,
+      ...(item.job_snapshot?.industries || []),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+    const matchesKeyword = !keyword || searchable.includes(keyword)
+    return matchesCategory && matchesKeyword
+  })
+
+  if (!profile) {
+    return (
+      <MobileShell hasTabBar activeTab="explore">
+        <div style={{ padding: 24, color: '#334155' }}>
+          还没有学生画像。先上传简历，才能得到真实岗位推荐。
+          <div>
+            <button
+              type="button"
+              onClick={() => navigate('/upload')}
+              style={{
+                marginTop: 16,
+                border: 'none',
+                borderRadius: 14,
+                padding: '12px 16px',
+                background: '#1d4ed8',
+                color: '#ffffff',
+                fontWeight: 700,
+              }}
+            >
+              去上传简历
+            </button>
+          </div>
+        </div>
+      </MobileShell>
+    )
   }
 
   return (
     <MobileShell hasTabBar activeTab="explore">
-      <div className="explore-page">
-        {/* 顶部栏 */}
-        <div className="explore-header">
-          <div className="explore-header-row">
-            <span className="explore-title">岗位探索</span>
-            <span className="explore-count">共 51 种岗位</span>
-          </div>
+      <div
+        style={{
+          padding: '20px 18px 120px',
+          background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 42%)',
+          minHeight: '100%',
+        }}
+      >
+        <div style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>岗位探索</div>
+        <p style={{ marginTop: 10, color: '#475569', lineHeight: 1.7, fontSize: 14 }}>
+          这里展示后端真实推荐结果，点击卡片可进入匹配详情与职业路径。
+        </p>
+
+        <div
+          style={{
+            marginTop: 16,
+            borderRadius: 18,
+            background: '#ffffff',
+            border: '1px solid #dbeafe',
+            padding: '12px 14px',
+          }}
+        >
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="搜索岗位、城市或行业"
+            style={{
+              width: '100%',
+              border: 'none',
+              outline: 'none',
+              fontSize: 14,
+              color: '#0f172a',
+            }}
+          />
         </div>
 
-        {/* 搜索框 */}
-        <div className="explore-header">
+        <div style={{ marginTop: 14, display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+          {categories.map((category) => (
+            <button
+              key={category}
+              type="button"
+              onClick={() => setActiveCategory(category)}
+              style={{
+                borderRadius: 999,
+                whiteSpace: 'nowrap',
+                border: activeCategory === category ? '1px solid #6366f1' : '1px solid #cbd5e1',
+                background: activeCategory === category ? '#eef2ff' : '#ffffff',
+                color: activeCategory === category ? '#4338ca' : '#475569',
+                padding: '10px 12px',
+                fontWeight: 700,
+                fontSize: 12,
+              }}
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', color: '#64748b', fontSize: 12 }}>
+          <span>{isLoadingRecommendations ? '正在刷新推荐...' : `共 ${displayedJobs.length} 个岗位`}</span>
+          <button
+            type="button"
+            onClick={() => refreshRecommendations({
+              top_k: 12,
+              force: true,
+            })}
+            style={{ border: 'none', background: 'transparent', color: '#1d4ed8', fontWeight: 700 }}
+          >
+            重新推荐
+          </button>
+        </div>
+
+        {error && (
           <div
-            className={`explore-search-container ${searchActive ? 'active' : 'inactive'}`}
-            onClick={() => {
-              const input = document.querySelector('.explore-search-input') as HTMLInputElement
-              input?.focus()
+            style={{
+              marginTop: 14,
+              borderRadius: 18,
+              padding: '14px 16px',
+              background: '#fef2f2',
+              color: '#b91c1c',
+              fontSize: 13,
             }}
           >
-            <svg className="explore-search-icon" viewBox="0 0 12 12" fill="none">
-              <circle cx="5" cy="5" r="4" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-              <path d="M9 9l2.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-            <input
-              type="text"
-              className="explore-search-input"
-              placeholder="搜索岗位，如「产品经理」"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={handleSearchFocus}
-            />
-            {searchActive && searchQuery && (
-              <svg className="explore-search-clear" viewBox="0 0 10 10" fill="none" onClick={handleSearchClear}>
-                <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            )}
-          </div>
-        </div>
-
-        {/* 行业筛选栏 - 仅 searchActive=false 时显示 */}
-        {!searchActive && (
-          <div className="explore-header">
-            <div className="explore-filter-bar">
-              {filters.map(filter => (
-                <button
-                  key={filter}
-                  className={`explore-filter-chip ${activeFilter === filter ? 'active' : 'inactive'}`}
-                  onClick={() => setActiveFilter(filter)}
-                >
-                  {filter}
-                </button>
-              ))}
-            </div>
+            {error}
           </div>
         )}
 
-        {/* Segment Control - 仅 searchActive=false 时显示 */}
-        {!searchActive && (
-          <div className="explore-header">
-            <div className="explore-segment">
-              <button
-                className={`explore-segment-btn ${activeSegment === 'list' ? 'active' : 'inactive'}`}
-                onClick={() => setActiveSegment('list')}
-              >
-                推荐列表
-              </button>
-              <button
-                className={`explore-segment-btn ${activeSegment === 'graph' ? 'active' : 'inactive'}`}
-                onClick={() => navigate('/explore?view=graph')}
-              >
-                岗位图谱
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* 搜索结果提示条 - searchActive=true 且 searchQuery 非空时显示 */}
-        {searchActive && searchQuery && (
-          <div className="explore-header">
-            <div className="explore-search-result-bar">
-              <span className="explore-search-result-text">找到 {displayedJobs.length} 个相关岗位</span>
-            </div>
-          </div>
-        )}
-
-        {/* 岗位卡片列表 */}
-        <div className="explore-job-list">
-          {displayedJobs.map((job, index) => (
-            <div
-              key={job.id}
-              className="explore-job-card"
-              style={{ animationDelay: `${index * 0.05}s` }}
-              onClick={() => handleJobClick(job.id)}
+        <div style={{ marginTop: 14, display: 'grid', gap: 14 }}>
+          {displayedJobs.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                selectRecommendation(item)
+                navigate(`/match/${item.id}`)
+              }}
+              style={{
+                textAlign: 'left',
+                borderRadius: 24,
+                padding: 18,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)',
+              }}
             >
-              <div className="explore-job-icon" style={{ background: job.iconColor }}>
-                <span className="explore-job-icon-text">{job.icon}</span>
-              </div>
-              <div className="explore-job-content">
-                <div className="explore-job-name">{job.name}</div>
-                <div className="explore-job-subtitle">{job.industry} · {job.level} · {job.city}</div>
-                {job.tags && job.tags.length > 0 && (
-                  <div className="explore-job-tags">
-                    {job.tags.map((tag, i) => (
-                      <span
-                        key={i}
-                        className="explore-job-tag"
-                        style={{ background: tag.bg, color: tag.color }}
-                      >
-                        {tag.text}
-                      </span>
-                    ))}
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>
+                    {item.role_name || item.job_snapshot?.title || '未命名岗位'}
                   </div>
-                )}
-                <div className="explore-job-dims">
-                  {job.dims.map((dim, i) => (
-                    <div key={i} className="explore-dim-row">
-                      <span className="explore-dim-label">{dim.label}</span>
-                      <div className="explore-dim-track">
-                        <div
-                          className="explore-dim-fill"
-                          style={{ width: `${dim.score}%`, background: dim.color }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+                  <div style={{ marginTop: 8, color: '#475569', lineHeight: 1.7, fontSize: 13 }}>
+                    {[item.role_category, item.job_snapshot?.city, item.job_snapshot?.company_name].filter(Boolean).join(' · ')}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    width: 'fit-content',
+                    textAlign: 'center',
+                    borderRadius: 18,
+                    padding: '10px 10px',
+                    background: '#eef2ff',
+                    color: '#4338ca',
+                  }}
+                >
+                  <div style={{ fontSize: 22, fontWeight: 800 }}>{Math.round(item.total_score)}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700 }}>匹配分</div>
                 </div>
               </div>
-              <span className="explore-job-score" style={{ color: job.scoreColor }}>{job.score}</span>
-              <span className="explore-job-arrow">›</span>
-            </div>
-          ))}
 
-          {/* 搜索结果底部提示 */}
-          {searchActive && searchQuery && displayedJobs.length > 2 && (
-            <div className="explore-more-hint">还有 {displayedJobs.length - 2} 个结果</div>
-          )}
+              {item.match_reasons.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                  {item.match_reasons.slice(0, 3).map((reason) => (
+                    <span
+                      key={reason}
+                      style={{
+                        borderRadius: 999,
+                        padding: '8px 10px',
+                        background: '#f8fafc',
+                        color: '#334155',
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
+                {[
+                  { label: '基础要求', value: scoreOf(item, 'basic'), color: '#1d4ed8' },
+                  { label: '技能匹配', value: scoreOf(item, 'skill'), color: '#2563eb' },
+                  { label: '职业素养', value: scoreOf(item, 'competency'), color: '#10b981' },
+                  { label: '发展潜力', value: scoreOf(item, 'potential'), color: '#f59e0b' },
+                ].map((dimension) => (
+                  <div key={dimension.label} style={{ display: 'grid', gap: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                      <span style={{ color: '#475569' }}>{dimension.label}</span>
+                      <span style={{ color: '#0f172a', fontWeight: 700 }}>{dimension.value}</span>
+                    </div>
+                    <div style={{ height: 8, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${dimension.value}%`,
+                          height: '100%',
+                          background: dimension.color,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {(item.job_snapshot?.industries?.length || item.job_snapshot?.benefits?.length) && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
+                  {[...(item.job_snapshot?.industries || []), ...(item.job_snapshot?.benefits || [])].slice(0, 4).map((tag) => (
+                    <span
+                      key={tag}
+                      style={{
+                        borderRadius: 999,
+                        padding: '7px 10px',
+                        background: '#eff6ff',
+                        color: '#1d4ed8',
+                        fontSize: 11,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </button>
+          ))}
         </div>
+
+        {!isLoadingRecommendations && displayedJobs.length === 0 && !error && (
+          <div
+            style={{
+              marginTop: 18,
+              borderRadius: 24,
+              padding: 20,
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              color: '#475569',
+              lineHeight: 1.7,
+            }}
+          >
+            当前条件下没有找到推荐岗位，试试清空搜索词或切换行业筛选。
+          </div>
+        )}
       </div>
     </MobileShell>
   )

@@ -33,7 +33,7 @@ export const reportsApi = {
   generateReport: (data: ReportGenerateRequest) =>
     client.post<CareerReportResponse>(`/reports/generate/${data.student_id}`, {
       include_export: data.include_export,
-      job_ids: data.job_ids,
+      job_profile_ids: data.job_profile_ids,
     }),
 
   // Export report

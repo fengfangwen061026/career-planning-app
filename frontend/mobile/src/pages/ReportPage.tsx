@@ -1,213 +1,640 @@
 import React, { useEffect, useState } from 'react'
+import axios from 'axios'
 import { useNavigate } from 'react-router-dom'
+
 import MobileShell from '../components/MobileShell'
+import { useMobileApp } from '../context/MobileAppContext'
+import { reportsApi } from '@shared/api/reports'
+import type { CareerReportResponse } from '@shared/types/report'
 import './ReportPage.css'
 
-interface Chapter {
-  title: string
+interface ReportSection {
+  title?: string
   content?: string
-  gridData?: { label: string; value: number }[]
-  actions?: { text: string; type: 'green' | 'orange'; }[]
-  timeline?: { current: boolean; label?: string; name: string; cond: string; color: string }[]
+  key_points?: string[]
 }
 
-const chapters: Chapter[] = [
-  {
-    title: '一、个人优势总结',
-    content: `张同学就读上海交大计算机科学专业，Python 熟练度 88 分，综合竞争力 <span style={{color:'#4F46E5',fontWeight:700}}>82/100</span>，同类求职者 Top 23%。ACM 区域赛铜奖体现出扎实的算法思维，实习经历覆盖推荐算法与 A/B 测试，具备一定的工程落地经验。`
-  },
-  {
-    title: '二、目标岗位分析',
-    content: `后端开发工程师岗位综合匹配度 <span style={{color:'#4F46E5',fontWeight:700}}>89 分</span>。基础要求（学历/专业/实习）全部满足；核心技能 Python、MySQL 强匹配；缺失 Redis，微服务经验较弱。`,
-    gridData: [
-      { label: '学历匹配', value: 95 },
-      { label: '技能匹配', value: 82 },
-      { label: '经验匹配', value: 78 },
-      { label: '综合竞争力', value: 88 }
-    ]
-  },
-  {
-    title: '三、差距与行动计划',
-    content: `主要差距集中在 Redis 缺失（-15分）和项目量化表达不足（-8分）。建议优先行动：`,
-    actions: [
-      { text: '学习 Redis 基础（缓存/分布式锁），2–3周可掌握核心用法', type: 'green' },
-      { text: '补充项目量化数据：用户量 300+、接口响应降低 40% 写入简历', type: 'green' },
-      { text: '完成微服务入门项目，补充项目经验', type: 'orange' }
-    ]
-  },
-  {
-    title: '四、职业路径规划',
-    content: `推荐主路径为垂直晋升，备选横向转岗至数据工程师（技能重叠 62%）。`,
-    timeline: [
-      { current: true, name: '现在 · 后端开发（初级）', cond: '补 Redis、量化简历描述', color: '#4F46E5' },
-      { current: false, label: '2', name: '2年后 · 后端开发（中级）', cond: '微服务 + 高并发系统设计', color: '#9CA3AF' },
-      { current: false, label: '3', name: '5年+ · 技术负责人', cond: '架构设计 + 团队管理', color: '#9CA3AF' }
-    ]
-  },
-  {
-    title: '五、评估周期',
-    content: `建议每 3 个月对照行动计划自评一次：Redis 学习完成度、简历更新情况、新增项目经验。6 个月后可重新上传简历重新匹配，验证竞争力提升效果。`
+interface ReportTable {
+  title?: string
+  headers?: string[]
+  rows?: Array<Array<string | number | null>>
+}
+
+interface ReportChapter {
+  chapter_id?: number
+  title?: string
+  sections?: ReportSection[]
+  tables?: ReportTable[]
+}
+
+interface RecommendationItem {
+  type?: string
+  title?: string
+  content?: string
+}
+
+function formatDateTime(value?: string) {
+  if (!value) {
+    return '未生成'
   }
-]
 
-const GeneratedChapter: React.FC<{ chapter: Chapter; index: number }> = ({ chapter, index }) => {
-  const hasGrid = chapter.gridData && chapter.gridData.length > 0
-  const hasActions = chapter.actions && chapter.actions.length > 0
-  const hasTimeline = chapter.timeline && chapter.timeline.length > 0
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
 
-  return (
-    <div className="chapter-card generated-chapter" style={{ animationDelay: `${index * 0.1}s` }}>
-      <div className="chapter-header">
-        <span className="chapter-title">{chapter.title}</span>
-        <span className="chapter-tag">已生成</span>
-      </div>
-      <div className="chapter-content">
-        {chapter.content && (
-          <p
-            className="chapter-text"
-            dangerouslySetInnerHTML={{ __html: chapter.content }}
-          />
-        )}
-
-        {hasGrid && (
-          <div className="chapter-grid">
-            {chapter.gridData!.map((item, i) => (
-              <div key={i} className="grid-item">
-                <span className="grid-label">{item.label}</span>
-                <span className="grid-value">{item.value}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {hasActions && (
-          <div className="action-list">
-            {chapter.actions!.map((action, i) => (
-              <div key={i} className={`action-item action-${action.type}`}>
-                <span className="action-number">{i + 1}</span>
-                <span className="action-text">{action.text}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {hasTimeline && (
-          <div className="timeline">
-            {chapter.timeline!.map((item, i) => (
-              <div key={i} className="timeline-item">
-                <div className="timeline-left">
-                  <div className={`timeline-node ${item.current ? 'current' : ''}`}>
-                    {item.current ? (
-                      <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    ) : (
-                      <span className="timeline-label">{item.label}</span>
-                    )}
-                  </div>
-                  {i < chapter.timeline!.length - 1 && <div className="timeline-line" />}
-                </div>
-                <div className="timeline-right">
-                  <span className="timeline-name" style={{ color: item.color }}>{item.name}</span>
-                  <span className="timeline-cond">{item.cond}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
+  return date.toLocaleString('zh-CN', {
+    hour12: false,
+  })
 }
 
-const LoadingChapter: React.FC<{ chapter: Chapter }> = ({ chapter }) => {
-  return (
-    <div className="chapter-card loading-chapter">
-      <div className="chapter-header">
-        <span className="chapter-title">{chapter.title}</span>
-        <div className="loading-indicator">
-          <span className="loading-dot" />
-          <span className="loading-text">生成中</span>
-        </div>
-      </div>
-      <div className="skeleton-content">
-        <div className="skeleton-bar" style={{ width: '90%' }} />
-        <div className="skeleton-bar" style={{ width: '100%' }} />
-        <div className="skeleton-bar" style={{ width: '75%' }} />
-        <div className="skeleton-bar" style={{ width: '85%' }} />
-      </div>
-    </div>
-  )
+function extractFileName(headerValue: string | undefined, fallback: string) {
+  if (!headerValue) {
+    return fallback
+  }
+
+  const utf8Match = headerValue.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1])
+  }
+
+  const plainMatch = headerValue.match(/filename="?([^"]+)"?/i)
+  if (plainMatch?.[1]) {
+    return plainMatch[1]
+  }
+
+  return fallback
 }
 
-const PendingChapter: React.FC<{ chapter: Chapter; opacity: number }> = ({ chapter, opacity }) => {
-  return (
-    <div className="pending-chapter" style={{ opacity }}>
-      <span className="chapter-title">{chapter.title}</span>
-      <span className="pending-tag">待生成</span>
-    </div>
-  )
+function getChapters(report: CareerReportResponse | null): ReportChapter[] {
+  const value = report?.content_json?.chapters
+  return Array.isArray(value) ? (value as ReportChapter[]) : []
+}
+
+function getRecommendations(report: CareerReportResponse | null): RecommendationItem[] {
+  return Array.isArray(report?.recommendations) ? (report?.recommendations as RecommendationItem[]) : []
 }
 
 const ReportPage: React.FC = () => {
   const navigate = useNavigate()
-  const [generationState, setGenerationState] = useState<'loading' | 'done'>('loading')
-  const [generatedCount, setGeneratedCount] = useState(1)
+  const {
+    profile,
+    currentStudent,
+    reports,
+    currentReport,
+    selectedRecommendation,
+    isLoadingReports,
+    refreshReports,
+    generateReport,
+  } = useMobileApp()
+
+  const [activeReportId, setActiveReportId] = useState<string | null>(null)
+  const [loadingError, setLoadingError] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [exportingFormat, setExportingFormat] = useState<'pdf' | 'docx' | null>(null)
 
   useEffect(() => {
-    if (generationState !== 'loading') return
-    const timer = setInterval(() => {
-      setGeneratedCount(prev => {
-        if (prev >= 5) {
-          clearInterval(timer)
-          setTimeout(() => setGenerationState('done'), 600)
-          return 5
-        }
-        return prev + 1
-      })
-    }, 1200)
-    return () => clearInterval(timer)
-  }, [generationState])
+    let mounted = true
 
-  const handleExport = () => {
-    // Mock export functionality
-    console.log('Export PDF')
+    async function loadReports() {
+      if (!currentStudent) {
+        return
+      }
+
+      setLoadingError('')
+      try {
+        await refreshReports()
+      } catch (error) {
+        if (!mounted) {
+          return
+        }
+        const message = error instanceof Error ? error.message : '加载报告失败'
+        setLoadingError(message)
+      }
+    }
+
+    void loadReports()
+    return () => {
+      mounted = false
+    }
+  }, [currentStudent?.id])
+
+  useEffect(() => {
+    if (!activeReportId && currentReport?.id) {
+      setActiveReportId(currentReport.id)
+    }
+  }, [activeReportId, currentReport?.id])
+
+  const activeReport =
+    reports.find((item) => item.id === activeReportId) ||
+    currentReport ||
+    reports[0] ||
+    null
+
+  const chapters = getChapters(activeReport)
+  const recommendationItems = getRecommendations(activeReport)
+  const reportScopeLabel = selectedRecommendation?.role_name || selectedRecommendation?.job_snapshot?.title || '当前画像'
+
+  async function handleGenerate() {
+    setGenerating(true)
+    setLoadingError('')
+
+    try {
+      const report = await generateReport(
+        selectedRecommendation?.job_profile_id ? [selectedRecommendation.job_profile_id] : undefined,
+      )
+      setActiveReportId(report.id)
+      await refreshReports()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '生成报告失败'
+      setLoadingError(message)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  async function handleExport(format: 'pdf' | 'docx') {
+    if (!activeReport) {
+      return
+    }
+
+    setExportingFormat(format)
+    setLoadingError('')
+
+    try {
+      const response = await reportsApi.exportReport({
+        report_id: activeReport.id,
+        format,
+      })
+      const blob = response.data as Blob
+      const fallbackName = `career-report-${activeReport.id}.${format}`
+      const filename = extractFileName(response.headers['content-disposition'], fallbackName)
+      const url = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      const message = axios.isAxiosError(error)
+        ? ((error.response?.data as { detail?: string } | undefined)?.detail || error.message || '导出失败')
+        : error instanceof Error
+          ? error.message
+          : '导出失败'
+      setLoadingError(message)
+    } finally {
+      setExportingFormat(null)
+    }
+  }
+
+  if (!profile) {
+    return (
+      <MobileShell hasTabBar activeTab="report">
+        <div
+          style={{
+            padding: '24px 18px 120px',
+            background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 45%)',
+            minHeight: '100%',
+          }}
+        >
+          <div
+            style={{
+              borderRadius: 28,
+              padding: 22,
+              background: '#ffffff',
+              border: '1px solid #dbeafe',
+              boxShadow: '0 14px 32px rgba(15, 23, 42, 0.06)',
+            }}
+          >
+            <div style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
+              还不能生成职业报告
+            </div>
+            <p style={{ color: '#475569', fontSize: 14, lineHeight: 1.7, marginTop: 10 }}>
+              先上传简历并生成学生画像，报告页才会使用真实匹配结果和职业路径生成完整内容。
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('/upload')}
+              style={{
+                marginTop: 14,
+                border: 'none',
+                borderRadius: 16,
+                padding: '14px 16px',
+                background: '#1d4ed8',
+                color: '#ffffff',
+                fontWeight: 700,
+              }}
+            >
+              去上传简历
+            </button>
+          </div>
+        </div>
+      </MobileShell>
+    )
   }
 
   return (
     <MobileShell hasTabBar activeTab="report">
-      <div className="report-page">
-        <div className="report-header">
-          <div className="header-left">
-            <div className="header-title">职业发展报告</div>
-            <div className="header-subtitle">张同学 · 后端开发工程师</div>
+      <div
+        style={{
+          padding: '20px 18px 120px',
+          background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 42%)',
+          minHeight: '100%',
+          display: 'grid',
+          gap: 16,
+        }}
+      >
+        <div
+          style={{
+            borderRadius: 26,
+            padding: 20,
+            background: '#ffffff',
+            border: '1px solid #dbeafe',
+            boxShadow: '0 14px 30px rgba(15, 23, 42, 0.05)',
+          }}
+        >
+          <div style={{ display: 'grid', gap: 14 }}>
+            <div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>职业发展报告</div>
+              <div style={{ marginTop: 10, color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
+                当前学生：{currentStudent?.name || currentStudent?.email || '未命名学生'}
+                <br />
+                生成范围：{selectedRecommendation ? `围绕「${reportScopeLabel}」生成` : '基于当前画像与推荐岗位生成'}
+              </div>
+            </div>
+            <div
+              style={{
+                width: 'fit-content',
+                borderRadius: 999,
+                padding: '8px 12px',
+                background: activeReport ? '#eef2ff' : '#f8fafc',
+                color: activeReport ? '#4338ca' : '#64748b',
+                fontWeight: 700,
+                fontSize: 12,
+              }}
+            >
+              {activeReport ? `v${activeReport.version || '1.0'}` : '暂无报告'}
+            </div>
           </div>
-          <button
-            className={`export-btn ${generationState === 'loading' ? 'loading' : 'done'}`}
-            onClick={handleExport}
-            disabled={generationState === 'loading'}
-          >
-            {generationState === 'loading' ? '导出 PDF' : '↓ 导出'}
-          </button>
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={generating}
+              style={{
+                border: 'none',
+                borderRadius: 16,
+                padding: '13px 16px',
+                background: 'linear-gradient(135deg, #4f46e5 0%, #2563eb 100%)',
+                color: '#ffffff',
+                fontWeight: 800,
+              }}
+            >
+              {generating ? '正在生成报告...' : selectedRecommendation ? '为当前岗位生成报告' : '生成最新报告'}
+            </button>
+            <button
+              type="button"
+              onClick={() => refreshReports().catch((error: unknown) => {
+                const message = error instanceof Error ? error.message : '刷新报告失败'
+                setLoadingError(message)
+              })}
+              disabled={isLoadingReports}
+              style={{
+                borderRadius: 16,
+                padding: '13px 16px',
+                background: '#ffffff',
+                color: '#334155',
+                fontWeight: 700,
+                border: '1px solid #cbd5e1',
+              }}
+            >
+              {isLoadingReports ? '刷新中...' : '刷新列表'}
+            </button>
+          </div>
+
+          {loadingError && (
+            <div
+              style={{
+                marginTop: 14,
+                borderRadius: 16,
+                padding: '12px 14px',
+                background: '#fef2f2',
+                color: '#b91c1c',
+                fontSize: 13,
+                lineHeight: 1.6,
+              }}
+            >
+              {loadingError}
+            </div>
+          )}
         </div>
 
-        <div className="report-content">
-          {chapters.map((chapter, i) => {
-            if (i < generatedCount) {
-              return <GeneratedChapter key={i} chapter={chapter} index={i} />
-            }
-            if (i === generatedCount) {
-              return <LoadingChapter key={i} chapter={chapter} />
-            }
-            return (
-              <PendingChapter
-                key={i}
-                chapter={chapter}
-                opacity={i - generatedCount === 1 ? 0.35 : i - generatedCount === 2 ? 0.2 : 0.5}
-              />
-            )
-          })}
-        </div>
+        {reports.length > 0 && (
+          <div
+            style={{
+              borderRadius: 24,
+              padding: 18,
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+            }}
+          >
+            <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 12 }}>历史报告</div>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {reports.map((report) => {
+                const selected = report.id === activeReport?.id
+                return (
+                  <button
+                    key={report.id}
+                    type="button"
+                    onClick={() => setActiveReportId(report.id)}
+                    style={{
+                      textAlign: 'left',
+                      borderRadius: 18,
+                      padding: '14px 16px',
+                      background: selected ? '#eef2ff' : '#f8fafc',
+                      border: `1px solid ${selected ? '#c7d2fe' : '#e2e8f0'}`,
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                      {report.title || report.summary || '职业发展报告'}
+                    </div>
+                    <div style={{ marginTop: 6, color: '#475569', fontSize: 12, lineHeight: 1.6 }}>
+                      创建时间：{formatDateTime(report.created_at)}
+                      <br />
+                      状态：{report.status || 'completed'}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {generating && (
+          <div
+            style={{
+              borderRadius: 24,
+              padding: 18,
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+            }}
+          >
+            <div style={{ fontWeight: 800, color: '#0f172a' }}>正在生成真实报告</div>
+            <div style={{ marginTop: 8, color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
+              页面会等待后端完成画像、匹配与职业路径汇总，生成完成后自动切换到最新报告。
+            </div>
+          </div>
+        )}
+
+        {!generating && !activeReport && !isLoadingReports && (
+          <div
+            style={{
+              borderRadius: 24,
+              padding: 18,
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              color: '#475569',
+              lineHeight: 1.7,
+            }}
+          >
+            还没有可查看的报告。你可以直接生成一份新的职业发展报告，系统会复用现有画像、推荐和职业路径服务。
+          </div>
+        )}
+
+        {activeReport && (
+          <>
+            <div
+              style={{
+                borderRadius: 24,
+                padding: 18,
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+              }}
+            >
+              <div style={{ display: 'grid', gap: 14 }}>
+                <div>
+                  <div style={{ fontWeight: 800, color: '#0f172a', fontSize: 20 }}>
+                    {activeReport.title || '职业发展报告'}
+                  </div>
+                  <div style={{ marginTop: 8, color: '#475569', fontSize: 12, lineHeight: 1.7 }}>
+                    更新时间：{formatDateTime(activeReport.updated_at)}
+                    <br />
+                    创建时间：{formatDateTime(activeReport.created_at)}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => handleExport('pdf')}
+                    disabled={exportingFormat !== null}
+                    style={{
+                      width: '100%',
+                      border: 'none',
+                      borderRadius: 14,
+                      padding: '10px 14px',
+                      background: '#0f172a',
+                      color: '#ffffff',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {exportingFormat === 'pdf' ? '导出中...' : '导出 PDF'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExport('docx')}
+                    disabled={exportingFormat !== null}
+                    style={{
+                      width: '100%',
+                      borderRadius: 14,
+                      padding: '10px 14px',
+                      background: '#ffffff',
+                      color: '#334155',
+                      border: '1px solid #cbd5e1',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {exportingFormat === 'docx' ? '导出中...' : '导出 DOCX'}
+                  </button>
+                </div>
+              </div>
+
+              {activeReport.summary && (
+                <div
+                  style={{
+                    marginTop: 16,
+                    borderRadius: 18,
+                    padding: '14px 16px',
+                    background: '#f8fafc',
+                    color: '#334155',
+                    lineHeight: 1.8,
+                    fontSize: 14,
+                  }}
+                >
+                  {activeReport.summary}
+                </div>
+              )}
+            </div>
+
+            {recommendationItems.length > 0 && (
+              <div
+                style={{
+                  borderRadius: 24,
+                  padding: 18,
+                  background: '#ffffff',
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 12 }}>行动建议</div>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {recommendationItems.map((item, index) => (
+                    <div
+                      key={`${item.title || 'recommendation'}-${index}`}
+                      style={{
+                        borderRadius: 18,
+                        padding: '14px 16px',
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, color: '#0f172a' }}>{item.title || '建议'}</div>
+                      <div style={{ marginTop: 8, color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
+                        {item.content || '暂无详细建议'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gap: 14 }}>
+              {chapters.map((chapter, chapterIndex) => (
+                <div
+                  key={`${chapter.title || 'chapter'}-${chapterIndex}`}
+                  style={{
+                    borderRadius: 24,
+                    padding: 18,
+                    background: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                  }}
+                >
+                  <div style={{ fontWeight: 800, color: '#0f172a', fontSize: 18 }}>
+                    {chapter.title || `章节 ${chapterIndex + 1}`}
+                  </div>
+
+                  {(chapter.sections || []).length > 0 && (
+                    <div style={{ display: 'grid', gap: 14, marginTop: 14 }}>
+                      {(chapter.sections || []).map((section, sectionIndex) => (
+                        <div
+                          key={`${section.title || 'section'}-${sectionIndex}`}
+                          style={{
+                            borderRadius: 18,
+                            padding: '14px 16px',
+                            background: '#f8fafc',
+                          }}
+                        >
+                          <div style={{ fontWeight: 700, color: '#0f172a' }}>{section.title || '小节'}</div>
+                          {section.content && (
+                            <div style={{ marginTop: 8, color: '#334155', fontSize: 13, lineHeight: 1.8 }}>
+                              {section.content}
+                            </div>
+                          )}
+                          {Array.isArray(section.key_points) && section.key_points.length > 0 && (
+                            <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                              {section.key_points.map((point, pointIndex) => (
+                                <div
+                                  key={`${point}-${pointIndex}`}
+                                  style={{
+                                    borderRadius: 14,
+                                    padding: '10px 12px',
+                                    background: '#ffffff',
+                                    color: '#475569',
+                                    fontSize: 12,
+                                    lineHeight: 1.6,
+                                    border: '1px solid #e2e8f0',
+                                  }}
+                                >
+                                  {point}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {(chapter.tables || []).length > 0 && (
+                    <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
+                      {(chapter.tables || []).map((table, tableIndex) => (
+                        <div
+                          key={`${table.title || 'table'}-${tableIndex}`}
+                          style={{
+                            borderRadius: 18,
+                            padding: '14px 16px',
+                            background: '#f8fafc',
+                            overflowX: 'auto',
+                          }}
+                        >
+                          <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>
+                            {table.title || '数据表'}
+                          </div>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                            <thead>
+                              <tr>
+                                {(table.headers || []).map((header) => (
+                                  <th
+                                    key={header}
+                                    style={{
+                                      textAlign: 'left',
+                                      padding: '8px 10px',
+                                      borderBottom: '1px solid #cbd5e1',
+                                      color: '#475569',
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    {header}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(table.rows || []).map((row, rowIndex) => (
+                                <tr key={rowIndex}>
+                                  {row.map((cell, cellIndex) => (
+                                    <td
+                                      key={`${rowIndex}-${cellIndex}`}
+                                      style={{
+                                        padding: '8px 10px',
+                                        borderBottom: '1px solid #e2e8f0',
+                                        color: '#334155',
+                                        verticalAlign: 'top',
+                                      }}
+                                    >
+                                      {cell == null ? '-' : String(cell)}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {(chapter.sections || []).length === 0 && (chapter.tables || []).length === 0 && (
+                    <div style={{ marginTop: 12, color: '#64748b', fontSize: 13 }}>
+                      该章节暂无可展示内容。
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </MobileShell>
   )

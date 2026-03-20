@@ -3,7 +3,7 @@ import os
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -53,15 +53,16 @@ PDF_OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "static", "
 @router.post("/generate/{student_id}", response_model=CareerReportResponse)
 async def generate_report(
     student_id: UUID,
-    job_ids: list[UUID] | None = Query(default=None),
+    job_profile_ids: list[UUID] | None = Query(default=None),
     include_export: bool = Query(default=False),
+    request: ReportGenerateRequest | None = Body(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> CareerReportResponse:
     """Generate a career report for a student.
 
     Args:
         student_id: The student ID
-        job_ids: Optional list of job IDs to include in report
+        job_profile_ids: Optional list of job profile IDs to include in report
         include_export: Whether to export PDF after generation
 
     Returns:
@@ -73,15 +74,22 @@ async def generate_report(
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
 
+    requested_job_profile_ids = (
+        request.job_profile_ids
+        if request and request.job_profile_ids is not None
+        else job_profile_ids
+    )
+    requested_include_export = request.include_export if request is not None else include_export
+
     # 生成报告
     report = await generate_full_report(
         student_id=student_id,
         db=db,
-        target_job_ids=job_ids,
+        target_job_ids=requested_job_profile_ids,
     )
 
     # 如果需要导出
-    if include_export:
+    if requested_include_export:
         try:
             export_format = "pdf"
             if export_format == "pdf":

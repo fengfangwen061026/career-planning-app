@@ -119,8 +119,11 @@ class MatchResultResponse(MatchResultBase):
     id: UUID
     student_profile_id: UUID
     job_profile_id: UUID
+    role_id: UUID | None = None
+    role_category: str | None = None
     job_title: str | None = None  # 岗位名称
     role_name: str | None = None  # 角色名称
+    job_snapshot: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 

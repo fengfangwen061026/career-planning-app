@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class CareerReportBase(BaseModel):
@@ -69,9 +69,15 @@ class ReportVersionResponse(ReportVersionBase):
 
 class ReportGenerateRequest(BaseModel):
     """Request schema for generating a report."""
-    student_id: UUID
-    job_ids: list[UUID] | None = None
+    student_id: UUID | None = None
+    job_profile_ids: list[UUID] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("job_profile_ids", "job_ids"),
+        serialization_alias="job_profile_ids",
+    )
     include_export: bool = False
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class ReportExportRequest(BaseModel):

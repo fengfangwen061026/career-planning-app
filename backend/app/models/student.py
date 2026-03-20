@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -74,13 +74,13 @@ class StudentProfile(Base):
     student_id = Column(UUID(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
 
     # 画像内容（JSONB 存储四维结构化数据）
-    profile_json = Column(JSON, nullable=False)  # 完整画像结构
+    profile_json = Column(JSONB, nullable=False)  # 完整画像结构
 
     # 完整度评分（0-1）
     completeness_score = Column(Float, default=0.0)
 
     # 证据来源
-    evidence_json = Column(JSON, default={})
+    evidence_json = Column(JSONB, default={})
 
     # 版本管理
     version = Column(String(32), nullable=False, default="1.0")

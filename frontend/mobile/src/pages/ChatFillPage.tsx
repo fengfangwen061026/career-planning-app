@@ -1,264 +1,318 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+
 import MobileShell from '../components/MobileShell'
+import { useMobileApp } from '../context/MobileAppContext'
 import './ChatFillPage.css'
-
-interface Message {
-  role: 'ai' | 'user'
-  text: string
-  options?: string[]
-  timestamp?: string
-}
-
-type ChatState = 'chatting' | 'done'
 
 const ChatFillPage: React.FC = () => {
   const navigate = useNavigate()
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const { completionSession, loadCompletionSession, applyCompletionAnswers } = useMobileApp()
 
-  const [chatState, setChatState] = useState<ChatState>('chatting')
-  const [currentQuestion, setCurrentQuestion] = useState(0)
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'ai',
-      text: '你好！我来帮你补充校园二手平台项目的量化成果。请问这个项目上线后，累计注册用户大约有多少？',
-      options: ['100人以下', '100–500人', '500人以上', '不清楚']
-    }
-  ])
-  const [inputValue, setInputValue] = useState('')
-  const [isTyping, setIsTyping] = useState(false)
+  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [draft, setDraft] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    let mounted = true
 
-  const addMessage = (message: Message) => {
-    setMessages(prev => [...prev, { ...message, timestamp: '刚刚' }])
-  }
-
-  const handleOptionClick = (option: string) => {
-    addMessage({ role: 'user', text: option })
-    setIsTyping(true)
-
-    setTimeout(() => {
-      setIsTyping(false)
-      if (currentQuestion === 0) {
-        addMessage({
-          role: 'ai',
-          text: '很好！300+ 用户是个不错的数据。项目运行期间有没有做过性能优化？比如接口响应时间、并发数提升之类的？',
-          options: ['有，接口提速', '有，减少了Bug', '没有做优化']
-        })
-        setCurrentQuestion(1)
-      } else {
-        setChatState('done')
-        // Add completion messages
-        setTimeout(() => {
-          addMessage({
-            role: 'ai',
-            text: '非常棒！我已经收集到足够的信息了。基于你的回答，已为你生成优化后的项目描述：'
-          })
-        }, 100)
+    async function bootstrap() {
+      setLoading(true)
+      setError('')
+      try {
+        const session = await loadCompletionSession()
+        if (!mounted) {
+          return
+        }
+        if (!session || session.questions.length === 0) {
+          setError('当前画像暂时没有待补全问题，可以先返回画像页。')
+        }
+      } catch (loadError) {
+        if (!mounted) {
+          return
+        }
+        const message = loadError instanceof Error ? loadError.message : '加载补全问题失败'
+        setError(message)
+      } finally {
+        if (mounted) {
+          setLoading(false)
+        }
       }
-    }, 1200)
+    }
+
+    void bootstrap()
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const questions = completionSession?.questions || []
+  const currentQuestion = questions[currentIndex]
+  const answeredCount = Object.values(answers).filter(Boolean).length
+
+  function saveCurrentAnswer(value: string) {
+    if (!currentQuestion) {
+      return
+    }
+    setAnswers((previous) => ({
+      ...previous,
+      [currentQuestion.question_id]: value.trim(),
+    }))
   }
 
-  const handleSend = () => {
-    if (!inputValue.trim()) return
-    handleOptionClick(inputValue.trim())
-    setInputValue('')
+  function handleOptionClick(option: string) {
+    saveCurrentAnswer(option)
+    setDraft(option)
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSend()
+  function handleNext() {
+    if (!currentQuestion) {
+      return
+    }
+
+    const finalValue = draft.trim() || answers[currentQuestion.question_id]?.trim()
+    if (!finalValue) {
+      setError('请先回答当前问题。')
+      return
+    }
+
+    saveCurrentAnswer(finalValue)
+    setError('')
+    if (currentIndex < questions.length - 1) {
+      const nextQuestion = questions[currentIndex + 1]
+      setCurrentIndex((previous) => previous + 1)
+      setDraft(answers[nextQuestion.question_id] || '')
+      return
+    }
+
+    void handleSubmit()
+  }
+
+  async function handleSubmit() {
+    const payloadAnswers = questions
+      .map((question) => ({
+        question_id: question.question_id,
+        answer: (question.question_id === currentQuestion?.question_id ? draft : answers[question.question_id] || '').trim(),
+      }))
+      .filter((item) => item.answer)
+
+    if (!payloadAnswers.length) {
+      setError('至少需要完成一个补全问题。')
+      return
+    }
+
+    setSubmitting(true)
+    setError('')
+    try {
+      await applyCompletionAnswers({ answers: payloadAnswers })
+      navigate('/profile', { replace: true, state: { justUpdated: true } })
+    } catch (submitError) {
+      const message = submitError instanceof Error ? submitError.message : '补全写回失败'
+      setError(message)
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  const handleContinue = () => {
-    // Continue to next set of questions - mock behavior
-    console.log('Continue to next question')
-  }
-
-  const handleLater = () => {
-    navigate('/profile')
-  }
-
-  const handleWriteProfile = () => {
-    navigate('/profile')
-  }
-
-  // Calculate progress bar width
-  const progressWidth = chatState === 'done' ? '100%' : currentQuestion === 0 ? '25%' : '50%'
+  useEffect(() => {
+    if (currentQuestion) {
+      setDraft(answers[currentQuestion.question_id] || '')
+    }
+  }, [currentQuestion?.question_id])
 
   return (
     <MobileShell hasTabBar={false}>
-      <div className="chat-fill-container">
-        {/* 1. Top Navigation Bar */}
-        <div className="top-nav">
-          <div className="back-area" onClick={() => navigate('/profile')}>
-            <span className="back-dot"></span>
-            <span className="back-text">← 返回画像</span>
-          </div>
-          <div className="nav-title">补充项目量化成果</div>
-          <div className="progress-dots">
-            {chatState === 'done' ? (
-              <>
-                <span className="dot active"></span>
-                <span className="dot active"></span>
-                <span className="dot active"></span>
-              </>
-            ) : (
-              <>
-                <span className={`dot ${currentQuestion === 0 ? 'active' : ''}`}></span>
-                <span className={`dot ${currentQuestion === 1 ? 'active' : ''}`}></span>
-                <span className="dot"></span>
-              </>
-            )}
-          </div>
-        </div>
+      <div
+        style={{
+          minHeight: '100%',
+          padding: '18px 16px 28px',
+          background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 60%)',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => navigate('/profile')}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            color: '#475569',
+            fontWeight: 700,
+            padding: '4px 0',
+          }}
+        >
+          返回画像页
+        </button>
 
-        {/* 2. Sub Progress Bar */}
-        <div className="sub-progress">
-          <div className="progress-text">
+        <div style={{ marginTop: 10, fontSize: 26, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
+          AI 对话补全
+        </div>
+        <p style={{ marginTop: 10, color: '#475569', fontSize: 14, lineHeight: 1.7 }}>
+          问题来自当前画像的缺失项。提交后会走后端结构化 patch，并直接刷新学生画像。
+        </p>
+
+        <div
+          style={{
+            marginTop: 18,
+            borderRadius: 20,
+            padding: 14,
+            background: '#ffffff',
+            border: '1px solid #dbeafe',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#475569' }}>
             <span>本次补全进度</span>
-            <span className="progress-status">
-              {chatState === 'done' ? '完成' : `问题 ${currentQuestion + 1}/4`}
-            </span>
+            <span>{loading ? '加载中' : `${Math.min(answeredCount + (draft.trim() ? 1 : 0), questions.length)}/${questions.length || 0}`}</span>
           </div>
-          <div className="progress-bar">
-            <div className="progress-fill" style={{ width: progressWidth }}></div>
+          <div style={{ marginTop: 10, height: 8, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}>
+            <div
+              style={{
+                width: `${questions.length ? ((answeredCount + (draft.trim() ? 1 : 0)) / questions.length) * 100 : 0}%`,
+                height: '100%',
+                background: 'linear-gradient(90deg, #4f46e5 0%, #2563eb 100%)',
+              }}
+            />
           </div>
         </div>
 
-        {/* Done state title addition */}
-        {chatState === 'done' && (
-          <div className="done-title">✓ 对话完成</div>
+        {loading && <div style={{ marginTop: 20, color: '#475569' }}>正在加载结构化补全问题...</div>}
+
+        {!loading && currentQuestion && (
+          <div
+            style={{
+              marginTop: 18,
+              borderRadius: 24,
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              padding: 18,
+              boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)',
+            }}
+          >
+            <div
+              style={{
+                display: 'inline-flex',
+                borderRadius: 999,
+                padding: '6px 10px',
+                background: '#eef2ff',
+                color: '#4338ca',
+                fontWeight: 800,
+                fontSize: 12,
+              }}
+            >
+              问题 {currentIndex + 1} / {questions.length}
+            </div>
+            <div style={{ marginTop: 12, fontSize: 20, fontWeight: 800, color: '#0f172a' }}>{currentQuestion.title}</div>
+            <div style={{ marginTop: 10, color: '#334155', lineHeight: 1.8, fontSize: 14 }}>{currentQuestion.prompt}</div>
+
+            {currentQuestion.options.length > 0 && (
+              <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {currentQuestion.options.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => handleOptionClick(option)}
+                    style={{
+                      borderRadius: 999,
+                      border: draft === option ? '1px solid #6366f1' : '1px solid #cbd5e1',
+                      background: draft === option ? '#eef2ff' : '#ffffff',
+                      color: draft === option ? '#4338ca' : '#334155',
+                      padding: '10px 12px',
+                      fontWeight: 700,
+                      fontSize: 12,
+                    }}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={currentQuestion.placeholder || '请输入你的补充信息'}
+              rows={6}
+              style={{
+                marginTop: 16,
+                width: '100%',
+                borderRadius: 18,
+                border: '1px solid #dbe3f0',
+                padding: '14px 16px',
+                resize: 'vertical',
+                fontSize: 14,
+                lineHeight: 1.7,
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+
+            {error && (
+              <div
+                style={{
+                  marginTop: 12,
+                  borderRadius: 16,
+                  padding: '12px 14px',
+                  background: '#fef2f2',
+                  color: '#b91c1c',
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+              <button
+                type="button"
+                onClick={() => navigate('/profile')}
+                style={{
+                  flex: 1,
+                  borderRadius: 16,
+                  padding: '14px 16px',
+                  background: '#ffffff',
+                  color: '#334155',
+                  border: '1px solid #cbd5e1',
+                  fontWeight: 700,
+                }}
+              >
+                稍后再补
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleNext}
+                style={{
+                  flex: 1.2,
+                  border: 'none',
+                  borderRadius: 16,
+                  padding: '14px 16px',
+                  background: 'linear-gradient(135deg, #4f46e5 0%, #2563eb 100%)',
+                  color: '#ffffff',
+                  fontWeight: 800,
+                }}
+              >
+                {submitting ? '正在写回画像...' : currentIndex === questions.length - 1 ? '完成并写回画像' : '下一题'}
+              </button>
+            </div>
+          </div>
         )}
 
-        {/* 3. Messages Area */}
-        <div className="messages-area">
-          {messages.map((msg, idx) => (
-            <div key={idx} className={`message-wrapper ${msg.role}`}>
-              {msg.role === 'ai' && (
-                <div className="ai-bubble">
-                  <div className="bubble-text">{msg.text}</div>
-                  {msg.timestamp && <div className="timestamp">{msg.timestamp}</div>}
-                  {msg.options && (
-                    <div className="options-row">
-                      {msg.options.map((opt, optIdx) => (
-                        <button
-                          key={optIdx}
-                          className="option-btn"
-                          onClick={() => handleOptionClick(opt)}
-                        >
-                          {opt}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {msg.role === 'user' && (
-                <div className="user-bubble">
-                  <div className="bubble-text">{msg.text}</div>
-                  {msg.timestamp && <div className="timestamp">{msg.timestamp}</div>}
-                </div>
-              )}
-
-              {/* Show generated content after completion */}
-              {idx === messages.length - 1 && chatState === 'done' && msg.role === 'ai' && (
-                <div className="generated-card">
-                  <div className="card-title">✦ AI 生成描述</div>
-                  <div className="card-content">
-                    开发校园二手交易平台（React + FastAPI），累计注册用户 <span className="highlight">300+</span>，日活峰值 80人；通过接口缓存优化，响应时间降低 <span className="highlight">40%</span>；独立完成前后端全栈开发与上线部署。
-                  </div>
-                </div>
-              )}
-
-              {/* AI guidance after generated content */}
-              {idx === messages.length - 1 && chatState === 'done' && msg.role === 'ai' && (
-                <div className="ai-bubble">
-                  <div className="bubble-text">这样写比原来更有说服力。你可以直接写入简历，也可以手动微调。</div>
-                  <div className="options-row">
-                    <button className="option-btn primary">✓ 直接写入画像</button>
-                    <button className="option-btn">✏ 手动编辑</button>
-                  </div>
-                </div>
-              )}
-
-              {/* Effect prediction box */}
-              {idx === messages.length - 1 && chatState === 'done' && msg.role === 'ai' && (
-                <div className="effect-prediction">
-                  <div className="prediction-title">补全后效果预测</div>
-                  <div className="prediction-row">
-                    <span>完整度</span>
-                    <span className="old-value">78%</span>
-                    <span>→</span>
-                    <span className="new-value">86%</span>
-                    <span className="increase">+8%</span>
-                  </div>
-                  <div className="prediction-row">
-                    <span>竞争力</span>
-                    <span className="old-value">82%</span>
-                    <span>→</span>
-                    <span className="new-value">88%</span>
-                    <span className="increase">+6%</span>
-                  </div>
-                </div>
-              )}
-
-              {/* AI continue prompt */}
-              {idx === messages.length - 1 && chatState === 'done' && msg.role === 'ai' && (
-                <div className="ai-bubble">
-                  <div className="bubble-text">还有 2 处缺失项（沟通能力、实习收获），要继续补充吗？</div>
-                  <div className="options-row">
-                    <button className="option-btn primary" onClick={handleContinue}>继续补全</button>
-                    <button className="option-btn" onClick={handleLater}>稍后再说</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-
-          {/* Typing indicator */}
-          {isTyping && (
-            <div className="message-wrapper ai">
-              <div className="ai-bubble typing">
-                <div className="typing-dots">
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div ref={messagesEndRef}></div>
-        </div>
-
-        {/* 4. Bottom Input Bar (Chatting State) or Action Buttons (Done State) */}
-        {chatState === 'chatting' ? (
-          <div className="input-area">
-            <input
-              type="text"
-              className="message-input"
-              placeholder="输入回答，或选择上方选项..."
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-            />
-            <button className="send-btn" onClick={handleSend}>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M2 6h8M6 2l4 4-4 4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          </div>
-        ) : (
-          <div className="action-buttons">
-            <button className="action-btn secondary" onClick={handleLater}>稍后再说</button>
-            <button className="action-btn primary" onClick={handleWriteProfile}>写入画像 ✓</button>
+        {!loading && !currentQuestion && (
+          <div
+            style={{
+              marginTop: 18,
+              borderRadius: 24,
+              padding: 18,
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              color: '#475569',
+              lineHeight: 1.7,
+            }}
+          >
+            当前没有可补全的问题，可以先回画像页查看最新状态。
           </div>
         )}
       </div>

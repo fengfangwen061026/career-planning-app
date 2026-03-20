@@ -1,116 +1,251 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+
+import { useMobileApp } from '../context/MobileAppContext'
 import './OnboardingFlow.css'
 
+function inferAccountPayload(account: string) {
+  const value = account.trim()
+  if (!value) {
+    return {}
+  }
+  if (value.includes('@')) {
+    return { email: value.toLowerCase() }
+  }
+  return { phone: value }
+}
+
+const featureCards = [
+  {
+    title: '真实简历解析',
+    description: '直接走后端流式解析接口，支持失败兜底与自动重试。',
+  },
+  {
+    title: '真实岗位推荐',
+    description: '推荐、匹配详情、职业路径全部来自当前后端服务。',
+  },
+  {
+    title: '真实报告导出',
+    description: '支持读取历史报告并导出 PDF / DOCX。',
+  },
+]
+
 const OnboardingFlow: React.FC = () => {
-  const [step, setStep] = useState<0 | 1 | 2>(0)
   const navigate = useNavigate()
+  const { bootstrapSession, clearSession, currentStudent, hasProfile, profile } = useMobileApp()
 
-  const handleNext = () => {
-    if (step < 2) {
-      setStep((s) => (s + 1) as 0 | 1 | 2)
-    } else {
-      navigate('/upload')
+  const [name, setName] = useState('')
+  const [account, setAccount] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const existingDestination = currentStudent ? (hasProfile || profile ? '/profile' : '/upload') : '/upload'
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const payload = inferAccountPayload(account)
+    if (!payload.email && !payload.phone) {
+      setError('请输入邮箱或手机号，用于创建或找回学生会话。')
+      return
     }
-  }
 
-  const handleSkip = () => {
-    navigate('/upload')
-  }
-
-  const handleDemo = () => {
-    navigate('/upload')
-  }
-
-  const renderStep = () => {
-    switch (step) {
-      case 0:
-        return (
-          <div className="onboarding-step">
-            <div className="onboarding-illustration">
-              <svg width="80" height="80" viewBox="0 0 80 80">
-                <rect width="80" height="80" rx="20" fill="#EEF2FF" />
-                <rect x="18" y="22" width="44" height="36" rx="4" fill="#C7D2FE" stroke="#4F46E5" strokeWidth="1.5" />
-                <rect x="24" y="30" width="32" height="2" rx="1" fill="#4F46E5" fillOpacity="0.6" />
-                <rect x="24" y="36" width="24" height="2" rx="1" fill="#4F46E5" fillOpacity="0.4" />
-                <rect x="24" y="42" width="28" height="2" rx="1" fill="#4F46E5" fillOpacity="0.4" />
-                <circle cx="56" cy="52" r="12" fill="#4F46E5" />
-                <path d="M50 52l4 4 8-8" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-              </svg>
-            </div>
-            <h1 className="onboarding-title">上传简历<br />一键解析</h1>
-            <p className="onboarding-subtitle">支持 PDF/Word，AI 自动提取<br />教育、技能、项目、证书等信息</p>
-            <button className="onboarding-primary-btn" onClick={handleNext}>下一步</button>
-            <button className="onboarding-skip-btn" onClick={handleSkip}>跳过引导</button>
-          </div>
-        )
-      case 1:
-        return (
-          <div className="onboarding-step">
-            <div className="onboarding-illustration">
-              <svg width="80" height="80" viewBox="0 0 80 80">
-                <rect width="80" height="80" rx="20" fill="#D1FAE5" />
-                <circle cx="40" cy="36" r="16" fill="#6EE7B7" stroke="#10B981" strokeWidth="1.5" />
-                <circle cx="40" cy="36" r="8" fill="#10B981" />
-                <path d="M36 36l3 3 6-6" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                <rect x="22" y="56" width="36" height="4" rx="2" fill="#10B981" fillOpacity="0.3" />
-                <rect x="22" y="56" width="24" height="4" rx="2" fill="#10B981" fillOpacity="0.5" />
-              </svg>
-            </div>
-            <h1 className="onboarding-title">智能匹配<br />找准方向</h1>
-            <p className="onboarding-subtitle">四维评分精准分析<br />差距一目了然，路径清晰可见</p>
-            <button className="onboarding-primary-btn" onClick={handleNext}>下一步</button>
-            <button className="onboarding-skip-btn" onClick={handleSkip}>跳过引导</button>
-          </div>
-        )
-      case 2:
-        return (
-          <div className="onboarding-step">
-            <div className="onboarding-illustration">
-              <svg width="80" height="80" viewBox="0 0 80 80">
-                <rect width="80" height="80" rx="20" fill="#EEF2FF" />
-                <rect x="16" y="28" width="48" height="32" rx="6" fill="#C7D2FE" stroke="#4F46E5" strokeWidth="1" />
-                <rect x="22" y="36" width="36" height="2" rx="1" fill="#4F46E5" fillOpacity="0.5" />
-                <rect x="22" y="42" width="28" height="2" rx="1" fill="#4F46E5" fillOpacity="0.35" />
-                <circle cx="40" cy="22" r="8" fill="#818CF8" stroke="#4F46E5" strokeWidth="1" />
-                <circle cx="40" cy="20" r="3" fill="#4F46E5" />
-                <path d="M33 28 Q40 24 47 28" fill="#818CF8" />
-              </svg>
-            </div>
-            <h1 className="onboarding-title">开始规划你的<br />职业之路</h1>
-            <p className="onboarding-subtitle" style={{ fontSize: '9px', marginBottom: '20px' }}>数据安全存储，随时续用</p>
-
-            <div className="onboarding-form">
-              <label className="onboarding-label">手机号 / 邮箱</label>
-              <input
-                type="text"
-                className="onboarding-input"
-                placeholder="请输入账号"
-              />
-            </div>
-
-            <button className="onboarding-primary-btn" onClick={handleNext}>登录 / 注册</button>
-
-            <div className="onboarding-divider">
-              <div className="onboarding-divider-line" />
-              <span className="onboarding-divider-text">或</span>
-              <div className="onboarding-divider-line" />
-            </div>
-
-            <button className="onboarding-secondary-btn" onClick={handleDemo}>使用 Demo 账号体验</button>
-          </div>
-        )
+    setSubmitting(true)
+    setError('')
+    try {
+      const result = await bootstrapSession({
+        ...payload,
+        name: name.trim() || undefined,
+      })
+      navigate(result.hasProfile ? '/profile' : '/upload', { replace: true })
+    } catch (submitError) {
+      const message = submitError instanceof Error ? submitError.message : '登录失败，请稍后重试'
+      setError(message)
+    } finally {
+      setSubmitting(false)
     }
   }
 
   return (
-    <div className="onboarding-container">
-      <button className="onboarding-skip-top" onClick={handleSkip}>跳过引导</button>
-      {renderStep()}
-      <div className="onboarding-dots">
-        <span className={`dot ${step >= 0 ? 'active' : ''}`} />
-        <span className={`dot ${step >= 1 ? 'active' : ''}`} />
-        <span className={`dot ${step >= 2 ? 'active' : ''}`} />
+    <div
+      style={{
+        minHeight: '100vh',
+        padding: '24px 18px 28px',
+        background:
+          'radial-gradient(circle at top left, rgba(79,70,229,0.15), transparent 35%), linear-gradient(180deg, #f4f7ff 0%, #ffffff 55%)',
+      }}
+    >
+      <div style={{ maxWidth: 440, margin: '0 auto' }}>
+        <div
+          style={{
+            borderRadius: 28,
+            padding: 24,
+            background: '#ffffff',
+            boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)',
+            border: '1px solid rgba(99, 102, 241, 0.08)',
+          }}
+        >
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 18,
+              display: 'grid',
+              placeItems: 'center',
+              background: 'linear-gradient(135deg, #4f46e5 0%, #2563eb 100%)',
+              color: '#ffffff',
+              fontSize: 24,
+              fontWeight: 700,
+              marginBottom: 18,
+            }}
+          >
+            学
+          </div>
+
+          <div style={{ fontSize: 30, lineHeight: 1.15, fontWeight: 800, color: '#0f172a' }}>
+            大学生职业规划
+            <br />
+            学生端
+          </div>
+          <p style={{ marginTop: 12, marginBottom: 0, color: '#475569', lineHeight: 1.6, fontSize: 14 }}>
+            输入邮箱或手机号，我们会创建或找回你的学生档案。后续上传简历后，就能直接看到真实画像、岗位推荐和职业报告。
+          </p>
+
+          {currentStudent && (
+            <div
+              style={{
+                marginTop: 18,
+                padding: 14,
+                borderRadius: 18,
+                background: '#eef4ff',
+                border: '1px solid #c7d2fe',
+              }}
+            >
+              <div style={{ fontWeight: 700, color: '#1e3a8a', marginBottom: 6 }}>当前已恢复学生会话</div>
+              <div style={{ color: '#334155', fontSize: 13, lineHeight: 1.6 }}>
+                {currentStudent.name || '未命名同学'}
+                {' · '}
+                {currentStudent.email}
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => navigate(existingDestination)}
+                  style={{
+                    flex: 1,
+                    border: 'none',
+                    borderRadius: 14,
+                    padding: '12px 14px',
+                    background: '#1d4ed8',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                  }}
+                >
+                  继续使用
+                </button>
+                <button
+                  type="button"
+                  onClick={clearSession}
+                  style={{
+                    flex: 1,
+                    borderRadius: 14,
+                    padding: '12px 14px',
+                    background: '#ffffff',
+                    color: '#334155',
+                    fontWeight: 700,
+                    border: '1px solid #cbd5e1',
+                  }}
+                >
+                  切换账号
+                </button>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} style={{ marginTop: 22, display: 'grid', gap: 12 }}>
+            <label style={{ display: 'grid', gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>昵称</span>
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="例如：张同学"
+                style={{
+                  borderRadius: 16,
+                  border: '1px solid #dbe3f0',
+                  padding: '14px 16px',
+                  fontSize: 15,
+                  outline: 'none',
+                }}
+              />
+            </label>
+
+            <label style={{ display: 'grid', gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>邮箱 / 手机号</span>
+              <input
+                value={account}
+                onChange={(event) => setAccount(event.target.value)}
+                placeholder="例如：student@example.com 或 13800000000"
+                style={{
+                  borderRadius: 16,
+                  border: '1px solid #dbe3f0',
+                  padding: '14px 16px',
+                  fontSize: 15,
+                  outline: 'none',
+                }}
+              />
+            </label>
+
+            {error && (
+              <div
+                style={{
+                  borderRadius: 14,
+                  padding: '12px 14px',
+                  background: '#fef2f2',
+                  color: '#b91c1c',
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitting}
+              style={{
+                marginTop: 4,
+                border: 'none',
+                borderRadius: 16,
+                padding: '14px 16px',
+                background: 'linear-gradient(135deg, #4f46e5 0%, #2563eb 100%)',
+                color: '#ffffff',
+                fontWeight: 800,
+                fontSize: 15,
+                opacity: submitting ? 0.8 : 1,
+              }}
+            >
+              {submitting ? '正在创建学生会话...' : '登录 / 注册学生端'}
+            </button>
+          </form>
+        </div>
+
+        <div style={{ marginTop: 18, display: 'grid', gap: 12 }}>
+          {featureCards.map((card) => (
+            <div
+              key={card.title}
+              style={{
+                borderRadius: 22,
+                padding: 18,
+                background: 'rgba(255,255,255,0.78)',
+                backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(148, 163, 184, 0.16)',
+              }}
+            >
+              <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 6 }}>{card.title}</div>
+              <div style={{ color: '#475569', fontSize: 13, lineHeight: 1.6 }}>{card.description}</div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )

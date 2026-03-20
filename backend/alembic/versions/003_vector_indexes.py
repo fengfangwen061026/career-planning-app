@@ -24,7 +24,18 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # Enable pgvector extension (embedding columns use ARRAY(Float), not vector type)
     # HNSW vector indexes require the pgvector vector type; skipping for now
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    op.execute(
+        """
+        DO $$
+        BEGIN
+            CREATE EXTENSION IF NOT EXISTS vector;
+        EXCEPTION
+            WHEN undefined_file OR feature_not_supported THEN
+                RAISE NOTICE 'pgvector extension unavailable, skipping CREATE EXTENSION vector';
+        END
+        $$;
+        """
+    )
 
 
 def downgrade() -> None:
