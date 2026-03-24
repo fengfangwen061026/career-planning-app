@@ -29,6 +29,16 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
+      '/api/reports/generate/stream': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            proxyRes.headers['x-accel-buffering'] = 'no'
+            proxyRes.headers['cache-control'] = 'no-cache'
+          })
+        },
+      },
     },
   }
 })

@@ -75,4 +75,21 @@ export const graphApi = {
 
   rebuildMindmap: () =>
     client.post<{ status: string; rebuilt_at: string; node_count: number }>("/graph/mindmap/rebuild"),
+
+  getTransitions: (jobProfileId?: string) =>
+    jobProfileId
+      ? client.get<{ job_profile_id: string; transitions: TransitionItem[] }>(`/graph/transitions/${jobProfileId}`)
+      : client.get<{ transitions: TransitionItem[]; total: number }>("/graph/transitions"),
 };
+
+export interface TransitionItem {
+  source_id: string;
+  source_name: string;
+  target_id: string;
+  target_name: string;
+  overlap: number;
+  difficulty: number;
+  shared_skills: string[];
+  gap_skills: string[];
+  advice: string;
+}

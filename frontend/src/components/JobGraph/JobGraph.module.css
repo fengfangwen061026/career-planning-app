@@ -423,6 +423,100 @@
   min-height: 60px;
 }
 
+/* 换岗路径样式 */
+.sectionBadge {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.1);
+  color: #10B981;
+  font-weight: 600;
+}
+
+.transitionList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.transitionItem {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(16, 185, 129, 0.04);
+  border: 1px solid rgba(16, 185, 129, 0.12);
+}
+
+.transitionHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.transitionIcon {
+  color: #10B981;
+}
+
+.transitionTarget {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.transitionOverlap {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: #10B981;
+  background: rgba(16, 185, 129, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.transitionAdvice {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.transitionGap,
+.transitionShared {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.gapLabel {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.sharedLabel {
+  color: #10B981;
+  font-weight: 600;
+}
+
+.gapSkill,
+.sharedSkill {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.gapSkill {
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+}
+
+.sharedSkill {
+  background: rgba(16, 185, 129, 0.08);
+  color: #10B981;
+}
+
 .profileAction {
   margin-top: auto;
   border: none;

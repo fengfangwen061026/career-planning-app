@@ -242,6 +242,30 @@ class LLMProvider:
 
         raise ValueError(f"Failed to get valid JSON after {max_retries} attempts: {last_error}")
 
+    async def generate_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+        provider: ProviderName = "default",
+        model: str | None = None,
+        **extra_kwargs: Any,
+    ) -> str:
+        """Generate plain text (non-JSON), for report chapters and other natural language output."""
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        return await self.chat(
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            provider=provider,
+            model=model,
+            **extra_kwargs,
+        )
+
 
 def _parse_json_tolerant(text: str) -> dict[str, Any]:
     """Parse JSON from text, tolerating markdown fences and leading/trailing junk."""

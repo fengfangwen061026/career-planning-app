@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Spin } from "antd";
-import { ArrowRight, FileSearch, MapPin, Wallet, X } from "lucide-react";
+import { ArrowRight, FileSearch, MapPin, Wallet, X, Shuffle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { graphApi } from "../../api/graph";
+import { graphApi, TransitionItem } from "../../api/graph";
 import { jobsApi } from "../../api/jobs";
 import type { JobProfileResponse } from "../../types/job";
 import type { JobNode, JobStats } from "./types";
@@ -17,6 +17,8 @@ interface DetailState {
   loading: boolean;
   profile: JobProfileResponse | null;
   stats: JobStats | null;
+  transitions: TransitionItem[];
+  transitionsLoading: boolean;
 }
 
 interface SkillItem {
@@ -71,6 +73,8 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
     loading: true,
     profile: null,
     stats: null,
+    transitions: [],
+    transitionsLoading: false,
   });
 
   const accentColor = node.color ?? "#4F46E5";
@@ -83,6 +87,8 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
         loading: true,
         profile: null,
         stats: null,
+        transitions: [],
+        transitionsLoading: false,
       });
 
       try {
@@ -91,12 +97,42 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
           jobsApi.getRoleProfiles(node.role_id).catch(() => null),
         ]);
 
+        const profile = profileResponse?.data.profiles?.[0] ?? null;
+
         if (active) {
           setState({
             loading: false,
-            profile: profileResponse?.data.profiles?.[0] ?? null,
+            profile,
             stats: statsResponse.data,
+            transitions: [],
+            transitionsLoading: true,
           });
+
+          // Fetch transitions using the job_profile_id
+          if (profile?.id) {
+            try {
+              const transitionsResponse = await graphApi.getTransitions(profile.id);
+              if (active) {
+                setState((prev) => ({
+                  ...prev,
+                  transitions: transitionsResponse.data.transitions ?? [],
+                  transitionsLoading: false,
+                }));
+              }
+            } catch {
+              if (active) {
+                setState((prev) => ({
+                  ...prev,
+                  transitions: [],
+                  transitionsLoading: false,
+                }));
+              }
+            }
+          } else {
+            if (active) {
+              setState((prev) => ({ ...prev, transitionsLoading: false }));
+            }
+          }
         }
       } catch (error) {
         console.error("Failed to fetch job detail:", error);
@@ -105,6 +141,8 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
             loading: false,
             profile: null,
             stats: null,
+            transitions: [],
+            transitionsLoading: false,
           });
         }
       }
@@ -237,6 +275,62 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
             <div className={styles.emptyState}>
               <FileSearch size={48} color="#D1D5DB" strokeWidth={1.6} />
               <p className={styles.emptyText}>暂无岗位画像</p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* 换岗路径 section */}
+      <section className={styles.detailSection}>
+        <div className={styles.sectionHeading}>
+          <span
+            className={styles.sectionBar}
+            style={{ backgroundColor: "#10B981" }}
+          />
+          <span className={styles.sectionTitle}>横向换岗路径</span>
+          <span className={styles.sectionBadge}>技能重叠度 &gt; 30%</span>
+        </div>
+
+        <div className={styles.sectionBody}>
+          {state.transitionsLoading ? (
+            <div className={styles.loadingWrapper}>
+              <Spin size="small" />
+            </div>
+          ) : state.transitions.length > 0 ? (
+            <div className={styles.transitionList}>
+              {state.transitions.map((t) => (
+                <div key={t.target_id} className={styles.transitionItem}>
+                  <div className={styles.transitionHeader}>
+                    <Shuffle size={14} className={styles.transitionIcon} />
+                    <span className={styles.transitionTarget}>{t.target_name}</span>
+                    <span className={styles.transitionOverlap}>
+                      {Math.round(t.overlap * 100)}% 重叠
+                    </span>
+                  </div>
+                  <div className={styles.transitionAdvice}>{t.advice}</div>
+                  {t.gap_skills && t.gap_skills.length > 0 && (
+                    <div className={styles.transitionGap}>
+                      <span className={styles.gapLabel}>需补充：</span>
+                      {t.gap_skills.slice(0, 5).map((skill) => (
+                        <span key={skill} className={styles.gapSkill}>{skill}</span>
+                      ))}
+                    </div>
+                  )}
+                  {t.shared_skills && t.shared_skills.length > 0 && (
+                    <div className={styles.transitionShared}>
+                      <span className={styles.sharedLabel}>可迁移：</span>
+                      {t.shared_skills.slice(0, 4).map((skill) => (
+                        <span key={skill} className={styles.sharedSkill}>{skill}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.emptyState}>
+              <Shuffle size={36} color="#D1D5DB" strokeWidth={1.6} />
+              <p className={styles.emptyText}>暂无换岗路径数据</p>
             </div>
           )}
         </div>

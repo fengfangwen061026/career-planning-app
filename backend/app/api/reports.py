@@ -104,6 +104,93 @@ async def generate_report(
     return CareerReportResponse.model_validate(report)
 
 
+@router.post("/generate/stream")
+async def generate_report_stream(
+    student_id: UUID,
+    job_profile_id: UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """SSE 流式生成职业发展报告，逐章输出进度。
+
+    Args:
+        student_id: 学生 ID
+        job_profile_id: 目标岗位画像 ID（可选）
+        db: 数据库会话
+
+    Returns:
+        SSE 流，每个事件为 JSON 格式的章节内容或进度更新
+    """
+    from fastapi.responses import StreamingResponse
+    from app.models.student import StudentProfile
+    from app.models.job import JobProfile
+    from app.services.report_generator import ReportGeneratorService
+
+    # 1. 查询学生画像
+    stmt = select(StudentProfile).where(StudentProfile.student_id == student_id)
+    result = await db.execute(stmt)
+    student_profile_model = result.scalar_one_or_none()
+
+    if not student_profile_model:
+        raise HTTPException(404, "学生画像不存在，请先上传简历")
+
+    student_profile = student_profile_model.profile_json or {}
+
+    # 2. 查询岗位画像（如果提供了 job_profile_id）
+    job_profile = {}
+    if job_profile_id:
+        job_stmt = select(JobProfile).where(JobProfile.id == job_profile_id)
+        job_result = await db.execute(job_stmt)
+        job_profile_model = job_result.scalar_one_or_none()
+        if job_profile_model:
+            job_profile = job_profile_model.profile_json or {}
+        else:
+            raise HTTPException(404, "岗位画像不存在")
+
+    # 3. 构造匹配结果（占时用空结果，后续可接入真实匹配）
+    matching_result = {
+        "total_score": 75,
+        "scores_json": {
+            "basic": {"score": 0.8},
+            "skill": {"score": 0.7},
+            "competency": {"score": 0.75},
+            "potential": {"score": 0.8},
+        },
+        "gap_items": [],
+    }
+
+    # 4. 查询相关岗位（用于横向路径）
+    related_jobs_stmt = select(JobProfile).limit(5)
+    related_result = await db.execute(related_jobs_stmt)
+    related_jobs = []
+    for j in related_result.scalars().all():
+        if j.id != job_profile_id:
+            related_jobs.append({
+                "role_name": j.role.name if j.role else None,
+                "skill_overlap": "60%",
+            })
+
+    # 5. 启动流式生成
+    service = ReportGeneratorService()
+
+    return StreamingResponse(
+        service.generate_report_stream(
+            student_profile=student_profile,
+            job_profile=job_profile,
+            matching_result=matching_result,
+            related_jobs=related_jobs,
+            db=db,
+            student_id=student_id,
+            job_profile_id=job_profile_id or UUID("00000000-0000-0000-0000-000000000000"),
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @router.post("/", response_model=CareerReportResponse, status_code=status.HTTP_201_CREATED)
 async def create_report(
     report: CareerReportCreate,

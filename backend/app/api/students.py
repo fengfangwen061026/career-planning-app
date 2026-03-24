@@ -491,3 +491,181 @@ async def generate_profile(
     evidence = profile.evidence_json or {}
     response.missing_suggestions = evidence.get("missing_suggestions")
     return response
+
+
+# ====== 画像手动编辑相关 ======
+
+from pydantic import BaseModel
+from typing import Optional, List
+
+
+class ManualProfileInput(BaseModel):
+    """手动录入/编辑学生画像"""
+    name: Optional[str] = None
+    gender: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    education: Optional[List[dict]] = None  # [{"school": "", "major": "", "degree": "", "start": "", "end": ""}]
+    skills: Optional[List[dict]] = None  # [{"name": "Python", "category": "编程语言", "proficiency": "熟练"}]
+    projects: Optional[List[dict]] = None  # [{"name": "", "role": "", "description": "", "tech_stack": [], "achievements": []}]
+    internships: Optional[List[dict]] = None  # [{"company": "", "position": "", "start": "", "end": "", "description": ""}]
+    certificates: Optional[List[str]] = None
+    awards: Optional[List[str]] = None
+    self_evaluation: Optional[str] = None
+    career_intention: Optional[dict] = None  # {"target_roles": [], "target_cities": [], "salary_expectation": ""}
+
+
+class ProfilePatchItem(BaseModel):
+    """单个字段更新"""
+    field: str  # 字段路径，如 "skills", "education", "career_intention.target_roles"
+    value: object  # 新值
+
+
+@router.post("/{student_id}/profile/manual")
+async def create_or_update_profile_manual(
+    student_id: UUID,
+    data: ManualProfileInput,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    手动创建或更新学生画像。
+    如果 student_id 对应的画像不存在，创建新画像。
+    如果已存在，合并更新非 None 字段。
+    """
+    # 查询已有画像
+    result = await db.execute(
+        select(StudentProfile).where(StudentProfile.student_id == student_id)
+    )
+    profile = result.scalar_one_or_none()
+
+    input_data = data.model_dump(exclude_none=True)
+
+    if profile is None:
+        # 创建新画像
+        profile = StudentProfile(
+            student_id=student_id,
+            profile_json=input_data,
+            completeness_score=0.0,
+        )
+        db.add(profile)
+    else:
+        # 合并更新
+        existing_data = profile.profile_json or {}
+
+        for key, value in input_data.items():
+            if isinstance(value, list) and isinstance(existing_data.get(key), list):
+                # 列表类型：直接覆盖（用户手动编辑应以最新为准）
+                existing_data[key] = value
+            else:
+                existing_data[key] = value
+
+        profile.profile_json = existing_data
+
+    # 计算完整度评分
+    completeness = _calc_completeness(profile.profile_json or {})
+    profile.completeness_score = completeness
+
+    await db.commit()
+    await db.refresh(profile)
+
+    # 计算竞争力评分
+    competitiveness = _calc_competitiveness(profile.profile_json or {})
+
+    return {
+        "student_id": str(student_id),
+        "profile_json": profile.profile_json,
+        "completeness_score": completeness,
+        "competitiveness_score": competitiveness,
+        "message": "画像更新成功",
+    }
+
+
+@router.patch("/{student_id}/profile/field")
+async def patch_profile_field(
+    student_id: UUID,
+    patch: ProfilePatchItem,
+    db: AsyncSession = Depends(get_db),
+):
+    """更新画像的单个字段（用于移动端逐项编辑）"""
+    result = await db.execute(
+        select(StudentProfile).where(StudentProfile.student_id == student_id)
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(404, "学生画像不存在")
+
+    data = profile.profile_json or {}
+
+    # 支持嵌套字段路径，如 "career_intention.target_roles"
+    keys = patch.field.split(".")
+    target = data
+    for key in keys[:-1]:
+        if key not in target:
+            target[key] = {}
+        target = target[key]
+    target[keys[-1]] = patch.value
+
+    profile.profile_json = data
+
+    # 重新计算完整度
+    completeness = _calc_completeness(data)
+    profile.completeness_score = completeness
+
+    await db.commit()
+
+    return {"field": patch.field, "updated": True, "completeness_score": completeness}
+
+
+def _calc_completeness(profile_data: dict) -> float:
+    """计算画像完整度（0-100）"""
+    if not profile_data:
+        return 0.0
+
+    weights = {
+        "name": 5,
+        "education": 15,
+        "skills": 20,
+        "projects": 20,
+        "internships": 15,
+        "certificates": 5,
+        "self_evaluation": 5,
+        "career_intention": 15,
+    }
+
+    score = 0
+    for field, weight in weights.items():
+        val = profile_data.get(field)
+        if val:
+            if isinstance(val, list) and len(val) > 0:
+                score += weight
+            elif isinstance(val, dict) and any(val.values()):
+                score += weight
+            elif isinstance(val, str) and len(val) > 0:
+                score += weight
+
+    return round(score, 1)
+
+
+def _calc_competitiveness(profile_data: dict) -> float:
+    """计算竞争力评分（0-100）"""
+    if not profile_data:
+        return 0.0
+
+    score = 30  # 基础分
+
+    skills = profile_data.get("skills", [])
+    score += min(len(skills) * 3, 20)  # 技能数量，最多+20
+
+    projects = profile_data.get("projects", [])
+    score += min(len(projects) * 5, 15)  # 项目数量，最多+15
+
+    internships = profile_data.get("internships", [])
+    score += min(len(internships) * 8, 16)  # 实习数量，最多+16
+
+    certs = profile_data.get("certificates", [])
+    score += min(len(certs) * 3, 9)  # 证书，最多+9
+
+    awards = profile_data.get("awards", [])
+    score += min(len(awards) * 5, 10)  # 奖项，最多+10
+
+    return round(min(score, 100), 1)

@@ -377,3 +377,32 @@ async def get_job_stats(
         "top_cities": [city for city, _ in city_counter.most_common(3)],
         "top_skills": [skill for skill, _ in skill_counter.most_common(5)],
     }
+
+
+# ====== 换岗路径相关路由 ======
+
+from app.services.job_transition import JobTransitionService
+
+
+@router.post("/transitions/compute")
+async def compute_transitions(db: AsyncSession = Depends(get_db)):
+    """计算所有岗位间的换岗关系"""
+    service = JobTransitionService()
+    result = await service.compute_all_transitions(db)
+    return result
+
+
+@router.get("/transitions")
+async def get_all_transitions(db: AsyncSession = Depends(get_db)):
+    """获取所有换岗关系（用于图谱渲染）"""
+    service = JobTransitionService()
+    transitions = await service.get_all_transitions(db)
+    return {"transitions": transitions, "total": len(transitions)}
+
+
+@router.get("/transitions/{job_profile_id}")
+async def get_transitions_for_job(job_profile_id: UUID, db: AsyncSession = Depends(get_db)):
+    """获取某岗位的换岗路径"""
+    service = JobTransitionService()
+    transitions = await service.get_transitions_for_job(job_profile_id, db)
+    return {"job_profile_id": str(job_profile_id), "transitions": transitions}
