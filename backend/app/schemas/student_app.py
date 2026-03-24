@@ -49,8 +49,8 @@ class StudentRecommendationItem(BaseModel):
     gaps: list[GapItem] = Field(default_factory=list)
     match_reasons: list[str] = Field(default_factory=list)
     job_snapshot: JobSnapshot | None = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class StudentRecommendationResponse(BaseModel):

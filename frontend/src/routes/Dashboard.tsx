@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { message } from 'antd';
 import { LayoutDashboard, Briefcase, Users, FileText, TrendingUp } from 'lucide-react';
 
 interface DashboardStats {
@@ -94,7 +95,9 @@ export default function Dashboard() {
     fetch('/api/dashboard/stats')
       .then((res) => res.json())
       .then((data: DashboardStats) => setStats(data))
-      .catch(console.error);
+      .catch(() => {
+        message.error('获取统计数据失败');
+      });
   }, []);
 
   const statCards: StatCard[] = [

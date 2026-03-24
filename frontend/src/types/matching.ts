@@ -68,10 +68,10 @@ export interface FourDimensionScores {
 // Gap analysis
 export interface GapItem {
   gap_item: string;
-  dimension: string; // basic / skill / competency / potential
+  dimension: 'basic' | 'skill' | 'competency' | 'potential';
   current_level: string;
   required_level: string;
-  priority: string; // high / medium / low
+  priority: 'high' | 'medium' | 'low';
   suggestion: string;
 }
 

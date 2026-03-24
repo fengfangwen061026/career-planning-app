@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 
 class CareerReportBase(BaseModel):
@@ -40,10 +40,21 @@ class CareerReportResponse(CareerReportBase):
     content_json: dict[str, Any] | None = None
     pdf_path: str | None = None
     docx_path: str | None = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _handle_none_datetimes(cls, values):
+        """Handle None datetime values from database."""
+        if isinstance(values, dict):
+            if values.get("created_at") is None:
+                values["created_at"] = None
+            if values.get("updated_at") is None:
+                values["updated_at"] = None
+        return values
 
 
 class ReportVersionBase(BaseModel):
@@ -62,9 +73,18 @@ class ReportVersionResponse(ReportVersionBase):
     """Report version response schema."""
     id: UUID
     report_id: UUID
-    created_at: datetime
+    created_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _handle_none_datetimes(cls, values):
+        """Handle None datetime values from database."""
+        if isinstance(values, dict):
+            if values.get("created_at") is None:
+                values["created_at"] = None
+        return values
 
 
 class ReportGenerateRequest(BaseModel):

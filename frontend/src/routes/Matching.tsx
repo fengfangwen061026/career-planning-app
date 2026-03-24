@@ -22,6 +22,7 @@ import {
   ClockCircleOutlined,
 } from '@ant-design/icons';
 import { BarChart2 } from 'lucide-react';
+import { GlassCard } from '../components/GlassCard';
 import {
   Radar,
   RadarChart,
@@ -178,35 +179,6 @@ const ProgressBar = ({ percent, color }: ProgressBarProps) => {
           transition: 'width 0.7s var(--spring-smooth), background-color 0.3s ease',
         }}
       />
-    </div>
-  );
-};
-
-// Custom glass card component
-interface GlassCardProps {
-  children: React.ReactNode;
-  className?: string;
-  style?: React.CSSProperties;
-  onClick?: () => void;
-}
-
-const GlassCard = ({ children, className = '', style = {}, onClick }: GlassCardProps) => {
-  return (
-    <div
-      className={className}
-      onClick={onClick}
-      style={{
-        background: 'rgba(255,255,255,0.82)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        border: '1px solid rgba(255,255,255,0.88)',
-        borderRadius: '16px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.04)',
-        padding: '24px',
-        ...style,
-      }}
-    >
-      {children}
     </div>
   );
 };

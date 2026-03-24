@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Select,
   Space,
@@ -8,6 +8,7 @@ import {
   Empty,
   Alert,
   Descriptions,
+  message,
   Typography,
   Row,
   Col,
@@ -58,26 +59,7 @@ const getScoreStatus = (score: number): 'success' | 'normal' | 'exception' => {
 };
 
 // Glass-morphism Card 组件
-const GlassCard: React.FC<{ children: React.ReactNode; className?: string; style?: React.CSSProperties }> = ({
-  children,
-  className = '',
-  style = {},
-}) => (
-  <div
-    className={`glass-card ${className}`}
-    style={{
-      background: 'rgba(255,255,255,0.82)',
-      backdropFilter: 'blur(12px)',
-      borderRadius: '16px',
-      border: '1px solid rgba(255,255,255,0.88)',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.04)',
-      padding: '20px',
-      ...style,
-    }}
-  >
-    {children}
-  </div>
-);
+import { GlassCard } from '../components/GlassCard';
 
 // 获取姓名首字母
 const getInitials = (name: string): string => {
@@ -99,11 +81,7 @@ export default function StudentProfile() {
   const [loading, setLoading] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchStudents();
-  }, []);
-
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     setLoading(true);
     try {
       const response = await studentsApi.getStudents();
@@ -124,10 +102,15 @@ export default function StudentProfile() {
       setProfiles(profileMap);
     } catch (error) {
       console.error('Failed to fetch students:', error);
+      message.error('获取学生列表失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchStudents();
+  }, [fetchStudents]);
 
   const currentProfile = selectedStudentId ? profiles.get(selectedStudentId) : null;
   const profileJson = currentProfile?.profile_json;

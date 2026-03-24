@@ -420,7 +420,7 @@ export function MobileAppProvider({ children }: { children: React.ReactNode }) {
         message: previous.isFallback ? '已基于兜底解析结果完成画像生成' : stageMessages.complete,
         retrying: false,
       }))
-      void refreshRecommendations({ top_k: 12 }).catch(() => {})
+      void refreshRecommendations({ top_k: 12 }).catch((e) => console.error('Failed to refresh recommendations:', e))
 
       return profileResponse.data
     } catch (error) {
@@ -550,7 +550,7 @@ export function MobileAppProvider({ children }: { children: React.ReactNode }) {
     setCurrentReport(null)
     setCompletionSession(null)
     clearRecommendationRequest()
-    void refreshRecommendations({ top_k: 12 }).catch(() => {})
+    void refreshRecommendations({ top_k: 12 }).catch((e) => console.error('Failed to refresh recommendations:', e))
     return response.data.profile
   }
 

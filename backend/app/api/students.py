@@ -4,6 +4,7 @@ import asyncio
 import json as json_lib
 import logging
 import shutil
+import time
 from pathlib import Path
 from uuid import UUID
 
@@ -150,9 +151,14 @@ async def upload_resume(
             detail=f"Unsupported file type: {suffix}. Only PDF and DOCX are supported.",
         )
 
+    # Sanitize filename to prevent path traversal attacks
+    safe_filename = Path(file.filename).name
+    if not safe_filename or safe_filename.startswith("."):
+        safe_filename = f"resume_{int(time.time())}{suffix}"
+
     upload_dir = Path(settings.upload_dir) / str(student_id)
     upload_dir.mkdir(parents=True, exist_ok=True)
-    file_path = upload_dir / file.filename
+    file_path = upload_dir / safe_filename
 
     with open(file_path, "wb") as target:
         shutil.copyfileobj(file.file, target)

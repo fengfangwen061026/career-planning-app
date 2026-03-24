@@ -124,8 +124,8 @@ class MatchResultResponse(MatchResultBase):
     job_title: str | None = None  # 岗位名称
     role_name: str | None = None  # 角色名称
     job_snapshot: dict[str, Any] | None = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

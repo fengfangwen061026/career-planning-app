@@ -10,6 +10,7 @@
 """
 
 import asyncio
+import html
 import json
 import logging
 import os
@@ -26,6 +27,12 @@ from app.services.graph import find_path_with_student_profile
 from app.services.matching import recommend_jobs
 
 logger = logging.getLogger(__name__)
+
+
+def _escape_html(text: str) -> str:
+    """Escape HTML special characters to prevent XSS attacks."""
+    return html.escape(str(text), quote=True)
+
 
 # 报告章节定义
 REPORT_CHAPTERS = [
@@ -1027,13 +1034,13 @@ def _build_export_html(report: CareerReport, content: dict[str, Any]) -> str:
             key_points = section.get("key_points", [])
             points_html = ""
             if key_points:
-                points_html = "<ul>" + "".join(f"<li>{point}</li>" for point in key_points) + "</ul>"
+                points_html = "<ul>" + "".join(f"<li>{_escape_html(point)}</li>" for point in key_points) + "</ul>"
 
             section_blocks.append(
                 f"""
                 <div class="section">
-                    <h3>{section.get("title", "")}</h3>
-                    <p>{section.get("content", "")}</p>
+                    <h3>{_escape_html(section.get("title", ""))}</h3>
+                    <p>{_escape_html(section.get("content", ""))}</p>
                     {points_html}
                 </div>
                 """
@@ -1041,15 +1048,15 @@ def _build_export_html(report: CareerReport, content: dict[str, Any]) -> str:
 
         table_blocks: list[str] = []
         for table in chapter.get("tables", []):
-            header_cells = "".join(f"<th>{header}</th>" for header in table.get("headers", []))
+            header_cells = "".join(f"<th>{_escape_html(header)}</th>" for header in table.get("headers", []))
             body_rows = "".join(
-                "<tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>"
+                "<tr>" + "".join(f"<td>{_escape_html(cell)}</td>" for cell in row) + "</tr>"
                 for row in table.get("rows", [])
             )
             table_blocks.append(
                 f"""
                 <div class="table-container">
-                    <h4>{table.get("title", "")}</h4>
+                    <h4>{_escape_html(table.get("title", ""))}</h4>
                     <table>
                         <thead><tr>{header_cells}</tr></thead>
                         <tbody>{body_rows}</tbody>
@@ -1061,7 +1068,7 @@ def _build_export_html(report: CareerReport, content: dict[str, Any]) -> str:
         chapter_blocks.append(
             f"""
             <div class="chapter">
-                <h2>{chapter.get("title", "")}</h2>
+                <h2>{_escape_html(chapter.get("title", ""))}</h2>
                 {''.join(section_blocks)}
                 {''.join(table_blocks)}
             </div>
@@ -1069,7 +1076,7 @@ def _build_export_html(report: CareerReport, content: dict[str, Any]) -> str:
         )
 
     recommendations_html = "".join(
-        f'<div class="recommendation-item"><strong>{rec.get("title", "")}</strong>: {rec.get("content", "")}</div>'
+        f'<div class="recommendation-item"><strong>{_escape_html(rec.get("title", ""))}</strong>: {_escape_html(rec.get("content", ""))}</div>'
         for rec in (report.recommendations or [])
     )
 

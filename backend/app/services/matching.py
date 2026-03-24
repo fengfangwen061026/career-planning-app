@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -76,7 +77,9 @@ POTENTIAL_DIMENSION_LABELS = {
     "adaptability": "适应能力",
 }
 
-_LLM_SEMAPHORE = asyncio.Semaphore(2)
+_LLM_SEMAPHORE = asyncio.Semaphore(
+    max(1, int(os.getenv("LLM_CONCURRENT_LIMIT", "10")))
+)
 _LLM_TIMEOUT_SECONDS = 25.0
 
 

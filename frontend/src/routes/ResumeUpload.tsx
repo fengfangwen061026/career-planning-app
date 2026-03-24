@@ -25,6 +25,7 @@ import {
 import { Upload as UploadIcon, FileText, Loader2 } from 'lucide-react';
 import { studentsApi } from '../api/students';
 import { studentApi } from '../api/student';
+import { GlassCard } from '../components/GlassCard';
 import type { StudentResponse, ResumeUploadResponse } from '../types/student';
 
 // 模块专属色 - 琥珀橙色系
@@ -171,34 +172,6 @@ const STEPS = [
   { key: 'preview', label: '预览确认' },
   { key: 'complete', label: '完成' },
 ];
-
-// Custom glass-morphism card component
-const GlassCard = ({
-  children,
-  className = '',
-  style = {},
-  ...rest
-}: React.HTMLAttributes<HTMLDivElement> & {
-  children: React.ReactNode;
-  style?: React.CSSProperties;
-}) => (
-  <div
-    {...rest}
-    className={className}
-    style={{
-      background: 'rgba(255,255,255,0.82)',
-      backdropFilter: 'blur(20px)',
-      WebkitBackdropFilter: 'blur(20px)',
-      border: '1px solid rgba(255,255,255,0.88)',
-      borderRadius: '16px',
-      padding: '24px',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.04)',
-      ...style,
-    }}
-  >
-    {children}
-  </div>
-);
 
 // Step indicator component
 const StepIndicator = ({ currentStep }: { currentStep: UploadStep }) => {

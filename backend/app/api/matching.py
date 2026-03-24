@@ -83,11 +83,27 @@ async def _mr_to_response(mr, db: AsyncSession = None) -> MatchResultResponse:
             role_category = role.category if role else None
             job_snapshot = await _build_job_snapshot(role_id, db)
 
-    score_payload = {
-        key: value
-        for key, value in scores_json.items()
-        if key not in {"match_reasons", "job_info"}
-    }
+    # 转换扁平分数结构为嵌套结构
+    # 数据库存储: {"basic": 0.92, "skill": 0.78, ...}
+    # Schema期望: {"basic": {"score": 92, ...}, "skill": {"score": 78, ...}, ...}
+    score_dimension_keys = {"basic", "skill", "competency", "potential"}
+    nested_scores = {}
+    for key in score_dimension_keys:
+        if key in scores_json:
+            val = scores_json[key]
+            if isinstance(val, float):
+                # 转换 0-1 范围到 0-100
+                nested_scores[key] = {"score": round(val * 100, 1)}
+            elif isinstance(val, dict):
+                # 如果已经是字典，直接使用但确保有score字段
+                nested_scores[key] = val
+            else:
+                nested_scores[key] = {"score": 0.0}
+
+    # 处理其他可能的分数字段
+    for key, value in scores_json.items():
+        if key not in {"match_reasons", "job_info"} and key not in score_dimension_keys:
+            nested_scores[key] = value
 
     return MatchResultResponse(
         id=mr.id,
@@ -99,7 +115,7 @@ async def _mr_to_response(mr, db: AsyncSession = None) -> MatchResultResponse:
         role_name=role_name,
         job_snapshot=job_snapshot,
         total_score=mr.total_score * 100,  # DB 存 0-1，API 返回 0-100
-        scores=FourDimensionScores(**score_payload) if score_payload else FourDimensionScores(),
+        scores=FourDimensionScores(**nested_scores) if nested_scores else FourDimensionScores(),
         gaps=[GapItem(**g) for g in gaps_json] if gaps_json else [],
         match_reasons=reasons,
         created_at=mr.created_at,

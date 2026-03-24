@@ -39,29 +39,12 @@ import type { CareerReportResponse, ReportVersionResponse } from '../types/repor
 import type { MatchResultResponse } from '../types/matching';
 // Note: MatchResultResponse has different fields than before (four-dimension scores)
 import LoadingState from '../components/LoadingState';
+import { GlassCard } from '../components/GlassCard';
 
 // Glass-morphism 样式组件
 // 模块专属色 - 蒂芙尼绿色系
 const MODULE_COLOR = '#5E8A7C';
 const MODULE_BG = '#EDF5F2';
-
-const GlassCard = ({ children, className = '', style = {}, id = '' }: { children: React.ReactNode; className?: string; style?: React.CSSProperties; id?: string }) => (
-  <div
-    id={id}
-    className={className}
-    style={{
-      background: 'rgba(255,255,255,0.82)',
-      backdropFilter: 'blur(20px)',
-      WebkitBackdropFilter: 'blur(20px)',
-      borderRadius: 16,
-      border: '1px solid rgba(255,255,255,0.88)',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.04)',
-      ...style,
-    }}
-  >
-    {children}
-  </div>
-);
 
 const GlassPanel = ({ children, className = '', style = {} }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) => (
   <div

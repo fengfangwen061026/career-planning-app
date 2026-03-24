@@ -1,4 +1,5 @@
 """Reports API routes."""
+import logging
 import os
 from typing import Any
 from uuid import UUID
@@ -17,6 +18,7 @@ from app.schemas.report import (
     ReportGenerateRequest,
     ReportExportRequest,
 )
+from app.services.matching import match_student_job
 from app.services.report import (
     check_completeness,
     export_to_docx,
@@ -40,6 +42,8 @@ class CareerReportUpdate(BaseModel):
 
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 # PDF 导出目录
 PDF_OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "static", "exports")
@@ -146,17 +150,45 @@ async def generate_report_stream(
         else:
             raise HTTPException(404, "岗位画像不存在")
 
-    # 3. 构造匹配结果（占时用空结果，后续可接入真实匹配）
-    matching_result = {
-        "total_score": 75,
-        "scores_json": {
-            "basic": {"score": 0.8},
-            "skill": {"score": 0.7},
-            "competency": {"score": 0.75},
-            "potential": {"score": 0.8},
-        },
-        "gap_items": [],
-    }
+    # 3. 获取匹配结果（使用真实匹配服务）
+    if job_profile_id and student_profile:
+        try:
+            match_result = await match_student_job(
+                db=db,
+                student_id=student_id,
+                job_profile_id=job_profile_id,
+            )
+            # 转换为dict格式供报告使用
+            matching_result = {
+                "total_score": match_result.total_score or 0.0,
+                "scores_json": match_result.scores_json or {},
+                "gap_items": match_result.gaps_json or [],
+            }
+        except Exception as e:
+            # 如果匹配失败，使用默认值
+            logger.warning(f"Matching failed, using default: {e}")
+            matching_result = {
+                "total_score": 0.5,
+                "scores_json": {
+                    "basic": {"score": 0.5},
+                    "skill": {"score": 0.5},
+                    "competency": {"score": 0.5},
+                    "potential": {"score": 0.5},
+                },
+                "gap_items": [],
+            }
+    else:
+        # 没有岗位ID时使用默认值
+        matching_result = {
+            "total_score": 0.5,
+            "scores_json": {
+                "basic": {"score": 0.5},
+                "skill": {"score": 0.5},
+                "competency": {"score": 0.5},
+                "potential": {"score": 0.5},
+            },
+            "gap_items": [],
+        }
 
     # 4. 查询相关岗位（用于横向路径）
     related_jobs_stmt = select(JobProfile).limit(5)

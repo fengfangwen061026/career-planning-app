@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class StudentBase(BaseModel):
@@ -27,10 +27,21 @@ class StudentUpdate(BaseModel):
 class StudentResponse(StudentBase):
     """Student response schema."""
     id: UUID
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _handle_none_datetimes(cls, values):
+        """Handle None datetime values from database."""
+        if isinstance(values, dict):
+            if values.get("created_at") is None:
+                values["created_at"] = None
+            if values.get("updated_at") is None:
+                values["updated_at"] = None
+        return values
 
 
 class ResumeBase(BaseModel):
@@ -94,8 +105,8 @@ class StudentProfileResponse(BaseModel):
     evidence_json: dict[str, Any] | None = None
     version: str = "1.0"
     missing_suggestions: list[str] | None = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

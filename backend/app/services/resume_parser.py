@@ -223,7 +223,9 @@ class ResumeParserService:
                 attempt,
             )
 
-        raise ValueError("LLM returned degenerate JSON with no extracted resume content")
+        # 超过重试次数后，调用cheap fallback而不是直接抛出异常
+        logger.warning("LLM returned degenerate JSON after 2 attempts, using cheap fallback")
+        return _cheap_resume_fallback(text, "语义解析失败超过重试次数")
 
     async def parse_resume_text(self, text: str) -> ResumeParseResult:
         """Parse resume text using LLM, then fall back to local rules on failure."""
@@ -318,12 +320,21 @@ class ResumeParserService:
         }
 
     async def _get_student_uuid(self, student_id: int, db: AsyncSession) -> UUID | None:
-        """Get student UUID from integer ID."""
-        result = await db.execute(select(Student).where(Student.email.like(f"%{student_id}%")))
-        student = result.scalars().first()
-        if student:
-            return student.id
+        """Get student UUID from integer ID using exact match."""
+        # Try to find existing student by exact ID match first
+        try:
+            if isinstance(student_id, int):
+                # Query by email with exact format matching student_{id}@demo.local
+                result = await db.execute(
+                    select(Student).where(Student.email == f"student_{student_id}@demo.local")
+                )
+                student = result.scalars().first()
+                if student:
+                    return student.id
+        except Exception:
+            pass
 
+        # If not found, create a new default student
         default_student = Student(
             email=f"student_{student_id}@demo.local",
             name=f"Student {student_id}",
@@ -383,7 +394,10 @@ async def update_student_basic_info(
     db: AsyncSession,
 ) -> None:
     """Update student basic info from parsed resume data."""
-    result = await db.execute(select(Student).where(Student.email.like(f"%{student_id}%")))
+    # Use exact email match instead of LIKE to prevent incorrect matches
+    result = await db.execute(
+        select(Student).where(Student.email == f"student_{student_id}@demo.local")
+    )
     student = result.scalars().first()
     if not student:
         return

@@ -567,31 +567,19 @@ async def find_path_dijkstra(
     target_node_id: UUID,
 ) -> list[dict[str, Any]]:
     """使用 Dijkstra 算法找到最短路径。"""
-    # 获取所有相关边
-    result = await db.execute(
-        select(GraphEdge).where(
-            (GraphEdge.source_node_id == source_node_id) |
-            (GraphEdge.target_node_id == source_node_id)
-        )
-    )
-    all_edges = list(result.scalars().all())
-
-    # 构建邻接表
-    adjacency: dict[UUID, list[tuple[UUID, float, dict[str, Any]]]] = defaultdict(list)
-
-    for edge in all_edges:
-        if edge.source_node_id == source_node_id:
-            adjacency[source_node_id].append((edge.target_node_id, edge.weight, edge.explanation_json or {}))
-        # 对于反向路径，降低优先级
-        if edge.target_node_id == source_node_id and edge.edge_type == "vertical":
-            # 垂直路径只能向上，不能向下
-            pass
-
-    # 获取所有可达节点和边
-    result = await db.execute(select(GraphEdge))
+    # 获取所有可达节点和边（使用LIMIT防止内存溢出）
+    # 注意：这是一个简化实现，在图规模扩大时应考虑使用空间更优的算法
+    result = await db.execute(select(GraphEdge).limit(10000))
     all_graph_edges = list(result.scalars().all())
 
-    adjacency.clear()
+    # 初始化邻接表
+    adjacency: dict[UUID, list[tuple[UUID, float, dict[str, Any]]]] = {}
+    for edge in all_graph_edges:
+        if edge.source_node_id not in adjacency:
+            adjacency[edge.source_node_id] = []
+        if edge.target_node_id not in adjacency:
+            adjacency[edge.target_node_id] = []
+
     for edge in all_graph_edges:
         # 获取边的权重和说明
         edge_info = {
