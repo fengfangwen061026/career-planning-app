@@ -87,18 +87,17 @@ export default function StudentProfile() {
       const response = await studentsApi.getStudents();
       setStudents(response.data);
 
-      // Fetch profiles for all students
+      // Batch fetch profiles for all students
       const profileMap = new Map<string, StudentProfileResponse>();
-      await Promise.all(
-        response.data.map(async (student) => {
-          try {
-            const profileRes = await studentsApi.getStudentProfile(student.id);
-            profileMap.set(student.id, profileRes.data);
-          } catch {
-            // Profile doesn't exist yet
+      const studentIds = response.data.map((s) => s.id);
+      if (studentIds.length > 0) {
+        const batchRes = await studentsApi.batchGetStudentProfiles(studentIds);
+        batchRes.data.profiles.forEach((profile) => {
+          if (profile) {
+            profileMap.set(profile.student_id, profile);
           }
-        })
-      );
+        });
+      }
       setProfiles(profileMap);
     } catch (error) {
       console.error('Failed to fetch students:', error);

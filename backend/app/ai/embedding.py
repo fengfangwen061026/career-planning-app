@@ -2,17 +2,28 @@
 
 import hashlib
 import logging
+import re
 from collections import OrderedDict
 from typing import Any
 
 import httpx
+from sqlalchemy import select
 
 from app.config import settings
+from app.models.skill_embedding import SkillEmbedding
 
 logger = logging.getLogger(__name__)
 
 # LRU-style in-memory cache (text hash → embedding vector)
 _CACHE_MAX_SIZE = 2048
+
+# Normalize text for consistent cache keys
+_NORMALIZE_RE = re.compile(r"\s+")
+
+
+def _normalize_for_cache(text: str) -> str:
+    """Normalize text for consistent cache key generation."""
+    return _NORMALIZE_RE.sub("", text.strip().lower())
 
 
 class EmbeddingProvider:
@@ -47,31 +58,135 @@ class EmbeddingProvider:
             self._cache.popitem(last=False)
 
     # ------------------------------------------------------------------
+    # Database-backed persistent cache (L2 cache)
+    # ------------------------------------------------------------------
+
+    async def _get_from_db(self, normalized_name: str) -> list[float] | None:
+        """Get embedding from database cache by normalized skill name."""
+        from app.database import async_session_factory
+
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(SkillEmbedding).where(
+                    SkillEmbedding.skill_name_normalized == normalized_name
+                )
+            )
+            db_embedding = result.scalar_one_or_none()
+            if db_embedding is not None:
+                # Convert JSON array to list[float]
+                return db_embedding.embedding
+            return None
+
+    async def _put_to_db(self, normalized_name: str, original_name: str, embedding: list[float]) -> None:
+        """Store embedding in database cache."""
+        from app.database import async_session_factory
+
+        async with async_session_factory() as session:
+            # Check if already exists
+            result = await session.execute(
+                select(SkillEmbedding).where(
+                    SkillEmbedding.skill_name_normalized == normalized_name
+                )
+            )
+            existing = result.scalar_one_or_none()
+
+            if existing is None:
+                db_embedding = SkillEmbedding(
+                    skill_name_normalized=normalized_name,
+                    skill_name_original=original_name,
+                    embedding=embedding,
+                    model_name=self.model,
+                )
+                session.add(db_embedding)
+            else:
+                existing.embedding = embedding
+                existing.model_name = self.model
+
+            await session.commit()
+
+    async def _get_db_batch(
+        self, normalized_names: list[str]
+    ) -> dict[str, list[float]]:
+        """Get multiple embeddings from database in one query."""
+        from app.database import async_session_factory
+
+        result_map: dict[str, list[float]] = {}
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(SkillEmbedding).where(
+                    SkillEmbedding.skill_name_normalized.in_(normalized_names)
+                )
+            )
+            for db_embedding in result.scalars().all():
+                result_map[db_embedding.skill_name_normalized] = db_embedding.embedding
+        return result_map
+
+    async def _put_db_batch(
+        self, entries: list[tuple[str, str, list[float]]]
+    ) -> None:
+        """Store multiple embeddings in database."""
+        from app.database import async_session_factory
+
+        async with async_session_factory() as session:
+            for normalized_name, original_name, embedding in entries:
+                # Check if already exists
+                result = await session.execute(
+                    select(SkillEmbedding).where(
+                        SkillEmbedding.skill_name_normalized == normalized_name
+                    )
+                )
+                existing = result.scalar_one_or_none()
+
+                if existing is None:
+                    db_embedding = SkillEmbedding(
+                        skill_name_normalized=normalized_name,
+                        skill_name_original=original_name,
+                        embedding=embedding,
+                        model_name=self.model,
+                    )
+                    session.add(db_embedding)
+
+            await session.commit()
+
+    # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     async def embed(self, text: str) -> list[float]:
-        """Generate embedding for a single text (cached)."""
+        """Generate embedding for a single text (L1 + L2 cache, then API)."""
+        # Check L1 in-memory cache first
         cached = self._get_cached(text)
         if cached is not None:
             return cached
 
+        # Check L2 database cache
+        normalized_name = _normalize_for_cache(text)
+        db_cached = await self._get_from_db(normalized_name)
+        if db_cached is not None:
+            self._put_cache(text, db_cached)
+            return db_cached
+
+        # Call API
         async with httpx.AsyncClient() as client:
             data = await self._request_embeddings(client, text)
             vec = self._extract_embedding(data, expected_index=0)
 
+        # Store in both L1 and L2 caches
         self._put_cache(text, vec)
+        await self._put_to_db(normalized_name, text, vec)
         return vec
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """Generate embeddings for multiple texts, using cache where possible.
+        """Generate embeddings for multiple texts, using L1 + L2 cache.
 
         Only calls the API for texts not already cached.
         """
         results: list[list[float] | None] = [None] * len(texts)
         uncached_indices: list[int] = []
         uncached_texts: list[str] = []
+        uncached_normalized: list[str] = []
 
+        # Check L1 cache first
         for i, t in enumerate(texts):
             cached = self._get_cached(t)
             if cached is not None:
@@ -79,28 +194,71 @@ class EmbeddingProvider:
             else:
                 uncached_indices.append(i)
                 uncached_texts.append(t)
+                uncached_normalized.append(_normalize_for_cache(t))
 
-        if uncached_texts:
-            logger.debug("Embedding batch: %d cached, %d to fetch", len(texts) - len(uncached_texts), len(uncached_texts))
-            async with httpx.AsyncClient() as client:
-                try:
-                    data = await self._request_embeddings(client, uncached_texts)
-                    for item in self._extract_embeddings(data, expected_count=len(uncached_texts)):
-                        item_idx = item["index"]
-                        idx = uncached_indices[item_idx]
-                        vec = item["embedding"]
-                        results[idx] = vec
-                        self._put_cache(uncached_texts[item_idx], vec)
-                except httpx.HTTPStatusError as exc:
-                    logger.warning(
-                        "Embedding batch request rejected with status %s for model %s; falling back to single requests. Response: %s",
-                        exc.response.status_code,
-                        self.model,
-                        exc.response.text[:200],
-                    )
-                    for item_idx, text_value in enumerate(uncached_texts):
-                        vec = await self.embed(text_value)
-                        results[uncached_indices[item_idx]] = vec
+        if not uncached_texts:
+            return results  # type: ignore[return-value]
+
+        # Check L2 database cache for remaining
+        db_cache = await self._get_db_batch(uncached_normalized)
+        still_uncached_indices: list[int] = []
+        still_uncached_texts: list[str] = []
+        still_uncached_normalized: list[str] = []
+
+        for j, (idx, norm_name) in enumerate(zip(uncached_indices, uncached_normalized)):
+            if norm_name in db_cache:
+                vec = db_cache[norm_name]
+                results[idx] = vec
+                self._put_cache(uncached_texts[j], vec)
+            else:
+                still_uncached_indices.append(idx)
+                still_uncached_texts.append(uncached_texts[j])
+                still_uncached_normalized.append(norm_name)
+
+        if not still_uncached_texts:
+            logger.debug(
+                "Embedding batch: %d L1 hit, %d L2 hit, %d to fetch",
+                len(texts) - len(uncached_texts),
+                len(uncached_texts) - len(still_uncached_texts),
+                0,
+            )
+            return results  # type: ignore[return-value]
+
+        logger.debug(
+            "Embedding batch: %d L1 hit, %d L2 hit, %d to fetch",
+            len(texts) - len(uncached_texts),
+            len(uncached_texts) - len(still_uncached_texts),
+            len(still_uncached_texts),
+        )
+
+        # Call API for remaining
+        async with httpx.AsyncClient() as client:
+            try:
+                data = await self._request_embeddings(client, still_uncached_texts)
+                db_entries: list[tuple[str, str, list[float]]] = []
+
+                for item in self._extract_embeddings(data, expected_count=len(still_uncached_texts)):
+                    item_idx = item["index"]
+                    idx = still_uncached_indices[item_idx]
+                    vec = item["embedding"]
+                    results[idx] = vec
+                    self._put_cache(still_uncached_texts[item_idx], vec)
+                    db_entries.append((still_uncached_normalized[item_idx], still_uncached_texts[item_idx], vec))
+
+                # Store new embeddings in L2 database cache
+                if db_entries:
+                    await self._put_db_batch(db_entries)
+
+            except httpx.HTTPStatusError as exc:
+                logger.warning(
+                    "Embedding batch request rejected with status %s for model %s; falling back to single requests. Response: %s",
+                    exc.response.status_code,
+                    self.model,
+                    exc.response.text[:200],
+                )
+                for item_idx, text_value in enumerate(still_uncached_texts):
+                    vec = await self.embed(text_value)
+                    results[still_uncached_indices[item_idx]] = vec
 
         return results  # type: ignore[return-value]
 

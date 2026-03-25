@@ -86,12 +86,20 @@ const ReportPage: React.FC = () => {
     isLoadingReports,
     refreshReports,
     generateReport,
+    polishReport,
+    checkReportCompleteness,
   } = useMobileApp()
 
   const [activeReportId, setActiveReportId] = useState<string | null>(null)
   const [loadingError, setLoadingError] = useState('')
   const [generating, setGenerating] = useState(false)
   const [exportingFormat, setExportingFormat] = useState<'pdf' | 'docx' | null>(null)
+  const [polishing, setPolishing] = useState(false)
+  const [checkResult, setCheckResult] = useState<{
+    complete: boolean
+    missing_items: string[]
+    suggestions: string[]
+  } | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -125,6 +133,10 @@ const ReportPage: React.FC = () => {
     }
   }, [activeReportId, currentReport?.id])
 
+  useEffect(() => {
+    setCheckResult(null)
+  }, [activeReportId])
+
   const activeReport =
     reports.find((item) => item.id === activeReportId) ||
     currentReport ||
@@ -150,6 +162,32 @@ const ReportPage: React.FC = () => {
       setLoadingError(message)
     } finally {
       setGenerating(false)
+    }
+  }
+
+  async function handlePolish() {
+    if (!activeReport) return
+    setPolishing(true)
+    setLoadingError('')
+    try {
+      await polishReport(activeReport.id)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '润色失败'
+      setLoadingError(message)
+    } finally {
+      setPolishing(false)
+    }
+  }
+
+  async function handleCheck() {
+    if (!activeReport) return
+    setLoadingError('')
+    try {
+      const result = await checkReportCompleteness(activeReport.id)
+      setCheckResult(result)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '检查失败'
+      setLoadingError(message)
     }
   }
 
@@ -458,8 +496,63 @@ const ReportPage: React.FC = () => {
                   >
                     {exportingFormat === 'docx' ? '导出中...' : '导出 DOCX'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={handlePolish}
+                    disabled={polishing || exportingFormat !== null}
+                    style={{
+                      width: '100%',
+                      borderRadius: 14,
+                      padding: '10px 14px',
+                      background: '#f0fdf4',
+                      color: '#166534',
+                      border: '1px solid #86efac',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {polishing ? '润色中...' : '润色报告'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCheck}
+                    disabled={polishing || exportingFormat !== null}
+                    style={{
+                      width: '100%',
+                      borderRadius: 14,
+                      padding: '10px 14px',
+                      background: '#fefce8',
+                      color: '#854d0e',
+                      border: '1px solid #fde047',
+                      fontWeight: 700,
+                    }}
+                  >
+                    完整性检查
+                  </button>
                 </div>
               </div>
+
+              {checkResult && (
+                <div
+                  style={{
+                    marginTop: 14,
+                    borderRadius: 16,
+                    padding: '14px 16px',
+                    background: checkResult.complete ? '#f0fdf4' : '#fef2f2',
+                    border: `1px solid ${checkResult.complete ? '#86efac' : '#fca5a5'}`,
+                  }}
+                >
+                  <div style={{ fontWeight: 700, color: checkResult.complete ? '#166534' : '#b91c1c' }}>
+                    {checkResult.complete ? '报告完整 ✓' : '报告存在缺失项'}
+                  </div>
+                  {checkResult.missing_items.length > 0 && (
+                    <ul style={{ margin: '8px 0 0', paddingLeft: 16, color: '#b91c1c', fontSize: 13, lineHeight: 1.7 }}>
+                      {checkResult.missing_items.map((item, idx) => (
+                        <li key={idx}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
 
               {activeReport.summary && (
                 <div

@@ -1094,6 +1094,52 @@ async def upsert_match_result(
     return match_result
 
 
+async def upsert_match_results_batch(
+    db: AsyncSession,
+    student_profile: StudentProfile,
+    items: list[tuple[JobProfile, MatchComputation]],
+) -> list[MatchResult]:
+    """Batch upsert multiple match results with a single query to check existence."""
+    if not items:
+        return []
+
+    job_profile_ids = [jp.id for jp, _ in items]
+    existing_result = await db.execute(
+        select(MatchResult).where(
+            MatchResult.student_profile_id == student_profile.id,
+            MatchResult.job_profile_id.in_(job_profile_ids),
+        )
+    )
+    existing_map = {mr.job_profile_id: mr for mr in existing_result.scalars().all()}
+
+    results: list[MatchResult] = []
+    for job_profile, computation in items:
+        scores_payload = computation.scores_payload()
+        gaps_payload = computation.gaps_payload()
+        normalized_total = round(computation.scores.total_score / 100.0, 6)
+
+        match_result = existing_map.get(job_profile.id)
+        if match_result is None:
+            match_result = MatchResult(
+                student_profile_id=student_profile.id,
+                job_profile_id=job_profile.id,
+                total_score=normalized_total,
+                scores_json=scores_payload,
+                gaps_json=gaps_payload,
+            )
+            db.add(match_result)
+        else:
+            match_result.total_score = normalized_total
+            match_result.scores_json = scores_payload
+            match_result.gaps_json = gaps_payload
+        results.append(match_result)
+
+    await db.flush()
+    for mr in results:
+        await db.refresh(mr)
+    return results
+
+
 async def match_student_job(
     db: AsyncSession,
     student_id: UUID,
@@ -1279,10 +1325,10 @@ async def recommend_jobs(
     computed.sort(key=lambda item: item[1].scores.total_score, reverse=True)
     selected = computed[:top_k]
 
-    persisted_results: list[MatchResult] = []
-    for job_profile, computation in selected:
-        persisted = await upsert_match_result(db, student_profile, job_profile, computation)
-        persisted_results.append(persisted)
+    # 批量 upsert 避免 N+1 查询
+    persisted_results = await upsert_match_results_batch(
+        db, student_profile, [(jp, comp) for jp, comp in selected]
+    )
 
     return persisted_results
 

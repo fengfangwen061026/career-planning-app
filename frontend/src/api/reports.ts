@@ -55,4 +55,16 @@ export const reportsApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+
+  // Polish report with AI
+  polishReport: (reportId: string) =>
+    client.post<{ polished: boolean; changes: string[]; version: string }>(
+      `/reports/${reportId}/polish`
+    ),
+
+  // Check report completeness
+  checkReportCompleteness: (reportId: string) =>
+    client.post<{ complete: boolean; missing_items: string[]; suggestions: string[]; chapter_count: number }>(
+      `/reports/${reportId}/check`
+    ),
 };

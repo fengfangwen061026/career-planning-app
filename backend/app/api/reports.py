@@ -4,7 +4,7 @@ import os
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -223,6 +223,199 @@ async def generate_report_stream(
     )
 
 
+# ---------------------------------------------------------------------------
+# Background report generation (Step 8 of optimization plan)
+# ---------------------------------------------------------------------------
+
+
+class ReportGenerationStatus(BaseModel):
+    """Report generation status response."""
+    report_id: UUID
+    status: str  # generating, completed, failed
+    progress: float = 0.0  # 0.0 to 1.0
+    error: str | None = None
+    created_at: str | None = None
+
+
+@router.post("/generate/{student_id}/background", status_code=status.HTTP_202_ACCEPTED)
+async def start_report_generation(
+    student_id: UUID,
+    background_tasks: BackgroundTasks,
+    job_profile_id: UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Start report generation in background, return immediately with report_id.
+
+    Use GET /reports/generate/{report_id}/status to poll for completion.
+    """
+    from app.models.student import StudentProfile
+    from app.models.job import JobProfile
+    from app.models.report import CareerReport
+
+    # Verify student profile exists
+    stmt = select(StudentProfile).where(StudentProfile.student_id == student_id)
+    result = await db.execute(stmt)
+    student_profile_model = result.scalar_one_or_none()
+    if not student_profile_model:
+        raise HTTPException(404, "学生画像不存在，请先上传简历")
+
+    student_profile = student_profile_model.profile_json or {}
+
+    # Verify job profile if provided
+    job_profile = {}
+    if job_profile_id:
+        job_stmt = select(JobProfile).where(JobProfile.id == job_profile_id)
+        job_result = await db.execute(job_stmt)
+        job_profile_model = job_result.scalar_one_or_none()
+        if job_profile_model:
+            job_profile = job_profile_model.profile_json or {}
+        else:
+            raise HTTPException(404, "岗位画像不存在")
+
+    # Create pending report record
+    db_report = CareerReport(
+        student_id=student_id,
+        content_json={"status": "generating", "chapters": []},
+        status="generating",
+    )
+    db.add(db_report)
+    await db.commit()
+    await db.refresh(db_report)
+
+    # Queue background generation using FastAPI BackgroundTasks
+
+    async def _generate_in_background():
+        """Background task to generate report chapters."""
+        from app.database import async_session_factory
+        from app.services.matching import match_student_job
+        from app.services.report_generator import ReportGeneratorService
+
+        async with async_session_factory() as bg_db:
+            try:
+                # Get matching result
+                if job_profile_id and student_profile:
+                    try:
+                        match_result = await match_student_job(
+                            db=bg_db,
+                            student_id=student_id,
+                            job_profile_id=job_profile_id,
+                        )
+                        matching_result = {
+                            "total_score": match_result.total_score or 0.0,
+                            "scores_json": match_result.scores_json or {},
+                            "gap_items": match_result.gaps_json or [],
+                        }
+                    except Exception as e:
+                        logger.warning(f"Matching failed in background: {e}")
+                        matching_result = {
+                            "total_score": 0.5,
+                            "scores_json": {
+                                "basic": {"score": 0.5},
+                                "skill": {"score": 0.5},
+                                "competency": {"score": 0.5},
+                                "potential": {"score": 0.5},
+                            },
+                            "gap_items": [],
+                        }
+                else:
+                    matching_result = {
+                        "total_score": 0.5,
+                        "scores_json": {
+                            "basic": {"score": 0.5},
+                            "skill": {"score": 0.5},
+                            "competency": {"score": 0.5},
+                            "potential": {"score": 0.5},
+                        },
+                        "gap_items": [],
+                    }
+
+                # Get related jobs
+                from sqlalchemy import select as sa_select
+                related_jobs_stmt = sa_select(JobProfile).limit(5)
+                related_result = await bg_db.execute(related_jobs_stmt)
+                related_jobs = []
+                for j in related_result.scalars().all():
+                    if j.id != job_profile_id:
+                        related_jobs.append({
+                            "role_name": j.role.name if j.role else None,
+                            "skill_overlap": "60%",
+                        })
+
+                # Generate report (collect all chapters)
+                service = ReportGeneratorService()
+                chapters = []
+                async for event in service.generate_report_stream(
+                    student_profile=student_profile,
+                    job_profile=job_profile,
+                    matching_result=matching_result,
+                    related_jobs=related_jobs,
+                    db=bg_db,
+                    student_id=student_id,
+                    job_profile_id=job_profile_id or UUID("00000000-0000-0000-0000-000000000000"),
+                ):
+                    if event.get("event") == "chapter":
+                        chapters.append(event.get("data"))
+
+                # Update report with completed content
+                report = await bg_db.get(CareerReport, db_report.id)
+                if report:
+                    report.content_json = {
+                        "status": "completed",
+                        "chapters": chapters,
+                        "chapter_count": len(chapters),
+                    }
+                    report.status = "completed"
+                    await bg_db.commit()
+
+            except Exception as e:
+                logger.error(f"Background report generation failed: {e}")
+                try:
+                    report = await bg_db.get(CareerReport, db_report.id)
+                    if report:
+                        report.content_json = {"status": "failed", "error": str(e)}
+                        report.status = "failed"
+                        await bg_db.commit()
+                except Exception:
+                    pass
+
+    # Add background task for report generation
+    # Note: For production, use an external task queue (Celery, etc.)
+    # FastAPI BackgroundTasks is suitable for development/testing
+    background_tasks.add_task(_generate_in_background)
+
+    return {
+        "report_id": str(db_report.id),
+        "status": "generating",
+        "message": "报告生成已启动，请使用 /reports/generate/{report_id}/status 轮询状态",
+    }
+
+
+@router.get("/generate/{report_id}/status", response_model=ReportGenerationStatus)
+async def get_report_generation_status(
+    report_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> ReportGenerationStatus:
+    """Poll for report generation status."""
+    report = await db.get(CareerReport, report_id)
+    if not report:
+        raise HTTPException(404, "Report not found")
+
+    content = report.content_json or {}
+    progress = 1.0 if report.status == "completed" else 0.0
+
+    if report.status == "generating":
+        chapters = content.get("chapters", [])
+        progress = min(len(chapters) / 5.0, 0.9)  # 5 chapters max
+
+    return ReportGenerationStatus(
+        report_id=report.id,
+        status=report.status,
+        progress=progress,
+        error=content.get("error"),
+        created_at=report.created_at.isoformat() if report.created_at else None,
+    )
+
+
 @router.post("/", response_model=CareerReportResponse, status_code=status.HTTP_201_CREATED)
 async def create_report(
     report: CareerReportCreate,
@@ -411,12 +604,21 @@ async def export_report(
         if not os.path.exists(file_path):
             raise HTTPException(status_code=500, detail="Export file not found")
 
-        # 返回文件
+        # 返回文件 - 根据文件扩展名确定 media_type
         filename = os.path.basename(file_path)
+        if file_path.endswith(".pdf"):
+            media_type = "application/pdf"
+        elif file_path.endswith(".html"):
+            media_type = "text/html"
+        elif file_path.endswith(".docx"):
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        else:
+            media_type = "application/octet-stream"
+
         return FileResponse(
             path=file_path,
             filename=filename,
-            media_type="application/octet-stream",
+            media_type=media_type,
         )
 
     except Exception as e:

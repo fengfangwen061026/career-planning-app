@@ -50,7 +50,9 @@ const ProfilePage: React.FC = () => {
       ? (profileJson.certificates as Array<Record<string, unknown>>).map((item) => String(item.name || '')).filter(Boolean)
       : []
   const awards = Array.isArray(profileJson.awards)
-    ? (profileJson.awards as Array<Record<string, unknown>>).map((item) => String(item.name || '')).filter(Boolean)
+    ? (profileJson.awards as Array<Record<string, unknown> | string>).map((item) =>
+        typeof item === 'string' ? item : String(item.name || item.title || '')
+      ).filter(Boolean)
     : []
   const softSkills = Array.isArray(profileJson.soft_skills) ? profileJson.soft_skills : []
   const missingSuggestions = profile?.missing_suggestions || []

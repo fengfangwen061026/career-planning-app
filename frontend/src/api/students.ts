@@ -55,4 +55,10 @@ export const studentsApi = {
     client.put<StudentProfileResponse>(`/students/${id}/profile`, {
       profile_json: data,
     }),
+
+  // Batch
+  batchGetStudentProfiles: (studentIds: string[]) =>
+    client.post<{ profiles: (StudentProfileResponse | null)[] }>('/students/profiles/batch', {
+      student_ids: studentIds,
+    }),
 };

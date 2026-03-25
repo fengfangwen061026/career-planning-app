@@ -110,6 +110,17 @@ class StudentProfileResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _handle_none_datetimes(cls, values):
+        """Handle None datetime values from database."""
+        if isinstance(values, dict):
+            if values.get("created_at") is None:
+                values["created_at"] = None
+            if values.get("updated_at") is None:
+                values["updated_at"] = None
+        return values
+
 
 class ResumeUploadResponse(BaseModel):
     """Response for resume upload with parsing results."""
@@ -123,3 +134,8 @@ class ResumeUploadResponse(BaseModel):
 class ProfileGenerateRequest(BaseModel):
     """Request to generate student profile from a resume."""
     resume_id: UUID
+
+
+class StudentProfileBatchRequest(BaseModel):
+    """Request to batch get student profiles."""
+    student_ids: list[UUID] = Field(..., max_length=100)

@@ -21,6 +21,7 @@ from app.schemas.student import (
     ProfileGenerateRequest,
     ResumeResponse,
     StudentCreate,
+    StudentProfileBatchRequest,
     StudentProfileResponse,
     StudentProfileUpdate,
     StudentResponse,
@@ -415,6 +416,122 @@ async def list_resumes(
     return [ResumeResponse.model_validate(resume) for resume in resumes]
 
 
+# Semaphore for limiting concurrent resume parsing
+_PARSE_SEMAPHORE = asyncio.Semaphore(5)
+
+
+async def _parse_single_resume(
+    student_id: UUID,
+    file: UploadFile,
+    db: AsyncSession,
+) -> dict:
+    """Parse a single resume file and return result."""
+    safe_filename = Path(file.filename).name if file.filename else f"resume_{int(time.time())}"
+    suffix = Path(safe_filename).suffix.lower()
+    if suffix not in (".pdf", ".docx", ".doc"):
+        return {
+            "filename": safe_filename,
+            "success": False,
+            "error": f"Unsupported file type: {suffix}",
+        }
+
+    upload_dir = Path(settings.upload_dir) / str(student_id)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    file_path = upload_dir / safe_filename
+
+    try:
+        with open(file_path, "wb") as target:
+            shutil.copyfileobj(file.file, target)
+
+        with open(file_path, "rb") as source:
+            file_content = source.read()
+        raw_text, _ = extract_text(file_content, safe_filename)
+    except Exception as exc:
+        return {
+            "filename": safe_filename,
+            "success": False,
+            "error": f"File processing failed: {str(exc)}",
+        }
+
+    if not raw_text:
+        return {
+            "filename": safe_filename,
+            "success": False,
+            "error": "Failed to extract text from file",
+        }
+
+    parse_result = await parse_resume_text(raw_text)
+    parsed_dict = fill_parse_result_evidence(parse_result.model_dump(mode="json"), raw_text)
+    validated = ResumeParseResult.model_validate(parsed_dict)
+
+    resume = Resume(
+        student_id=student_id,
+        filename=safe_filename,
+        file_path=str(file_path),
+        file_type=suffix.lstrip("."),
+        raw_text=raw_text,
+        parsed_json=validated.model_dump(mode="json"),
+        is_primary=False,
+    )
+    db.add(resume)
+    await db.flush()
+    await db.refresh(resume)
+
+    try:
+        await update_student_basic_info(student_id, validated.model_dump(), db)
+    except Exception:
+        pass  # Non-critical
+
+    return {
+        "resume_id": str(resume.id),
+        "filename": resume.filename,
+        "success": True,
+        "parsed_data": validated.model_dump(mode="json"),
+        "completeness_score": _calculate_completeness(validated),
+    }
+
+
+@router.post("/batch-parse", status_code=status.HTTP_201_CREATED)
+async def batch_parse_resumes(
+    files: list[UploadFile],
+    student_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Parse multiple resume files in parallel (max 5 concurrent).
+
+    Each file is uploaded, parsed, and returned with structured results.
+    Use this endpoint for bulk resume processing.
+    """
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+
+    if len(files) > 20:
+        raise HTTPException(status_code=400, detail="Maximum 20 files per batch")
+
+    async def sem_parse(file: UploadFile) -> dict:
+        async with _PARSE_SEMAPHORE:
+            return await _parse_single_resume(student_id, file, db)
+
+    tasks = [sem_parse(f) for f in files]
+    results = await asyncio.gather(*tasks)
+
+    await db.commit()
+
+    successes = [r for r in results if r.get("success")]
+    failures = [r for r in results if not r.get("success")]
+
+    return {
+        "total": len(files),
+        "successes": len(successes),
+        "failures": len(failures),
+        "results": results,
+    }
+
+
 @router.get("/{student_id}/resumes/{resume_id}", response_model=ResumeResponse)
 async def get_resume(
     student_id: UUID,
@@ -445,6 +562,31 @@ async def get_student_profile(
     evidence = profile.evidence_json or {}
     response.missing_suggestions = evidence.get("missing_suggestions")
     return response
+
+
+@router.post("/profiles/batch", response_model=dict[str, list[StudentProfileResponse | None]])
+async def batch_get_student_profiles(
+    request: StudentProfileBatchRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, list[StudentProfileResponse | None]]:
+    """Batch get student profiles by student IDs."""
+    profiles = await db.execute(
+        select(StudentProfile).where(StudentProfile.student_id.in_(request.student_ids))
+    )
+    profile_map = {str(p.student_id): p for p in profiles.scalars().all()}
+
+    result: list[StudentProfileResponse | None] = []
+    for student_id in request.student_ids:
+        profile = profile_map.get(student_id)
+        if profile:
+            response = StudentProfileResponse.model_validate(profile)
+            evidence = profile.evidence_json or {}
+            response.missing_suggestions = evidence.get("missing_suggestions")
+            result.append(response)
+        else:
+            result.append(None)
+
+    return {"profiles": result}
 
 
 @router.put("/{student_id}/profile", response_model=StudentProfileResponse)

@@ -28,6 +28,18 @@ const ParsingPage: React.FC = () => {
     return undefined
   }, [navigate, profile, uploadState.status])
 
+  // If user refreshed the page while on /parsing, uploadState will be idle.
+  // Redirect back to upload after a short delay so they're not stuck.
+  useEffect(() => {
+    if (uploadState.status === 'idle') {
+      const timer = window.setTimeout(() => {
+        navigate('/upload', { replace: true })
+      }, 1500)
+      return () => window.clearTimeout(timer)
+    }
+    return undefined
+  }, [navigate, uploadState.status])
+
   const activeIndex = progressSteps.findIndex((step) => step.key === uploadState.stage)
   const normalizedActiveIndex = activeIndex >= 0 ? activeIndex : 0
 

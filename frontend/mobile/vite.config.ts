@@ -14,10 +14,10 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5176,
     proxy: {
-      '/api/students/[^/]+/upload-resume/stream': {
+      // SSE streaming upload – must be declared before the catch-all /api rule
+      '^/api/students/[^/]+/upload-resume/stream': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
-        selfHandleResponse: false,
         configure: (proxy) => {
           proxy.on('proxyRes', (proxyRes) => {
             proxyRes.headers['x-accel-buffering'] = 'no'
@@ -25,19 +25,21 @@ export default defineConfig({
           })
         },
       },
+      // SSE streaming report generation
+      '^/api/reports/generate/stream': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            proxyRes.headers['x-accel-buffering'] = 'no'
+            proxyRes.headers['cache-control'] = 'no-cache'
+          })
+        },
+      },
+      // Generic API catch-all
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
-      },
-      '/api/reports/generate/stream': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
-        configure: (proxy) => {
-          proxy.on('proxyRes', (proxyRes) => {
-            proxyRes.headers['x-accel-buffering'] = 'no'
-            proxyRes.headers['cache-control'] = 'no-cache'
-          })
-        },
       },
     },
   }

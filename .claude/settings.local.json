@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(ssh openclaw:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_run_code"
     ]
   }
 }

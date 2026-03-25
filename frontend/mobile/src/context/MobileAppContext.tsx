@@ -52,6 +52,7 @@ interface MobileAppContextValue {
   currentReport: CareerReportResponse | null
   completionSession: ProfileCompletionSessionResponse | null
   isLoadingProfile: boolean
+  profileFetchError: boolean
   isLoadingRecommendations: boolean
   isLoadingReports: boolean
   bootstrapSession: (payload: StudentSessionRequest) => Promise<BootstrapResult>
@@ -63,6 +64,8 @@ interface MobileAppContextValue {
   getMatchResultById: (matchId: string) => Promise<MatchResultResponse>
   refreshReports: () => Promise<CareerReportResponse[]>
   generateReport: (jobProfileIds?: string[]) => Promise<CareerReportResponse>
+  polishReport: (reportId: string) => Promise<{ polished: boolean; changes: string[]; version: string }>
+  checkReportCompleteness: (reportId: string) => Promise<{ complete: boolean; missing_items: string[]; suggestions: string[] }>
   loadCompletionSession: () => Promise<ProfileCompletionSessionResponse | null>
   applyCompletionAnswers: (payload: ProfileCompletionApplyRequest) => Promise<StudentProfileResponse>
   clearSession: () => void
@@ -125,6 +128,7 @@ export function MobileAppProvider({ children }: { children: React.ReactNode }) {
   const [currentReport, setCurrentReport] = useState<CareerReportResponse | null>(null)
   const [completionSession, setCompletionSession] = useState<ProfileCompletionSessionResponse | null>(null)
   const [isLoadingProfile, setIsLoadingProfile] = useState(false)
+  const [profileFetchError, setProfileFetchError] = useState(false)
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false)
   const [isLoadingReports, setIsLoadingReports] = useState(false)
   const recommendationRequestRef = useRef<{
@@ -159,7 +163,7 @@ export function MobileAppProvider({ children }: { children: React.ReactNode }) {
       return
     }
     if (hasProfile) {
-      if (!profile && !isLoadingProfile) {
+      if (!profile && !isLoadingProfile && !profileFetchError) {
         void restoreStudentProfile()
       }
     } else {
@@ -167,7 +171,7 @@ export function MobileAppProvider({ children }: { children: React.ReactNode }) {
       setReports([])
       setCurrentReport(null)
     }
-  }, [currentStudent?.id, hasProfile, isHydrated, isLoadingProfile, profile])
+  }, [currentStudent?.id, hasProfile, isHydrated, isLoadingProfile, profile, profileFetchError])
 
   function persistSession(student: StudentResponse, nextHasProfile: boolean) {
     localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
@@ -199,6 +203,7 @@ export function MobileAppProvider({ children }: { children: React.ReactNode }) {
     }
 
     setIsLoadingProfile(true)
+    setProfileFetchError(false)
     try {
       const response = await studentsApi.getStudentProfile(currentStudent.id)
       setProfile(response.data)
@@ -210,6 +215,7 @@ export function MobileAppProvider({ children }: { children: React.ReactNode }) {
         setProfile(null)
         return null
       }
+      setProfileFetchError(true)
       throw error
     } finally {
       setIsLoadingProfile(false)
@@ -232,6 +238,7 @@ export function MobileAppProvider({ children }: { children: React.ReactNode }) {
     setUploadState(defaultUploadState)
     clearRecommendationRequest()
 
+    setProfileFetchError(false)
     let restoredProfile: StudentProfileResponse | null = null
     if (nextHasProfile) {
       try {
@@ -240,6 +247,7 @@ export function MobileAppProvider({ children }: { children: React.ReactNode }) {
         setProfile(restoredProfile)
       } catch (error) {
         if (!isAxiosNotFound(error)) {
+          setProfileFetchError(true)
           throw error
         }
         setHasProfile(false)
@@ -526,6 +534,17 @@ export function MobileAppProvider({ children }: { children: React.ReactNode }) {
     return response.data
   }
 
+  async function polishReport(reportId: string): Promise<{ polished: boolean; changes: string[]; version: string }> {
+    const response = await reportsApi.polishReport(reportId)
+    await refreshReports()
+    return response.data
+  }
+
+  async function checkReportCompleteness(reportId: string): Promise<{ complete: boolean; missing_items: string[]; suggestions: string[] }> {
+    const response = await reportsApi.checkReportCompleteness(reportId)
+    return response.data
+  }
+
   async function loadCompletionSession(): Promise<ProfileCompletionSessionResponse | null> {
     if (!currentStudent) {
       return null
@@ -559,6 +578,7 @@ export function MobileAppProvider({ children }: { children: React.ReactNode }) {
     setCurrentStudent(null)
     setHasProfile(false)
     setProfile(null)
+    setProfileFetchError(false)
     setLastResume(null)
     setUploadState(defaultUploadState)
     setRecommendations([])
@@ -582,6 +602,7 @@ export function MobileAppProvider({ children }: { children: React.ReactNode }) {
     currentReport,
     completionSession,
     isLoadingProfile,
+    profileFetchError,
     isLoadingRecommendations,
     isLoadingReports,
     bootstrapSession,
@@ -593,6 +614,8 @@ export function MobileAppProvider({ children }: { children: React.ReactNode }) {
     getMatchResultById,
     refreshReports,
     generateReport,
+    polishReport,
+    checkReportCompleteness,
     loadCompletionSession,
     applyCompletionAnswers,
     clearSession,

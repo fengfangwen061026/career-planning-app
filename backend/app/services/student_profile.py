@@ -448,9 +448,13 @@ async def generate_student_profile(
     completeness_score = compute_completeness_score(parse_result)
     missing_suggestions = generate_missing_suggestions(parse_result)
 
-    # 生成 embedding
-    summary = _build_profile_summary(profile_json)
-    profile_embedding = await embedding.embed(summary)
+    # 生成 embedding（失败时降级为 None，不阻塞画像保存）
+    try:
+        summary = _build_profile_summary(profile_json)
+        profile_embedding = await embedding.embed(summary)
+    except Exception as emb_err:
+        logger.warning("Profile embedding failed, storing profile without embedding: %s", emb_err)
+        profile_embedding = None
 
     # 查找是否已有画像
     existing_result = await db.execute(

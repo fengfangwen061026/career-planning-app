@@ -24,6 +24,9 @@ async_session_factory = async_sessionmaker(
     expire_on_commit=False,
 )
 
+# Alias for backwards compatibility with code that uses either name
+async_session_maker = async_session_factory
+
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Dependency for getting database session."""

@@ -38,33 +38,33 @@ def _escape_html(text: str) -> str:
 REPORT_CHAPTERS = [
     {
         "chapter_id": 1,
-        "title": "个人画像分析",
-        "description": "基于简历解析的学生四维画像分析",
-        "sections": ["基本条件", "专业技能", "软性素养", "成长潜力"],
+        "title": "个人能力画像摘要",
+        "description": "基于简历解析的学生核心竞争力总结",
+        "sections": ["突出优势", "证据来源", "目标岗位匹配点", "一句话定位"],
     },
     {
         "chapter_id": 2,
         "title": "目标岗位分析",
-        "description": "推荐岗位的岗位画像和要求分析",
-        "sections": ["岗位基本信息", "技能要求", "素养要求", "发展通道"],
+        "description": "推荐岗位的匹配度分析和四维评分",
+        "sections": ["岗位核心要求", "四维匹配度分析", "行业发展趋势", "薪资范围与发展前景"],
     },
     {
         "chapter_id": 3,
-        "title": "人岗匹配评估",
-        "description": "四维度人岗匹配评分和差距分析",
-        "sections": ["基础要求匹配", "技能匹配度", "职业素养评估", "发展潜力评估", "综合评分"],
+        "title": "差距与行动计划",
+        "description": "能力差距分析和短期/中期行动计划",
+        "sections": ["Top差距清单", "必须补齐", "建议提升", "短期行动(1-3月)", "中期行动(3-12月)"],
     },
     {
         "chapter_id": 4,
-        "title": "能力差距与提升建议",
-        "description": "基于差距分析的能力提升建议",
-        "sections": ["技能差距清单", "素养提升建议", "行动计划", "学习资源推荐"],
+        "title": "职业路径规划",
+        "description": "基于图谱的垂直晋升和横向转岗路径",
+        "sections": ["垂直晋升路径", "横向转岗可能性", "推荐主路径"],
     },
     {
         "chapter_id": 5,
-        "title": "职业发展规划",
-        "description": "基于图谱的职业发展路径规划",
-        "sections": ["当前定位", "晋升路径", "转岗路径", "行动计划时间表"],
+        "title": "评估周期与指标",
+        "description": "自评周期和可量化的阶段检查点",
+        "sections": ["评估周期", "短期指标(1-3月)", "中期指标(3-12月)", "动态调整建议"],
     },
 ]
 
@@ -328,8 +328,8 @@ async def generate_chapters(
     matching_str = json.dumps(matching_results[:5], ensure_ascii=False, indent=2)
     path_str = json.dumps(career_path or {}, ensure_ascii=False, indent=2)
 
-    # 逐章节生成
-    for chapter in chapters:
+    async def _generate_single_chapter(chapter: dict[str, Any]) -> dict[str, Any]:
+        """生成单个章节内容。失败时返回兜底内容。"""
         chapter_id = chapter.get("chapter_id", 1)
         title = chapter.get("title", "")
         description = chapter.get("description", "")
@@ -355,24 +355,31 @@ async def generate_chapters(
                 ),
                 timeout=REPORT_LLM_TIMEOUT_SECONDS,
             )
-
-            # 确保基本结构
-            chapter_content = {
+            logger.info("Generated chapter %d: %s", chapter_id, title)
+            return {
                 "chapter_id": chapter_id,
                 "title": result.get("title", title),
                 "sections": result.get("sections", []),
                 "tables": result.get("tables", []),
                 "charts": result.get("charts", []),
             }
-
-            chapter_contents.append(chapter_content)
-            logger.info("Generated chapter %d: %s", chapter_id, title)
-
         except Exception as e:
             logger.error("Failed to generate chapter %d: %s", chapter_id, e)
+            return _build_fallback_chapter(chapter, student_profile, matching_results, career_path)
+
+    # 并行生成所有章节
+    tasks = [_generate_single_chapter(chapter) for chapter in chapters]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # 按顺序提取结果，过滤异常
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            chapter = chapters[i]
             chapter_contents.append(
                 _build_fallback_chapter(chapter, student_profile, matching_results, career_path)
             )
+        else:
+            chapter_contents.append(result)
 
     return chapter_contents
 
@@ -691,52 +698,43 @@ async def check_completeness(report_id: UUID, db: AsyncSession) -> dict[str, Any
 
 
 async def export_to_pdf(report_id: UUID, db: AsyncSession) -> str:
-    """导出 PDF 报告.
+    """导出 PDF 报告（使用 Playwright Chromium 渲染）.
 
     Args:
         report_id: 报告 ID
         db: 数据库会话
 
     Returns:
-        PDF 文件路径
+        PDF 文件路径（失败时回退为 HTML 文件路径）
     """
-    # 尝试导入 weasyprint
-    try:
-        from weasyprint import HTML
-    except ImportError:
-        logger.warning("weasyprint not installed, using basic HTML export")
-        return await _export_to_html(report_id, db)
-
-    # 加载报告
     report = await db.get(CareerReport, report_id)
     if not report:
         raise ValueError(f"Report {report_id} not found")
 
     content = report.content_json or {}
-
-    # 生成 HTML 内容
     html_content = _build_export_html(report, content)
 
-    # 确保输出目录存在
     os.makedirs(PDF_OUTPUT_DIR, exist_ok=True)
 
-    # 生成文件名
     filename = f"career_report_{report.student_id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.pdf"
     pdf_path = os.path.join(PDF_OUTPUT_DIR, filename)
 
-    # 转换 PDF
     try:
-        HTML(string=html_content).write_pdf(pdf_path)
-        logger.info("Exported PDF to %s", pdf_path)
+        from playwright.async_api import async_playwright
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            page = await browser.new_page()
+            await page.set_content(html_content, wait_until="domcontentloaded")
+            await page.pdf(path=pdf_path, format="A4", print_background=True)
+            await browser.close()
+        logger.info("Exported PDF via Playwright: %s", pdf_path)
+    except ImportError:
+        logger.warning("playwright not installed, falling back to HTML export")
+        return await _export_to_html(report_id, db)
     except Exception as e:
-        logger.error("Failed to generate PDF: %s", e)
-        # 回退到 HTML
-        html_path = pdf_path.replace(".pdf", ".html")
-        with open(html_path, "w", encoding="utf-8") as f:
-            f.write(html_content)
-        return html_path
+        logger.error("Playwright PDF failed: %s, falling back to HTML", e)
+        return await _export_to_html(report_id, db)
 
-    # 更新报告的 PDF 路径
     report.pdf_path = pdf_path
     await db.commit()
 

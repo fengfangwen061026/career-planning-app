@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     embedding_api_key: str
     embedding_model: str
 
+    # LLM Concurrency Control
+    llm_concurrent_limit: int = 10
+
     # Application
     app_name: str = "Career Planner API"
     debug: bool = False

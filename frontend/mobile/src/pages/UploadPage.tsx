@@ -29,7 +29,11 @@ const UploadPage: React.FC = () => {
 
     try {
       await startResumeUpload(file)
+      // startResumeUpload sets uploadState.status = 'completed' on success;
+      // ParsingPage will auto-navigate to /profile.
     } catch (uploadError) {
+      // uploadState.status is set to 'error' inside startResumeUpload,
+      // so ParsingPage shows the error. No need to show it here.
       const message = uploadError instanceof Error ? uploadError.message : '上传失败，请稍后重试'
       setError(message)
     } finally {

@@ -6,6 +6,7 @@ from app.models.job_transition import JobTransition
 from app.models.matching import MatchResult, MatchScore
 from app.models.report import CareerReport, ReportVersion
 from app.models.skill_dictionary import SkillDictionary
+from app.models.skill_embedding import SkillEmbedding
 from app.models.student import Resume, Student, StudentProfile
 
 __all__ = [
@@ -30,4 +31,6 @@ __all__ = [
     "GraphCache",
     # Skill dictionary
     "SkillDictionary",
+    # Skill embedding
+    "SkillEmbedding",
 ]

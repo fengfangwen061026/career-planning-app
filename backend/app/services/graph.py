@@ -19,9 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.graph import GraphEdge, GraphNode
+from app.models.graph_cache import CareerPathCache
 from app.models.job import Job, JobProfile, Role
 
 logger = logging.getLogger(__name__)
+
+# Graph version counter (incremented on each build to invalidate path caches)
+_GRAPH_VERSION: str = "v1"
 
 # 职级顺序定义
 LEVEL_ORDER = ["entry", "growing", "mature", "expert"]
@@ -117,8 +121,8 @@ def calc_promotion_difficulty(
     difficulty = 0.4 * level_d + 0.3 * skill_density + 0.3 * (0.5 + jitter)
     return round(max(0.2, min(0.95, difficulty)), 3)
 
-# 技能重叠度阈值
-TRANSITION_THRESHOLD = 0.15
+# 技能重叠度阈值（降低以适应实际数据重叠度）
+TRANSITION_THRESHOLD = 0.03
 
 # 单个节点最大 transition 边数
 MAX_TRANSITIONS_PER_NODE = 5
@@ -173,44 +177,51 @@ def _get_skills_from_profile(profile_json: dict[str, Any]) -> list[str]:
     skills: list[str] = []
 
     # 技能在根层的 technical_skills 下
+    # 支持两种格式：字典格式（旧）和列表格式（新）
     tech_skills = profile_json.get("technical_skills", {})
     if tech_skills:
-        # 编程语言
-        for item in tech_skills.get("programming_languages", []):
-            name = item.get("name", "")
-            if name:
-                skills.append(name.lower())
+        if isinstance(tech_skills, dict):
+            # 字典格式：按类别组织
+            for category_key in ["programming_languages", "frameworks_and_libraries",
+                                   "tools_and_platforms", "databases", "other_technical"]:
+                for item in tech_skills.get(category_key, []):
+                    if isinstance(item, dict):
+                        # 支持多种 key 名称
+                        name = item.get("name") or item.get("skill_name") or item.get("skill") or ""
+                    elif isinstance(item, str):
+                        name = item
+                    else:
+                        name = ""
+                    if name:
+                        skills.append(name.lower())
+        elif isinstance(tech_skills, list):
+            # 列表格式：每个元素可能是字符串，也可能是字典
+            for item in tech_skills:
+                if isinstance(item, str):
+                    skills.append(item.lower())
+                elif isinstance(item, dict):
+                    # 支持多种 key 名称
+                    name = item.get("name") or item.get("skill_name") or item.get("skill") or ""
+                    if name:
+                        skills.append(name.lower())
 
-        # 框架和库
-        for item in tech_skills.get("frameworks_and_libraries", []):
-            name = item.get("name", "")
-            if name:
-                skills.append(name.lower())
-
-        # 工具和平台
-        for item in tech_skills.get("tools_and_platforms", []):
-            name = item.get("name", "")
-            if name:
-                skills.append(name.lower())
-
-        # 数据库
-        for item in tech_skills.get("databases", []):
-            name = item.get("name", "")
-            if name:
-                skills.append(name.lower())
-
-        # 其他技术技能
-        for item in tech_skills.get("other_technical", []):
-            name = item.get("name", "")
-            if name:
-                skills.append(name.lower())
-
-    # 软技能
+    # 软技能：支持 soft_skills（字典格式）和 soft_competencies（对象格式）
     soft_skills = profile_json.get("soft_skills", [])
     for item in soft_skills:
-        name = item.get("name", "")
-        if name:
-            skills.append(name.lower())
+        if isinstance(item, str):
+            skills.append(item.lower())
+        elif isinstance(item, dict):
+            name = item.get("name") or item.get("skill") or ""
+            if name:
+                skills.append(name.lower())
+
+    # soft_competencies 格式：{"communication": {"value": 5, ...}, ...}
+    soft_competencies = profile_json.get("soft_competencies", {})
+    if isinstance(soft_competencies, dict):
+        for skill_name, skill_data in soft_competencies.items():
+            if isinstance(skill_data, dict) and "value" in skill_data:
+                # 使用 key 作为技能名
+                skills.append(skill_name.lower())
 
     # 去重
     return list(set(skills))
@@ -263,6 +274,12 @@ async def build_vertical_paths(db: AsyncSession) -> dict[str, Any]:
     )
     roles = list(result.scalars().all())
 
+    # 批量预加载已存在的节点，消除节点查询的 N+1
+    all_nodes_result = await db.execute(select(GraphNode))
+    existing_nodes: dict[tuple[str, str], GraphNode] = {}
+    for n in all_nodes_result.scalars().all():
+        existing_nodes[(str(n.role_id), n.level)] = n
+
     nodes_created = 0
     edges_created = 0
 
@@ -291,14 +308,8 @@ async def build_vertical_paths(db: AsyncSession) -> dict[str, Any]:
         for level in sorted_levels:
             node_name = f"{role.name}-{LEVEL_CN_MAP.get(level, level)}"
 
-            # 检查节点是否已存在
-            existing = await db.execute(
-                select(GraphNode).where(
-                    GraphNode.role_id == role.id,
-                    GraphNode.level == level,
-                )
-            )
-            node = existing.scalar_one_or_none()
+            # 检查节点是否已存在（使用预加载的dict而非每次查询数据库）
+            node = existing_nodes.get((str(role.id), level))
 
             if not node:
                 node = GraphNode(
@@ -326,16 +337,6 @@ async def build_vertical_paths(db: AsyncSession) -> dict[str, Any]:
             source_node = level_nodes[source_level]
             target_node = level_nodes[target_level]
 
-            # 检查边是否已存在
-            existing_edge = await db.execute(
-                select(GraphEdge).where(
-                    GraphEdge.source_node_id == source_node.id,
-                    GraphEdge.target_node_id == target_node.id,
-                    GraphEdge.edge_type == "vertical",
-                )
-            )
-            edge = existing_edge.scalar_one_or_none()
-
             # 计算晋升难度（使用三因素加权计算）
             difficulty = calc_promotion_difficulty(
                 from_level=source_level,
@@ -345,32 +346,13 @@ async def build_vertical_paths(db: AsyncSession) -> dict[str, Any]:
             )
             weight = round(1.0 - difficulty * 0.8, 3)
 
-            if not edge:
-                # 边不存在，创建新边
-                edge = GraphEdge(
-                    source_node_id=source_node.id,
-                    target_node_id=target_node.id,
-                    edge_type="vertical",
-                    weight=weight,
-                    explanation_json={
-                        "type": "vertical_promotion",
-                        "from_level": source_level,
-                        "to_level": target_level,
-                        "difficulty": difficulty,
-                        "description": f"从{LEVEL_CN_MAP.get(source_level, source_level)}到{LEVEL_CN_MAP.get(target_level, target_level)}的晋升路径",
-                        "action_items": [
-                            "提升专业技术深度",
-                            "积累项目经验",
-                            "培养团队协作能力",
-                        ],
-                    },
-                )
-                db.add(edge)
-                edges_created += 1
-            else:
-                # 边已存在，更新 difficulty 和 weight
-                edge.weight = weight
-                edge.explanation_json = {
+            # 直接创建新边（因为前面已删除所有垂直边，不存在重复问题）
+            edge = GraphEdge(
+                source_node_id=source_node.id,
+                target_node_id=target_node.id,
+                edge_type="vertical",
+                weight=weight,
+                explanation_json={
                     "type": "vertical_promotion",
                     "from_level": source_level,
                     "to_level": target_level,
@@ -381,8 +363,10 @@ async def build_vertical_paths(db: AsyncSession) -> dict[str, Any]:
                         "积累项目经验",
                         "培养团队协作能力",
                     ],
-                }
-                edges_created += 1
+                },
+            )
+            db.add(edge)
+            edges_created += 1
 
     await db.commit()
 
@@ -402,10 +386,19 @@ async def build_transition_paths(db: AsyncSession) -> dict[str, Any]:
 
     约束：
     - 只连接不同 Role 的节点
-    - 每个节点最多 MAX_TRANSITIONS_PER_NODE 条 transition 边
+    - 每个节点最多 MAX_TRANSITIONS_PER_NODE 条 lateral_transfer 边
     - 只取 overlap_ratio 最高的边
     """
     from collections import defaultdict
+
+    # 先删除所有现有的 transition 和 lateral_transfer 边，强制重建
+    from sqlalchemy import delete, or_
+    await db.execute(
+        delete(GraphEdge).where(
+            or_(GraphEdge.edge_type == "transition", GraphEdge.edge_type == "lateral_transfer")
+        )
+    )
+    await db.commit()
 
     # 获取所有有 profile 的 Role
     result = await db.execute(
@@ -458,6 +451,14 @@ async def build_transition_paths(db: AsyncSession) -> dict[str, Any]:
     node_edge_count: dict[str, int] = defaultdict(int)
     edges_created = 0
 
+    # 批量预加载已存在的 lateral_transfer 边，消除 N+1 查询
+    existing_edges_result = await db.execute(
+        select(GraphEdge).where(GraphEdge.edge_type == "lateral_transfer")
+    )
+    existing_edge_keys: set[tuple[str, str]] = set()
+    for e in existing_edges_result.scalars().all():
+        existing_edge_keys.add((str(e.source_node_id), str(e.target_node_id)))
+
     for item in potential_edges:
         role_id1_str, role_id2_str, overlap_ratio, transferable, gap, role1_name, role2_name = item
         role_id1 = UUID(role_id1_str)
@@ -475,15 +476,8 @@ async def build_transition_paths(db: AsyncSession) -> dict[str, Any]:
         if node_edge_count.get(str(node2.id), 0) >= MAX_TRANSITIONS_PER_NODE:
             continue
 
-        # 检查边是否已存在
-        existing = await db.execute(
-            select(GraphEdge).where(
-                GraphEdge.source_node_id == node1.id,
-                GraphEdge.target_node_id == node2.id,
-                GraphEdge.edge_type == "transition",
-            )
-        )
-        if existing.scalar_one_or_none():
+        # 检查边是否已存在（使用预加载的set而非每次查询数据库）
+        if (str(node1.id), str(node2.id)) in existing_edge_keys:
             continue
 
         # 计算转岗可行性分数
@@ -493,7 +487,7 @@ async def build_transition_paths(db: AsyncSession) -> dict[str, Any]:
         edge = GraphEdge(
             source_node_id=node1.id,
             target_node_id=node2.id,
-            edge_type="transition",
+            edge_type="lateral_transfer",
             weight=feasibility,
             explanation_json={
                 "type": "skill_transition",
@@ -529,7 +523,9 @@ async def build_job_graph(db: AsyncSession) -> dict[str, Any]:
     依次执行：
     1. 垂直晋升路径构建
     2. 横向换岗路径构建
+    3. 清空路径缓存（递增版本号）
     """
+    global _GRAPH_VERSION
     logger.info("Starting job graph construction...")
 
     vertical_result = await build_vertical_paths(db)
@@ -537,6 +533,16 @@ async def build_job_graph(db: AsyncSession) -> dict[str, Any]:
 
     transition_result = await build_transition_paths(db)
     logger.info(f"Transition paths built: {transition_result}")
+
+    # 清空路径缓存（通过删除所有记录）
+    from sqlalchemy import delete
+    await db.execute(delete(CareerPathCache))
+    await db.commit()
+
+    # 递增版本号使缓存失效
+    import time
+    _GRAPH_VERSION = f"v{int(time.time())}"
+    logger.info(f"Career path cache cleared, new graph version: {_GRAPH_VERSION}")
 
     return {
         "vertical": vertical_result,
@@ -649,25 +655,31 @@ async def find_path_dijkstra(
     path_ids.reverse()
     edge_info_list.reverse()
 
-    # 构建结果
+    # 构建结果 - 批量获取所有节点避免 N+1 查询
     result_path: list[dict[str, Any]] = []
 
-    for i, node_id in enumerate(path_ids):
-        node = await db.get(GraphNode, node_id)
-        if not node:
-            continue
+    if path_ids:
+        nodes_result = await db.execute(
+            select(GraphNode).where(GraphNode.id.in_(path_ids))
+        )
+        nodes_map = {node.id: node for node in nodes_result.scalars().all()}
 
-        step_info: dict[str, Any] = {
-            "node_id": str(node.id),
-            "name": node.name,
-            "level": node.level,
-            "node_type": node.node_type,
-        }
+        for i, node_id in enumerate(path_ids):
+            node = nodes_map.get(node_id)
+            if not node:
+                continue
 
-        if i > 0 and i <= len(edge_info_list):
-            step_info["edge"] = edge_info_list[i - 1]
+            step_info: dict[str, Any] = {
+                "node_id": str(node.id),
+                "name": node.name,
+                "level": node.level,
+                "node_type": node.node_type,
+            }
 
-        result_path.append(step_info)
+            if i > 0 and i <= len(edge_info_list):
+                step_info["edge"] = edge_info_list[i - 1]
+
+            result_path.append(step_info)
 
     return result_path
 
@@ -689,6 +701,18 @@ async def find_career_paths(
     Returns:
         职业发展路径列表
     """
+    # 缓存查找
+    cache_key = f"career_paths:{from_role}:{to_role}:{from_level}"
+    cached_result = await db.execute(
+        select(CareerPathCache).where(
+            CareerPathCache.cache_key == cache_key,
+            CareerPathCache.graph_version == _GRAPH_VERSION,
+        )
+    )
+    cached = cached_result.scalar_one_or_none()
+    if cached is not None:
+        return cached.result_json
+
     # 查找起始节点
     from_node_result = await db.execute(
         select(GraphNode).where(
@@ -727,6 +751,17 @@ async def find_career_paths(
     # 按路径长度排序
     all_paths.sort(key=lambda x: x["total_steps"])
 
+    # 写入缓存
+    db.add(CareerPathCache(
+        cache_key=cache_key,
+        query_type="career_paths",
+        from_role=from_role,
+        to_role=to_role,
+        result_json=all_paths,
+        graph_version=_GRAPH_VERSION,
+    ))
+    await db.commit()
+
     return all_paths
 
 
@@ -758,6 +793,21 @@ async def find_path_with_student_profile(
     # 从学生画像获取当前 Role（如果有）
     current_role = student_profile.get("basic_info", {}).get("target_role", "")
     current_level = student_profile.get("basic_info", {}).get("level", "entry")
+
+    # 缓存查找（基于稳定参数）
+    student_id = student_profile.get("basic_info", {}).get("student_id", "")
+    cache_key = f"student_path:{current_role}:{current_level}:{target_role}:{target_level}"
+    cached_result = await db.execute(
+        select(CareerPathCache).where(
+            CareerPathCache.cache_key == cache_key,
+            CareerPathCache.graph_version == _GRAPH_VERSION,
+        )
+    )
+    cached = cached_result.scalar_one_or_none()
+    if cached is not None:
+        result = dict(cached.result_json)
+        result["student_skills"] = student_skills
+        return result
 
     # 查找起始节点
     if current_role:
@@ -826,7 +876,7 @@ async def find_path_with_student_profile(
     # 生成行动计划
     action_plan = _generate_action_plan(main_path, student_skills, target_role)
 
-    return {
+    result = {
         "student_skills": student_skills,
         "target_role": target_role,
         "target_level": target_level,
@@ -834,6 +884,20 @@ async def find_path_with_student_profile(
         "alternative_paths": alternative_paths[:3],  # 最多返回3条备选路径
         "action_plan": action_plan,
     }
+
+    # 写入缓存
+    db.add(CareerPathCache(
+        cache_key=cache_key,
+        query_type="student_path",
+        from_role=current_role,
+        to_role=target_role,
+        student_id=student_id,
+        result_json=result,
+        graph_version=_GRAPH_VERSION,
+    ))
+    await db.commit()
+
+    return result
 
 
 def _generate_action_plan(

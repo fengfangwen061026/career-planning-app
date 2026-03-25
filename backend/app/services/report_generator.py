@@ -65,60 +65,96 @@ class ReportGeneratorService:
                 "target_job_name": job_profile.get("role_name", job_profile.get("title", "未知岗位")),
                 "dimensions": matching_result.get("scores_json", {}),
             },
-            "chapters": {},
+            "chapters": [],
         }
 
-        for i in range(5):
-            chapter_num = i + 1
-            field_name = chapter_keys[i]
-            title = chapter_titles[i]
+        # 预处理共享数据（避免重复序列化）
+        profile_str = json.dumps(student_profile, ensure_ascii=False, indent=2)[:3000]
+        matching_str = json.dumps(matching_result, ensure_ascii=False, indent=2)[:3000]
+        job_str = json.dumps(job_profile, ensure_ascii=False, indent=2)[:3000]
+        related_jobs_str = json.dumps(
+            [{"Name": j.get("role_name") or j.get("title", "未知岗位"), "overlap": j.get("skill_overlap", "未知")}
+             for j in related_jobs[:5]],
+            ensure_ascii=False,
+        )
+        gap_summary_str = json.dumps(matching_result.get("gap_items", [])[:5], ensure_ascii=False)[:2000] if matching_result.get("gap_items") else "[]"
+        job_title = job_profile.get("role_name") or job_profile.get("title") or "未知岗位"
 
-            # 通知前端开始生成第N章
-            yield f"data: {json.dumps({'chapter': chapter_num, 'status': 'generating', 'title': title}, ensure_ascii=False)}\n\n"
+        async def _generate_chapter(idx: int) -> tuple[int, str, str, str | Exception]:
+            """并行生成单章，返回 (chapter_num, field_name, title, content_or_error)。"""
+            chapter_num = idx + 1
+            field_name = chapter_keys[idx]
+            title = chapter_titles[idx]
 
             try:
-                # 准备 prompt 变量
-                prompt_vars = self._prepare_prompt_vars(
-                    chapter_num=chapter_num,
-                    student_profile=student_profile,
-                    job_profile=job_profile,
-                    matching_result=matching_result,
-                    related_jobs=related_jobs,
-                )
+                prompt_vars = {
+                    "student_profile": profile_str,
+                    "job_profile": job_str,
+                    "matching_result": matching_str,
+                    "target_job_name": job_title,
+                    "match_score": matching_result.get("total_score", 0),
+                    "student_skills": json.dumps(student_profile.get("skills", []), ensure_ascii=False)[:2000],
+                    "student_summary": json.dumps({
+                        k: student_profile.get(k)
+                        for k in ["name", "education", "skills", "projects", "internships"]
+                        if student_profile.get(k)
+                    }, ensure_ascii=False)[:2000],
+                    "related_jobs": related_jobs_str,
+                    "gap_summary": gap_summary_str,
+                    "action_summary": "参见第三章生成的行动计划",
+                }
                 prompt = CHAPTER_PROMPTS[chapter_num].format(**prompt_vars)
-
-                # 调用 LLM 生成
                 content = await self.llm.generate_text(
                     system_prompt=REPORT_SYSTEM_PROMPT,
                     user_prompt=prompt,
                 )
+                return (chapter_num, field_name, title, content)
+            except Exception as e:
+                return (chapter_num, field_name, title, e)
 
-                report_content["chapters"][field_name] = content
+        # 并行生成5章
+        tasks = [_generate_chapter(i) for i in range(5)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
+        # 按章节顺序处理结果并推送SSE事件
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                chapter_num, field_name, title, exc = result
+                error_msg = f"[生成失败: {str(exc)}]"
+                report_content["chapters"].append({
+                    "chapter_id": chapter_num,
+                    "title": title,
+                    "sections": [{"title": "生成错误", "content": error_msg, "key_points": []}],
+                    "tables": [],
+                    "charts": [],
+                })
+                yield f"data: {json.dumps({'chapter': chapter_num, 'status': 'error', 'title': title, 'error': str(exc)}, ensure_ascii=False)}\n\n"
+            else:
+                chapter_num, field_name, title, content = result
+                report_content["chapters"].append({
+                    "chapter_id": chapter_num,
+                    "title": title,
+                    "sections": [{"title": title, "content": content, "key_points": []}],
+                    "tables": [],
+                    "charts": [],
+                })
                 yield f"data: {json.dumps({'chapter': chapter_num, 'status': 'done', 'title': title, 'content': content}, ensure_ascii=False)}\n\n"
 
-            except Exception as e:
-                error_msg = f"[生成失败: {str(e)}]"
-                report_content["chapters"][field_name] = error_msg
-                yield f"data: {json.dumps({'chapter': chapter_num, 'status': 'error', 'title': title, 'error': str(e)}, ensure_ascii=False)}\n\n"
-
-        # 保存报告到数据库（如果失败仍然通知前端完成）
-        from app.models.report import CareerReport
-
+        # 保存报告到数据库，复用 merge_and_save 保证格式对齐且幂等
         try:
-            report = CareerReport(
-                student_id=student_id,
-                content_json=report_content,
-                status="completed",
-            )
-            db.add(report)
-            await db.commit()
-            await db.refresh(report)
-            report_id = str(report.id)
+            from app.services.report import merge_and_save
+            report_data = {
+                "outline": {},
+                "chapters": report_content["chapters"],
+                "matching_results": [],
+                "career_path": None,
+                "metadata": report_content.get("metadata", {}),
+            }
+            saved_report = await merge_and_save(student_id, report_data, db)
+            report_id = str(saved_report.id)
         except Exception as db_error:
             # 即使数据库保存失败，也通知前端生成完成，避免无限等待
             logger.error(f"Failed to save report to database: {db_error}")
-            # 使用临时ID，前端可通过报告查询验证
             report_id = f"temp_{student_id}_{job_profile_id}"
 
         yield f"data: {json.dumps({'status': 'all_done', 'report_id': report_id}, ensure_ascii=False)}\n\n"
