@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import MobileShell from '../components/MobileShell'
@@ -29,6 +29,13 @@ function proficiencyToScore(value: unknown): number {
   return map[String(value || '')] || 65
 }
 
+function getSkillColor(pct: number): string {
+  if (pct >= 80) return '#1D4ED8'
+  if (pct >= 60) return '#3B82F6'
+  if (pct >= 40) return '#60A5FA'
+  return '#93C5FD'
+}
+
 const ProfilePage: React.FC = () => {
   const navigate = useNavigate()
   const location = useLocation()
@@ -38,6 +45,16 @@ const ProfilePage: React.FC = () => {
     recommendations,
     isLoadingProfile,
   } = useMobileApp()
+
+  const [animated, setAnimated] = useState(false)
+  const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    animTimerRef.current = setTimeout(() => setAnimated(true), 80)
+    return () => {
+      if (animTimerRef.current) clearTimeout(animTimerRef.current)
+    }
+  }, [])
 
   const justUpdated = Boolean(location.state?.justUpdated)
   const profileJson = (profile?.profile_json || {}) as Record<string, unknown>
@@ -60,10 +77,20 @@ const ProfilePage: React.FC = () => {
   const competitiveness = toPercentScore(profileJson.competitiveness_score)
   const strongMatches = recommendations.filter((item) => item.total_score >= 75).length
 
+  const circumference = 132
+  const ringOffset = circumference * (1 - competitiveness / 100)
+
+  const nameStr = String(basicInfo.name || currentStudent?.name || '未命名同学')
+  const avatarChar = nameStr[0] || '学'
+
   if (isLoadingProfile && !profile) {
     return (
       <MobileShell hasTabBar activeTab="profile">
-        <div style={{ padding: 24, color: '#334155' }}>正在加载学生画像...</div>
+        <div className="profile-content">
+          <div className="skeleton-line" style={{ height: 60, marginBottom: 8 }} />
+          <div className="skeleton-line" style={{ height: 100, marginBottom: 8 }} />
+          <div className="skeleton-line" style={{ height: 120 }} />
+        </div>
       </MobileShell>
     )
   }
@@ -71,55 +98,37 @@ const ProfilePage: React.FC = () => {
   if (!profile) {
     return (
       <MobileShell hasTabBar activeTab="profile">
-        <div
-          style={{
-            padding: '24px 18px 120px',
-            background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 45%)',
-            minHeight: '100%',
-          }}
-        >
-          <div
-            style={{
-              borderRadius: 28,
-              padding: 22,
-              background: '#ffffff',
-              border: '1px solid #dbeafe',
-              boxShadow: '0 14px 32px rgba(15, 23, 42, 0.06)',
-            }}
-          >
-            <div style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
-              还没有可用画像
+        <div className="profile-content">
+          <div className="profile-card card-bounce pressable" style={{ '--ci': 0 } as React.CSSProperties}>
+            <div className="profile-card-header">
+              <div className="profile-card-indicator purple" />
+              <span className="profile-card-title">尚未生成画像</span>
             </div>
-            <p style={{ color: '#475569', fontSize: 14, lineHeight: 1.7, marginTop: 10 }}>
-              {currentStudent?.name || '当前学生'} 还没有生成学生画像。先上传简历，系统会自动完成解析、画像生成和缺失建议提取。
-            </p>
-            <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+            <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.7, marginBottom: 12 }}>
+              {currentStudent?.name || '当前学生'} 还没有学生画像，先上传简历，系统会自动完成解析和画像生成。
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
               <button
                 type="button"
                 onClick={() => navigate('/upload')}
-                style={{
-                  flex: 1,
-                  border: 'none',
-                  borderRadius: 16,
-                  padding: '14px 16px',
-                  background: '#1d4ed8',
-                  color: '#ffffff',
-                  fontWeight: 700,
-                }}
+                className="profile-action-btn pressable"
+                style={{ flex: 1 }}
               >
                 去上传简历
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/explore')}
+                className="pressable"
                 style={{
                   flex: 1,
-                  borderRadius: 16,
-                  padding: '14px 16px',
-                  background: '#ffffff',
-                  color: '#334155',
+                  border: '0.5px solid var(--color-border-primary)',
+                  borderRadius: 9,
+                  padding: 9,
+                  background: 'white',
+                  fontSize: 11,
                   fontWeight: 700,
-                  border: '1px solid #cbd5e1',
+                  color: 'var(--color-text-secondary)',
                 }}
               >
                 看看推荐页
@@ -133,259 +142,219 @@ const ProfilePage: React.FC = () => {
 
   return (
     <MobileShell hasTabBar activeTab="profile">
-      <div
-        style={{
-          padding: '20px 18px 120px',
-          background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 45%)',
-          minHeight: '100%',
-          display: 'grid',
-          gap: 16,
-        }}
-      >
-        <div
-          style={{
-            borderRadius: 26,
-            padding: 20,
-            background: '#ffffff',
-            border: '1px solid #dbeafe',
-            boxShadow: '0 14px 30px rgba(15, 23, 42, 0.05)',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
-            <div>
-              <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>
-                {String(basicInfo.name || currentStudent?.name || '未命名同学')}
-              </div>
-              <div style={{ marginTop: 8, color: '#475569', lineHeight: 1.7, fontSize: 13 }}>
-                {[basicInfo.school, basicInfo.degree, basicInfo.major].filter(Boolean).join(' · ') || '已生成基础学生画像'}
-              </div>
-            </div>
-            <div
-              style={{
-                borderRadius: 999,
-                padding: '8px 12px',
-                background: justUpdated ? '#dcfce7' : '#eef2ff',
-                color: justUpdated ? '#166534' : '#4338ca',
-                fontWeight: 800,
-                fontSize: 12,
-              }}
-            >
-              完整度 {completeness}%
+      <div className="profile-content">
+        {/* Header */}
+        <div className="profile-header page-header-anim">
+          <div className="profile-avatar">{avatarChar}</div>
+          <div className="profile-info">
+            <div className="profile-name">{nameStr}</div>
+            <div className="profile-subtitle">
+              {[basicInfo.school, basicInfo.degree, basicInfo.major].filter(Boolean).join(' · ') || '已生成基础学生画像'}
             </div>
           </div>
+          <div className={`profile-completeness-tag${justUpdated ? '' : ''}`} style={justUpdated ? { background: 'var(--color-success-bg)', color: 'var(--color-success-text)' } : {}}>
+            {justUpdated && <span>✓ </span>}完整度 {completeness}%
+          </div>
+        </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 18 }}>
-            <div
-              style={{
-                borderRadius: 20,
-                padding: 16,
-                background: '#f8fafc',
-              }}
-            >
-              <div style={{ color: '#64748b', fontSize: 12, fontWeight: 700 }}>竞争力</div>
-              <div style={{ marginTop: 8, fontSize: 28, fontWeight: 800, color: '#1d4ed8' }}>{competitiveness}</div>
-              <div style={{ marginTop: 6, color: '#475569', fontSize: 12 }}>来自真实画像计算结果</div>
+        {/* Comprehensive score card with SVG ring */}
+        <div className="profile-card comprehensive card-bounce pressable" style={{ '--ci': 0 } as React.CSSProperties}>
+          <div className="profile-score-ring">
+            <svg width="52" height="52" viewBox="0 0 52 52">
+              <circle cx="26" cy="26" r="21" stroke="#E5E7EB" strokeWidth="5" fill="none" />
+              <circle
+                cx="26" cy="26" r="21"
+                stroke="var(--color-primary)" strokeWidth="5" fill="none"
+                strokeDasharray={String(circumference)}
+                strokeDashoffset={animated ? ringOffset : circumference}
+                strokeLinecap="round"
+                transform="rotate(-90 26 26)"
+                style={{ transition: 'stroke-dashoffset 0.8s var(--spring-smooth)' }}
+              />
+            </svg>
+            <div className="profile-score-text">
+              <span className="profile-score-value">{competitiveness}</span>
+              <span className="profile-score-label">竞争力</span>
             </div>
-            <div
-              style={{
-                borderRadius: 20,
-                padding: 16,
-                background: '#f8fafc',
-              }}
-            >
-              <div style={{ color: '#64748b', fontSize: 12, fontWeight: 700 }}>高匹配岗位</div>
-              <div style={{ marginTop: 8, fontSize: 28, fontWeight: 800, color: '#0f766e' }}>{strongMatches}</div>
-              <div style={{ marginTop: 6, color: '#475569', fontSize: 12 }}>当前推荐中 75 分以上岗位数</div>
+          </div>
+          <div className="profile-score-data">
+            <div className="profile-data-row">
+              <span className="profile-data-label">高匹配岗位</span>
+              <span className="profile-data-value success">{strongMatches} 个</span>
+            </div>
+            <div className="profile-data-row">
+              <span className="profile-data-label">待补全项</span>
+              <span className="profile-data-value warning">{missingSuggestions.length} 条</span>
+            </div>
+            <div className="profile-data-progress">
+              <div
+                className="profile-data-progress-fill"
+                style={{
+                  width: animated ? `${completeness}%` : '0%',
+                  transition: 'width 0.8s var(--spring-smooth)',
+                  background: completeness >= 80 ? 'var(--color-success)' : 'var(--color-warning)',
+                }}
+              />
             </div>
           </div>
         </div>
 
-        <div
-          style={{
-            borderRadius: 24,
-            padding: 18,
-            background: '#ffffff',
-            border: '1px solid #e2e8f0',
-          }}
-        >
-          <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 14 }}>技能画像</div>
-          <div style={{ display: 'grid', gap: 12 }}>
+        {/* Skills card */}
+        <div className="profile-card card-bounce pressable" style={{ '--ci': 1 } as React.CSSProperties}>
+          <div className="profile-card-header">
+            <div className="profile-card-indicator blue" />
+            <span className="profile-card-title">技能画像</span>
+          </div>
+          <div className="skill-list">
             {(skills as Array<Record<string, unknown>>).slice(0, 6).map((skill, index) => {
               const score = proficiencyToScore(skill.proficiency || skill.level)
+              const color = getSkillColor(score)
               return (
-                <div key={`${String(skill.name || 'skill')}-${index}`} style={{ display: 'grid', gap: 6 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                    <span style={{ color: '#0f172a', fontWeight: 700 }}>{String(skill.name || '未命名技能')}</span>
-                    <span style={{ color: '#475569' }}>{score}%</span>
-                  </div>
-                  <div style={{ height: 8, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}>
+                <div key={`${String(skill.name || 'skill')}-${index}`} className="skill-row">
+                  <span className="skill-name">{String(skill.name || '技能').slice(0, 4)}</span>
+                  <div className="skill-track">
                     <div
+                      className="skill-fill"
                       style={{
-                        width: `${score}%`,
-                        height: '100%',
-                        background: 'linear-gradient(90deg, #1d4ed8 0%, #60a5fa 100%)',
+                        width: animated ? `${score}%` : '0%',
+                        background: color,
+                        transition: `width 0.7s var(--spring-smooth) ${index * 80}ms`,
                       }}
                     />
                   </div>
+                  <span className="skill-value">{score}%</span>
                 </div>
               )
             })}
-            {skills.length === 0 && <div style={{ color: '#64748b', fontSize: 13 }}>当前画像还没有识别出明确技能。</div>}
+            {skills.length === 0 && (
+              <div style={{ color: 'var(--color-text-tertiary)', fontSize: 10 }}>当前画像还没有识别出明确技能。</div>
+            )}
           </div>
         </div>
 
-        <div
-          style={{
-            borderRadius: 24,
-            padding: 18,
-            background: '#ffffff',
-            border: '1px solid #e2e8f0',
-          }}
-        >
-          <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 14 }}>项目与经历</div>
-          <div style={{ display: 'grid', gap: 12 }}>
+        {/* Experiences card */}
+        {experiences.length > 0 && (
+          <div className="profile-card card-bounce pressable" style={{ '--ci': 2 } as React.CSSProperties}>
+            <div className="profile-card-header">
+              <div className="profile-card-indicator green" />
+              <span className="profile-card-title">项目与经历</span>
+            </div>
             {(experiences as Array<Record<string, unknown>>).slice(0, 5).map((experience, index) => (
-              <div
-                key={`${String(experience.title || 'experience')}-${index}`}
-                style={{
-                  borderRadius: 18,
-                  padding: 14,
-                  background: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                }}
-              >
-                <div style={{ fontWeight: 700, color: '#0f172a' }}>{String(experience.title || '未命名经历')}</div>
-                <div style={{ color: '#475569', fontSize: 12, marginTop: 6 }}>
+              <div key={`${String(experience.title || 'exp')}-${index}`} className="experience-item">
+                {index > 0 && <div className="experience-divider" />}
+                <div className="experience-title">{String(experience.title || '未命名经历')}</div>
+                <div className="experience-duration">
                   {[experience.type, experience.company, experience.duration].filter(Boolean).join(' · ')}
                 </div>
                 {Boolean(experience.description) && (
-                  <div style={{ color: '#334155', fontSize: 13, lineHeight: 1.7, marginTop: 8 }}>
+                  <div style={{ fontSize: 9, color: 'var(--color-text-tertiary)', lineHeight: 1.6 }}>
                     {String(experience.description)}
                   </div>
                 )}
               </div>
             ))}
-            {experiences.length === 0 && <div style={{ color: '#64748b', fontSize: 13 }}>当前画像还没有提取到项目或实习内容。</div>}
           </div>
-        </div>
+        )}
 
-        <div
-          style={{
-            borderRadius: 24,
-            padding: 18,
-            background: '#ffffff',
-            border: '1px solid #e2e8f0',
-          }}
-        >
-          <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 14 }}>证书、奖项与软技能</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-            {[...certificates, ...awards].slice(0, 8).map((item) => (
-              <span
-                key={item}
-                style={{
-                  borderRadius: 999,
-                  padding: '9px 12px',
-                  background: '#eff6ff',
-                  color: '#1d4ed8',
-                  fontSize: 12,
-                  fontWeight: 700,
-                }}
-              >
-                {item}
-              </span>
-            ))}
-            {!certificates.length && !awards.length && (
-              <span style={{ color: '#64748b', fontSize: 13 }}>暂未识别到证书或奖项。</span>
-            )}
+        {/* Certs, awards, soft skills */}
+        <div className="profile-card card-bounce pressable" style={{ '--ci': 3 } as React.CSSProperties}>
+          <div className="profile-card-header">
+            <div className="profile-card-indicator orange" />
+            <span className="profile-card-title">证书与软技能</span>
           </div>
-
-          <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
-            {(softSkills as Array<Record<string, unknown>>).slice(0, 5).map((item, index) => (
-              <div
-                key={`${String(item.dimension || 'soft-skill')}-${index}`}
-                style={{
-                  borderRadius: 16,
-                  padding: '12px 14px',
-                  background: '#f8fafc',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                  <span style={{ fontWeight: 700, color: '#0f172a' }}>{String(item.dimension || '软技能')}</span>
-                  <span style={{ color: '#0f766e', fontWeight: 700 }}>{toPercentScore(item.score)}%</span>
-                </div>
-                <div style={{ color: '#475569', fontSize: 12, lineHeight: 1.6, marginTop: 6 }}>
-                  {String(item.evidence || '暂无证据')}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div
-          style={{
-            borderRadius: 24,
-            padding: 18,
-            background: missingSuggestions.length ? '#fff7ed' : '#ecfdf5',
-            border: `1px solid ${missingSuggestions.length ? '#fed7aa' : '#bbf7d0'}`,
-          }}
-        >
-          <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>
-            {missingSuggestions.length ? `待补全项 · ${missingSuggestions.length} 条` : '画像已经比较完整'}
-          </div>
-          {missingSuggestions.length ? (
-            <div style={{ display: 'grid', gap: 10 }}>
-              {missingSuggestions.map((item) => (
-                <div
-                  key={item}
-                  style={{
-                    borderRadius: 16,
-                    padding: '12px 14px',
-                    background: '#ffffff',
-                    color: '#9a3412',
-                    fontSize: 13,
-                    lineHeight: 1.6,
-                  }}
-                >
-                  {item}
-                </div>
+          {([...certificates, ...awards] as string[]).length > 0 && (
+            <div className="tags-container">
+              {([...certificates, ...awards] as string[]).slice(0, 8).map((item) => (
+                <span key={item} className="tag tag-blue">{item}</span>
               ))}
             </div>
+          )}
+          {(softSkills as Array<Record<string, unknown>>).slice(0, 3).map((item, index) => (
+            <div
+              key={`${String(item.dimension || 'ss')}-${index}`}
+              style={{
+                marginTop: 6,
+                padding: '7px 8px',
+                borderRadius: 7,
+                background: 'var(--color-background-secondary)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                  {String(item.dimension || '软技能')}
+                </span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-success-text)' }}>
+                  {toPercentScore(item.score)}%
+                </span>
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--color-text-tertiary)', lineHeight: 1.6, marginTop: 2 }}>
+                {String(item.evidence || '暂无证据')}
+              </div>
+            </div>
+          ))}
+          {!certificates.length && !awards.length && softSkills.length === 0 && (
+            <div style={{ color: 'var(--color-text-tertiary)', fontSize: 10 }}>暂未识别到证书、奖项或软技能。</div>
+          )}
+        </div>
+
+        {/* Missing items */}
+        <div
+          className="profile-card card-bounce"
+          style={{
+            '--ci': 4,
+            background: missingSuggestions.length ? 'var(--color-warning-bg)' : '#ecfdf5',
+            borderColor: missingSuggestions.length ? '#fed7aa' : '#bbf7d0',
+          } as React.CSSProperties}
+        >
+          <div className="profile-card-header">
+            <div className={`profile-card-indicator ${missingSuggestions.length ? 'orange' : 'green'}`} />
+            <span className="profile-card-title">
+              {missingSuggestions.length ? `待补全 · ${missingSuggestions.length} 条` : '画像已较完整'}
+            </span>
+          </div>
+          {missingSuggestions.length > 0 ? (
+            missingSuggestions.map((item, index) => (
+              <div key={item} className="missing-item">
+                {index > 0 && <div className="missing-item-divider" />}
+                <div className="missing-item-content">
+                  <div>
+                    <div className="missing-item-name">{item}</div>
+                  </div>
+                  <span className="missing-item-score">
+                    -{index === 0 ? 12 : index === 1 ? 6 : 4}分
+                  </span>
+                </div>
+              </div>
+            ))
           ) : (
-            <div style={{ color: '#166534', fontSize: 13, lineHeight: 1.7 }}>
+            <div style={{ fontSize: 9, color: 'var(--color-success-text)', lineHeight: 1.6 }}>
               当前缺失建议已经较少，可以直接进入岗位探索和报告生成环节。
             </div>
           )}
         </div>
 
-        <div style={{ display: 'grid', gap: 12 }}>
+        {/* Action buttons */}
+        <div style={{ display: 'grid', gap: 8, paddingBottom: 10 }}>
           <button
             type="button"
             onClick={() => navigate('/chat-fill')}
-            style={{
-              width: '100%',
-              border: 'none',
-              borderRadius: 18,
-              padding: '15px 16px',
-              background: '#0f172a',
-              color: '#ffffff',
-              fontWeight: 800,
-              fontSize: 15,
-            }}
+            className="profile-action-btn pressable"
           >
             AI 对话补全画像
           </button>
           <button
             type="button"
             onClick={() => navigate('/explore')}
+            className="pressable"
             style={{
               width: '100%',
-              borderRadius: 18,
-              padding: '15px 16px',
-              background: '#ffffff',
-              color: '#1d4ed8',
-              fontWeight: 800,
-              fontSize: 15,
-              border: '1px solid #bfdbfe',
+              border: '0.5px solid var(--color-primary)',
+              borderRadius: 9,
+              padding: 9,
+              background: 'white',
+              color: 'var(--color-primary)',
+              fontWeight: 700,
+              fontSize: 11,
             }}
           >
             查看真实岗位推荐

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import MobileShell from '../components/MobileShell'
@@ -16,6 +16,8 @@ const ChatFillPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
+  const messagesEndRef = useRef<HTMLDivElement | null>(null)
+
   useEffect(() => {
     let mounted = true
 
@@ -24,22 +26,16 @@ const ChatFillPage: React.FC = () => {
       setError('')
       try {
         const session = await loadCompletionSession()
-        if (!mounted) {
-          return
-        }
+        if (!mounted) return
         if (!session || session.questions.length === 0) {
           setError('当前画像暂时没有待补全问题，可以先返回画像页。')
         }
       } catch (loadError) {
-        if (!mounted) {
-          return
-        }
+        if (!mounted) return
         const message = loadError instanceof Error ? loadError.message : '加载补全问题失败'
         setError(message)
       } finally {
-        if (mounted) {
-          setLoading(false)
-        }
+        if (mounted) setLoading(false)
       }
     }
 
@@ -49,18 +45,18 @@ const ChatFillPage: React.FC = () => {
     }
   }, [])
 
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [currentIndex, answers])
+
   const questions = completionSession?.questions || []
   const currentQuestion = questions[currentIndex]
   const answeredCount = Object.values(answers).filter(Boolean).length
+  const progressPct = questions.length ? (answeredCount / questions.length) * 100 : 0
 
   function saveCurrentAnswer(value: string) {
-    if (!currentQuestion) {
-      return
-    }
-    setAnswers((previous) => ({
-      ...previous,
-      [currentQuestion.question_id]: value.trim(),
-    }))
+    if (!currentQuestion) return
+    setAnswers((prev) => ({ ...prev, [currentQuestion.question_id]: value.trim() }))
   }
 
   function handleOptionClick(option: string) {
@@ -68,10 +64,8 @@ const ChatFillPage: React.FC = () => {
     setDraft(option)
   }
 
-  function handleNext() {
-    if (!currentQuestion) {
-      return
-    }
+  function handleSend() {
+    if (!currentQuestion) return
 
     const finalValue = draft.trim() || answers[currentQuestion.question_id]?.trim()
     if (!finalValue) {
@@ -81,21 +75,26 @@ const ChatFillPage: React.FC = () => {
 
     saveCurrentAnswer(finalValue)
     setError('')
+
     if (currentIndex < questions.length - 1) {
       const nextQuestion = questions[currentIndex + 1]
-      setCurrentIndex((previous) => previous + 1)
+      setCurrentIndex((prev) => prev + 1)
       setDraft(answers[nextQuestion.question_id] || '')
       return
     }
 
-    void handleSubmit()
+    void handleSubmit(finalValue)
   }
 
-  async function handleSubmit() {
+  async function handleSubmit(lastAnswer?: string) {
     const payloadAnswers = questions
       .map((question) => ({
         question_id: question.question_id,
-        answer: (question.question_id === currentQuestion?.question_id ? draft : answers[question.question_id] || '').trim(),
+        answer: (
+          question.question_id === currentQuestion?.question_id
+            ? lastAnswer ?? draft
+            : answers[question.question_id] || ''
+        ).trim(),
       }))
       .filter((item) => item.answer)
 
@@ -125,194 +124,161 @@ const ChatFillPage: React.FC = () => {
 
   return (
     <MobileShell hasTabBar={false}>
-      <div
-        style={{
-          minHeight: '100%',
-          padding: '18px 16px 28px',
-          background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 60%)',
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => navigate('/profile')}
-          style={{
-            border: 'none',
-            background: 'transparent',
-            color: '#475569',
-            fontWeight: 700,
-            padding: '4px 0',
-          }}
-        >
-          返回画像页
-        </button>
-
-        <div style={{ marginTop: 10, fontSize: 26, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
-          AI 对话补全
+      <div className="chat-fill-container">
+        {/* Top nav */}
+        <div className="top-nav">
+          <div className="back-area" onClick={() => navigate('/profile')} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && navigate('/profile')}>
+            <div className="back-dot" />
+            <span className="back-text">返回</span>
+          </div>
+          <span className="nav-title">AI 对话补全</span>
+          <div className="progress-dots">
+            {questions.slice(0, 8).map((_, i) => (
+              <div key={i} className={`dot ${i <= currentIndex && !loading ? 'active' : ''}`} />
+            ))}
+          </div>
         </div>
-        <p style={{ marginTop: 10, color: '#475569', fontSize: 14, lineHeight: 1.7 }}>
-          问题来自当前画像的缺失项。提交后会走后端结构化 patch，并直接刷新学生画像。
-        </p>
 
-        <div
-          style={{
-            marginTop: 18,
-            borderRadius: 20,
-            padding: 14,
-            background: '#ffffff',
-            border: '1px solid #dbeafe',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#475569' }}>
+        {/* Sub progress */}
+        <div className="sub-progress">
+          <div className="progress-text">
             <span>本次补全进度</span>
-            <span>{loading ? '加载中' : `${Math.min(answeredCount + (draft.trim() ? 1 : 0), questions.length)}/${questions.length || 0}`}</span>
+            <span className="progress-status">
+              {loading ? '加载中...' : `${answeredCount} / ${questions.length}`}
+            </span>
           </div>
-          <div style={{ marginTop: 10, height: 8, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden' }}>
-            <div
-              style={{
-                width: `${questions.length ? ((answeredCount + (draft.trim() ? 1 : 0)) / questions.length) * 100 : 0}%`,
-                height: '100%',
-                background: 'linear-gradient(90deg, #4f46e5 0%, #2563eb 100%)',
-              }}
-            />
+          <div className="progress-bar">
+            <div className="progress-fill" style={{ width: `${progressPct}%` }} />
           </div>
         </div>
 
-        {loading && <div style={{ marginTop: 20, color: '#475569' }}>正在加载结构化补全问题...</div>}
-
-        {!loading && currentQuestion && (
-          <div
-            style={{
-              marginTop: 18,
-              borderRadius: 24,
-              background: '#ffffff',
-              border: '1px solid #e2e8f0',
-              padding: 18,
-              boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)',
-            }}
-          >
-            <div
-              style={{
-                display: 'inline-flex',
-                borderRadius: 999,
-                padding: '6px 10px',
-                background: '#eef2ff',
-                color: '#4338ca',
-                fontWeight: 800,
-                fontSize: 12,
-              }}
-            >
-              问题 {currentIndex + 1} / {questions.length}
-            </div>
-            <div style={{ marginTop: 12, fontSize: 20, fontWeight: 800, color: '#0f172a' }}>{currentQuestion.title}</div>
-            <div style={{ marginTop: 10, color: '#334155', lineHeight: 1.8, fontSize: 14 }}>{currentQuestion.prompt}</div>
-
-            {currentQuestion.options.length > 0 && (
-              <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                {currentQuestion.options.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => handleOptionClick(option)}
-                    style={{
-                      borderRadius: 999,
-                      border: draft === option ? '1px solid #6366f1' : '1px solid #cbd5e1',
-                      background: draft === option ? '#eef2ff' : '#ffffff',
-                      color: draft === option ? '#4338ca' : '#334155',
-                      padding: '10px 12px',
-                      fontWeight: 700,
-                      fontSize: 12,
-                    }}
-                  >
-                    {option}
-                  </button>
-                ))}
+        {/* Messages area */}
+        <div className="messages-area">
+          {/* Loading state */}
+          {loading && (
+            <div className="message-wrapper ai">
+              <div className="ai-bubble">
+                <div className="typing-dots">
+                  <span /><span /><span />
+                </div>
               </div>
-            )}
+            </div>
+          )}
 
-            <textarea
+          {/* Past Q&A bubbles */}
+          {!loading && questions.slice(0, currentIndex).map((q) => (
+            <React.Fragment key={q.question_id}>
+              <div className="message-wrapper ai">
+                <div className="ai-bubble">
+                  <div className="bubble-text">{q.title}</div>
+                  {q.prompt && <div className="bubble-text" style={{ opacity: 0.65, marginTop: 3 }}>{q.prompt}</div>}
+                </div>
+                <div className="timestamp">{new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</div>
+              </div>
+              {answers[q.question_id] && (
+                <div className="message-wrapper user">
+                  <div className="user-bubble">
+                    <div className="bubble-text">{answers[q.question_id]}</div>
+                  </div>
+                  <div className="timestamp" style={{ textAlign: 'right' }}>已回答</div>
+                </div>
+              )}
+            </React.Fragment>
+          ))}
+
+          {/* Current question */}
+          {!loading && currentQuestion && (
+            <div className="message-wrapper ai">
+              <div className="ai-bubble">
+                <div className="bubble-text" style={{ fontWeight: 700 }}>{currentQuestion.title}</div>
+                {currentQuestion.prompt && (
+                  <div className="bubble-text" style={{ opacity: 0.7, marginTop: 4 }}>{currentQuestion.prompt}</div>
+                )}
+              </div>
+              {currentQuestion.options.length > 0 && (
+                <div className="options-row">
+                  {currentQuestion.options.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      className={`option-btn pressable ${draft === option ? 'primary' : ''}`}
+                      onClick={() => handleOptionClick(option)}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* No questions state */}
+          {!loading && !currentQuestion && !error && (
+            <div className="message-wrapper ai">
+              <div className="ai-bubble">
+                <div className="bubble-text">所有问题已完成！点击下方按钮返回画像页查看更新结果。</div>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div style={{ alignSelf: 'center', fontSize: 9, color: '#EF4444', padding: '4px 10px', background: '#fef2f2', borderRadius: 8 }}>
+              {error}
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input area (active question) */}
+        {!loading && currentQuestion && (
+          <div className="input-area">
+            <input
+              className="message-input"
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder={currentQuestion.placeholder || '请输入你的补充信息'}
-              rows={6}
-              style={{
-                marginTop: 16,
-                width: '100%',
-                borderRadius: 18,
-                border: '1px solid #dbe3f0',
-                padding: '14px 16px',
-                resize: 'vertical',
-                fontSize: 14,
-                lineHeight: 1.7,
-                outline: 'none',
-                boxSizing: 'border-box',
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder={currentQuestion.placeholder || '输入你的回答...'}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSend()
+                }
               }}
             />
-
-            {error && (
-              <div
-                style={{
-                  marginTop: 12,
-                  borderRadius: 16,
-                  padding: '12px 14px',
-                  background: '#fef2f2',
-                  color: '#b91c1c',
-                  fontSize: 13,
-                  lineHeight: 1.6,
-                }}
-              >
-                {error}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
-              <button
-                type="button"
-                onClick={() => navigate('/profile')}
-                style={{
-                  flex: 1,
-                  borderRadius: 16,
-                  padding: '14px 16px',
-                  background: '#ffffff',
-                  color: '#334155',
-                  border: '1px solid #cbd5e1',
-                  fontWeight: 700,
-                }}
-              >
-                稍后再补
-              </button>
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={handleNext}
-                style={{
-                  flex: 1.2,
-                  border: 'none',
-                  borderRadius: 16,
-                  padding: '14px 16px',
-                  background: 'linear-gradient(135deg, #4f46e5 0%, #2563eb 100%)',
-                  color: '#ffffff',
-                  fontWeight: 800,
-                }}
-              >
-                {submitting ? '正在写回画像...' : currentIndex === questions.length - 1 ? '完成并写回画像' : '下一题'}
-              </button>
-            </div>
+            <button
+              type="button"
+              className="send-btn pressable"
+              onClick={handleSend}
+              disabled={submitting}
+              aria-label="发送"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M2 7h10M7 2l5 5-5 5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
           </div>
         )}
 
+        {/* Done actions */}
         {!loading && !currentQuestion && (
-          <div
-            style={{
-              marginTop: 18,
-              borderRadius: 24,
-              padding: 18,
-              background: '#ffffff',
-              border: '1px solid #e2e8f0',
-              color: '#475569',
-              lineHeight: 1.7,
-            }}
-          >
-            当前没有可补全的问题，可以先回画像页查看最新状态。
+          <div className="action-buttons">
+            <button
+              type="button"
+              className="action-btn secondary pressable"
+              onClick={() => navigate('/profile')}
+            >
+              返回画像页
+            </button>
+            {answeredCount > 0 && (
+              <button
+                type="button"
+                className="action-btn primary pressable"
+                disabled={submitting}
+                onClick={() => void handleSubmit()}
+              >
+                {submitting ? '写回中...' : '提交并更新画像'}
+              </button>
+            )}
           </div>
         )}
       </div>

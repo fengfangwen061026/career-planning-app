@@ -5,6 +5,15 @@ import MobileShell from '../components/MobileShell'
 import { useMobileApp } from '../context/MobileAppContext'
 import './UploadPage.css'
 
+const previewItems = [
+  { label: '教育经历', color: 'blue' },
+  { label: '技能与工具', color: 'blue' },
+  { label: '项目与实习', color: 'green' },
+  { label: '证书与奖项', color: 'green' },
+  { label: '软技能证据', color: 'orange' },
+  { label: '缺失补全建议', color: 'orange' },
+]
+
 const UploadPage: React.FC = () => {
   const navigate = useNavigate()
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -18,9 +27,7 @@ const UploadPage: React.FC = () => {
 
   async function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
-    if (!file) {
-      return
-    }
+    if (!file) return
 
     setSubmitting(true)
     setError('')
@@ -29,11 +36,7 @@ const UploadPage: React.FC = () => {
 
     try {
       await startResumeUpload(file)
-      // startResumeUpload sets uploadState.status = 'completed' on success;
-      // ParsingPage will auto-navigate to /profile.
     } catch (uploadError) {
-      // uploadState.status is set to 'error' inside startResumeUpload,
-      // so ParsingPage shows the error. No need to show it here.
       const message = uploadError instanceof Error ? uploadError.message : '上传失败，请稍后重试'
       setError(message)
     } finally {
@@ -45,21 +48,9 @@ const UploadPage: React.FC = () => {
   return (
     <MobileShell hasTabBar activeTab="upload">
       <div
-        style={{
-          padding: '20px 18px 110px',
-          background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 45%)',
-          minHeight: '100%',
-        }}
+        className="upload-page toolbar-anim"
+        style={{ background: 'linear-gradient(135deg, #F8F9FF 0%, #F0F4FF 50%, #F8FFF8 100%)', paddingBottom: 100 }}
       >
-        <div style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
-          上传简历
-        </div>
-        <p style={{ color: '#475569', fontSize: 14, lineHeight: 1.7, marginTop: 10 }}>
-          {currentStudent
-            ? `当前学生：${currentStudent.name || '未命名同学'}。上传后会自动完成解析、画像生成和后续推荐刷新。`
-            : '请先创建学生会话。'}
-        </p>
-
         <input
           ref={inputRef}
           type="file"
@@ -68,120 +59,106 @@ const UploadPage: React.FC = () => {
           onChange={handleFileSelected}
         />
 
+        {/* Upload zone */}
         <button
           type="button"
+          className="upload-zone pressable"
           onClick={openPicker}
           disabled={submitting}
-          style={{
-            width: '100%',
-            marginTop: 20,
-            borderRadius: 28,
-            border: '1px dashed #93c5fd',
-            background: '#eef6ff',
-            padding: '28px 18px',
-            textAlign: 'left',
-          }}
         >
-          <div
-            style={{
-              width: 54,
-              height: 54,
-              borderRadius: 18,
-              display: 'grid',
-              placeItems: 'center',
-              background: '#dbeafe',
-              color: '#1d4ed8',
-              fontSize: 22,
-              fontWeight: 800,
-            }}
-          >
-            上
+          <div className="upload-icon">
+            <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+              <rect width="36" height="36" rx="10" fill="#EEF2FF" />
+              <path d="M18 24V14M18 14l-4 4M18 14l4 4" stroke="#4F46E5" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M10 26h16" stroke="#4F46E5" strokeWidth="1.5" strokeLinecap="round" opacity="0.5" />
+            </svg>
           </div>
-          <div style={{ marginTop: 16, fontWeight: 800, color: '#0f172a', fontSize: 18 }}>
-            {submitting ? '正在启动上传...' : '选择 PDF / Word 简历'}
-          </div>
-          <div style={{ marginTop: 8, color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
-            直接调用 `/api/students/{'{student_id}'}/upload-resume/stream`
-            <br />
-            支持 fallback、retrying、complete 全链路状态。
-          </div>
+          <p className="upload-main-text">
+            {submitting ? '正在启动上传...' : '点击或拖拽上传'}
+          </p>
+          <p className="upload-hint-text">PDF / DOCX · 最大 10MB</p>
+          {!submitting && (
+            <span className="upload-select-btn">选择文件</span>
+          )}
         </button>
 
         {error && (
           <div
             style={{
-              marginTop: 14,
-              borderRadius: 18,
-              padding: '14px 16px',
+              marginTop: 8,
+              borderRadius: 9,
+              padding: '8px 10px',
               background: '#fef2f2',
               color: '#b91c1c',
+              fontSize: 10,
               lineHeight: 1.6,
-              fontSize: 13,
             }}
           >
             {error}
           </div>
         )}
 
-        <div
-          style={{
-            marginTop: 18,
-            borderRadius: 24,
-            background: '#ffffff',
-            border: '1px solid #e2e8f0',
-            padding: 18,
-            boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)',
-          }}
+        {/* Divider */}
+        <div className="upload-divider">
+          <div className="upload-divider-line" />
+          <span className="upload-divider-text">或</span>
+          <div className="upload-divider-line" />
+        </div>
+
+        {/* Manual fill link */}
+        <button
+          type="button"
+          className="upload-manual-link pressable"
+          onClick={() => navigate('/chat-fill')}
         >
-          <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 10 }}>上传后会自动识别</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {['教育经历', '技能与工具', '项目与实习', '证书与奖项', '软技能证据', '缺失补全建议'].map((item) => (
-              <div
-                key={item}
-                style={{
-                  borderRadius: 16,
-                  padding: '12px 14px',
-                  background: '#f8fafc',
-                  color: '#334155',
-                  fontSize: 13,
-                  fontWeight: 600,
-                }}
-              >
-                {item}
+          手动填写基本信息 →
+        </button>
+
+        {/* Preview card */}
+        <div className="upload-preview-card card-bounce" style={{ '--ci': 0 } as React.CSSProperties}>
+          <div className="preview-card-header">
+            <div className="preview-card-indicator" />
+            <span className="preview-card-title">上传后自动识别</span>
+          </div>
+          <div className="preview-grid">
+            {previewItems.map((item) => (
+              <div key={item.label} className={`preview-item preview-item-${item.color}`}>
+                <div className="preview-item-dot" />
+                <span className="preview-item-text">{item.label}</span>
               </div>
             ))}
           </div>
         </div>
 
+        {/* Profile status hint */}
         <div
+          className="upload-preview-card card-bounce"
           style={{
-            marginTop: 18,
-            borderRadius: 24,
-            padding: 18,
+            '--ci': 1,
+            marginTop: 8,
             background: profile ? '#ecfdf5' : '#fff7ed',
-            border: `1px solid ${profile ? '#bbf7d0' : '#fed7aa'}`,
-          }}
+            borderColor: profile ? '#bbf7d0' : '#fed7aa',
+          } as React.CSSProperties}
         >
-          <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 6 }}>
-            {profile ? '已经存在一份学生画像' : '首次使用建议先上传简历'}
+          <div className="preview-card-header">
+            <div
+              className="preview-card-indicator"
+              style={{ background: profile ? '#10B981' : '#D97706' }}
+            />
+            <span className="preview-card-title">
+              {profile ? '已有学生画像' : '首次使用'}
+            </span>
           </div>
-          <div style={{ color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
+          <div style={{ fontSize: 9, color: 'var(--color-text-tertiary)', lineHeight: 1.6, marginBottom: 8 }}>
             {profile
               ? '重新上传会基于最新简历重建画像，推荐与报告也会随之刷新。'
-              : '如果现在没有简历，也可以先去画像页查看当前状态，再决定是否补充内容。'}
+              : `${currentStudent?.name ? `${currentStudent.name}，` : ''}如果现在没有简历，可以先去画像页查看当前状态。`}
           </div>
           <button
             type="button"
             onClick={() => navigate('/profile')}
-            style={{
-              marginTop: 12,
-              border: 'none',
-              borderRadius: 14,
-              padding: '12px 14px',
-              background: '#0f172a',
-              color: '#ffffff',
-              fontWeight: 700,
-            }}
+            className="upload-select-btn pressable"
+            style={{ background: profile ? '#10B981' : 'var(--color-warning)' }}
           >
             前往画像页
           </button>

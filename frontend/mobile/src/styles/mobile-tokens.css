@@ -30,7 +30,8 @@ html, body, #root {
 
 body {
   font-family: var(--font-family);
-  background: #f8fafc;
+  background: linear-gradient(135deg, #F8F9FF 0%, #F0F4FF 50%, #F8FFF8 100%);
+  background-attachment: fixed;
   color: var(--color-text-primary);
 }
 
@@ -60,4 +61,141 @@ select {
 @keyframes bounce {
   0%, 100% { transform: translateY(0); }
   50%       { transform: translateY(-4px); }
+}
+
+/* ====================================================
+   弹性曲线系统 Spring Curves
+   ==================================================== */
+:root {
+  --spring-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --spring-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+  --spring-snappy: cubic-bezier(0.25, 1.25, 0.5, 1);
+  --spring-press:  cubic-bezier(0.25, 0, 0, 1);
+}
+
+@supports (animation-timing-function: linear(0, 1)) {
+  :root {
+    --spring-bounce: linear(
+      0, 0.009, 0.035 2.1%, 0.141 4.4%, 0.723 12.4%, 0.938 16%,
+      1.017, 1.046, 1.06, 1.064, 1.058 24.3%, 0.999 28.4%, 0.984,
+      0.985 34%, 1.001 40%, 1.003 44%, 1 50%, 1
+    );
+    --spring-smooth: linear(
+      0, 0.006, 0.025 2.8%, 0.101 6.1%, 0.539 15%, 0.721 18.7%,
+      0.844 22.4%, 0.925 26%, 0.972 29.7%, 1.001 35%, 1
+    );
+    --spring-snappy: linear(
+      0, 0.004, 0.016, 0.035, 0.063 4.2%, 0.431 13.3%, 0.641 18%,
+      0.823 24.1%, 0.929 29.4%, 0.991 35.1%, 1.015 39.4%,
+      1.017 45.3%, 0.999 52.2%, 1
+    );
+  }
+}
+
+/* ====================================================
+   Keyframe 动画库
+   ==================================================== */
+
+@keyframes floatUp {
+  from { opacity: 0; transform: translateY(20px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes tabFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cardBounceIn {
+  0%   { opacity: 0; transform: translateY(24px) scale(0.97); }
+  60%  { opacity: 1; transform: translateY(-6px) scale(1.01); }
+  80%  { transform: translateY(3px) scale(0.995); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes modalFlipIn {
+  from {
+    opacity: 0;
+    transform: scale(0.06);
+    transform-origin: var(--flip-ox, 50%) var(--flip-oy, 50%);
+  }
+  60% { opacity: 1; }
+  to  {
+    opacity: 1;
+    transform: scale(1);
+    transform-origin: var(--flip-ox, 50%) var(--flip-oy, 50%);
+  }
+}
+
+/* ====================================================
+   CSS 工具类
+   ==================================================== */
+
+.pressable {
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 80ms var(--spring-press), box-shadow 80ms var(--spring-press);
+  will-change: transform;
+}
+.pressable:active {
+  transform: scale(0.96) !important;
+}
+
+.card-bounce {
+  opacity: 0;
+  animation: cardBounceIn 0.55s var(--spring-bounce) forwards;
+  animation-delay: calc(var(--ci, 0) * 70ms);
+}
+
+.reveal-item {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.45s var(--spring-smooth), transform 0.45s var(--spring-smooth);
+}
+.reveal-item.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.role-card-body {
+  transition: transform 0.28s var(--spring-bounce), box-shadow 0.28s var(--spring-bounce);
+  will-change: transform;
+}
+.role-card-body:hover {
+  transform: translateY(-5px) scale(1.015);
+  box-shadow: 0 8px 24px rgba(79, 70, 229, 0.15);
+}
+
+.role-card-arrow {
+  transition: transform 0.3s var(--spring-bounce);
+  display: inline-block;
+}
+.role-card-body:hover .role-card-arrow {
+  transform: translateX(6px);
+}
+
+.tab-content-enter {
+  animation: tabFadeIn 0.24s var(--spring-snappy) forwards;
+}
+
+.page-header-anim {
+  animation: slideDown 0.4s var(--spring-smooth) both;
+}
+
+.toolbar-anim {
+  animation: floatUp 0.4s var(--spring-smooth) both;
+  animation-delay: 60ms;
+}
+
+.skeleton-line {
+  background: linear-gradient(90deg, #F3F4F6 25%, #E5E7EB 50%, #F3F4F6 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: 4px;
 }

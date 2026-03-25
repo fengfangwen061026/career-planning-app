@@ -1,10 +1,9 @@
 .profile-content {
   overflow-y: auto;
-  padding: 10px 10px 0;
+  padding: 10px 10px 80px;
   display: flex;
   flex-direction: column;
   gap: 7px;
-  background: var(--color-background-secondary);
   min-height: 100%;
 }
 
