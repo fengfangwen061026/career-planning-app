@@ -113,7 +113,7 @@ const MatchDetailPage: React.FC = () => {
         <button
           type="button"
           onClick={() => navigate('/explore')}
-          style={{ border: 'none', background: 'transparent', color: '#475569', fontWeight: 700, padding: 0 }}
+          style={{ border: 'none', background: 'transparent', color: '#374151', fontWeight: 700, padding: 0 }}
         >
           返回岗位探索
         </button>
@@ -148,10 +148,10 @@ const MatchDetailPage: React.FC = () => {
             >
               <div style={{ display: 'grid', gap: 12 }}>
                 <div>
-                  <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#0A0A0A' }}>
                     {getDetailTitle(detail)}
                   </div>
-                  <div style={{ marginTop: 8, color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
+                  <div style={{ marginTop: 8, color: '#374151', fontSize: 13, lineHeight: 1.7 }}>
                     {[detail.role_category, detail.job_snapshot?.city, detail.job_snapshot?.company_name].filter(Boolean).join(' · ')}
                   </div>
                 </div>
@@ -193,13 +193,13 @@ const MatchDetailPage: React.FC = () => {
 
             <div
               style={{
-                borderRadius: 24,
+                borderRadius: 11,
                 padding: 18,
                 background: '#ffffff',
-                border: '1px solid #e2e8f0',
+                border: '1px solid #E5E7EB',
               }}
             >
-              <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 14 }}>四维评分</div>
+              <div style={{ fontWeight: 800, color: '#0A0A0A', marginBottom: 14 }}>四维评分</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 {[
                   { label: '基础要求', value: getDimensionScore(detail, 'basic'), color: '#1d4ed8' },
@@ -215,7 +215,7 @@ const MatchDetailPage: React.FC = () => {
                       background: '#f8fafc',
                     }}
                   >
-                    <div style={{ color: '#475569', fontSize: 12, fontWeight: 700 }}>{dimension.label}</div>
+                    <div style={{ color: '#374151', fontSize: 12, fontWeight: 700 }}>{dimension.label}</div>
                     <div style={{ marginTop: 8, fontSize: 28, fontWeight: 800, color: dimension.color }}>{dimension.value}</div>
                   </div>
                 ))}
@@ -224,13 +224,13 @@ const MatchDetailPage: React.FC = () => {
 
             <div
               style={{
-                borderRadius: 24,
+                borderRadius: 11,
                 padding: 18,
                 background: '#ffffff',
-                border: '1px solid #e2e8f0',
+                border: '1px solid #E5E7EB',
               }}
             >
-              <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 14 }}>技能匹配</div>
+              <div style={{ fontWeight: 800, color: '#0A0A0A', marginBottom: 14 }}>技能匹配</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                 {skillItems.map((item) => {
                   const matched = Boolean(item.matched)
@@ -250,19 +250,19 @@ const MatchDetailPage: React.FC = () => {
                     </span>
                   )
                 })}
-                {skillItems.length === 0 && <span style={{ color: '#64748b', fontSize: 13 }}>当前匹配结果没有返回细化技能条目。</span>}
+                {skillItems.length === 0 && <span style={{ color: '#6B7280', fontSize: 13 }}>当前匹配结果没有返回细化技能条目。</span>}
               </div>
             </div>
 
             <div
               style={{
-                borderRadius: 24,
+                borderRadius: 11,
                 padding: 18,
                 background: '#ffffff',
-                border: '1px solid #e2e8f0',
+                border: '1px solid #E5E7EB',
               }}
             >
-              <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 14 }}>差距清单</div>
+              <div style={{ fontWeight: 800, color: '#0A0A0A', marginBottom: 14 }}>差距清单</div>
               <div style={{ display: 'grid', gap: 12 }}>
                 {(detail.gaps || []).map((gap, index) => (
                   <div
@@ -271,34 +271,34 @@ const MatchDetailPage: React.FC = () => {
                       borderRadius: 18,
                       padding: 14,
                       background: '#f8fafc',
-                      border: '1px solid #e2e8f0',
+                      border: '1px solid #E5E7EB',
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                      <div style={{ fontWeight: 700, color: '#0f172a' }}>{gap.gap_item}</div>
+                      <div style={{ fontWeight: 700, color: '#0A0A0A' }}>{gap.gap_item}</div>
                       <div style={{ color: '#b45309', fontSize: 12, fontWeight: 700 }}>{gap.priority}</div>
                     </div>
-                    <div style={{ marginTop: 8, color: '#475569', fontSize: 12, lineHeight: 1.7 }}>
+                    <div style={{ marginTop: 8, color: '#374151', fontSize: 12, lineHeight: 1.7 }}>
                       当前：{gap.current_level || '未知'} ｜ 目标：{gap.required_level || '未知'}
                     </div>
                     <div style={{ marginTop: 8, color: '#334155', fontSize: 13, lineHeight: 1.7 }}>{gap.suggestion}</div>
                   </div>
                 ))}
-                {!detail.gaps?.length && <div style={{ color: '#64748b', fontSize: 13 }}>当前没有明显差距项。</div>}
+                {!detail.gaps?.length && <div style={{ color: '#6B7280', fontSize: 13 }}>当前没有明显差距项。</div>}
               </div>
             </div>
 
             <div
               style={{
-                borderRadius: 24,
+                borderRadius: 11,
                 padding: 18,
                 background: '#ffffff',
-                border: '1px solid #e2e8f0',
+                border: '1px solid #E5E7EB',
               }}
             >
-              <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 14 }}>职业路径</div>
+              <div style={{ fontWeight: 800, color: '#0A0A0A', marginBottom: 14 }}>职业路径</div>
 
-              <div style={{ color: '#475569', fontSize: 13, lineHeight: 1.7, marginBottom: 12 }}>
+              <div style={{ color: '#374151', fontSize: 13, lineHeight: 1.7, marginBottom: 12 }}>
                 主路径目标：{String(careerPath?.path?.target_role || detail.role_name || '未命名岗位')}
               </div>
 
@@ -310,13 +310,13 @@ const MatchDetailPage: React.FC = () => {
                       borderRadius: 18,
                       padding: 14,
                       background: '#f8fafc',
-                      border: '1px solid #e2e8f0',
+                      border: '1px solid #E5E7EB',
                     }}
                   >
-                    <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                    <div style={{ fontWeight: 700, color: '#0A0A0A' }}>
                       {index + 1}. {String(step.name || step.role_name || '路径节点')}
                     </div>
-                    <div style={{ marginTop: 6, color: '#475569', fontSize: 12 }}>
+                    <div style={{ marginTop: 6, color: '#374151', fontSize: 12 }}>
                       {String(step.level || '')}
                     </div>
                     {Boolean(step.edge) && (
@@ -326,12 +326,12 @@ const MatchDetailPage: React.FC = () => {
                     )}
                   </div>
                 ))}
-                {!mainPath.length && <div style={{ color: '#64748b', fontSize: 13 }}>当前没有可展示的主路径。</div>}
+                {!mainPath.length && <div style={{ color: '#6B7280', fontSize: 13 }}>当前没有可展示的主路径。</div>}
               </div>
 
               {alternativePaths.length > 0 && (
                 <div style={{ marginTop: 16 }}>
-                  <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 10 }}>备选转岗路径</div>
+                  <div style={{ fontWeight: 800, color: '#0A0A0A', marginBottom: 10 }}>备选转岗路径</div>
                   <div style={{ display: 'grid', gap: 10 }}>
                     {alternativePaths.map((path, index) => (
                       <div
@@ -353,7 +353,7 @@ const MatchDetailPage: React.FC = () => {
 
               {actionPlan.length > 0 && (
                 <div style={{ marginTop: 16 }}>
-                  <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 10 }}>行动计划</div>
+                  <div style={{ fontWeight: 800, color: '#0A0A0A', marginBottom: 10 }}>行动计划</div>
                   <div style={{ display: 'grid', gap: 10 }}>
                     {actionPlan.map((item, index) => (
                       <div

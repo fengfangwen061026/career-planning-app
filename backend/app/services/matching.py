@@ -39,6 +39,144 @@ logger = logging.getLogger(__name__)
 
 MatchMode = Literal["recommend", "deep"]
 
+# 专业领域关键词映射（学生专业 → 相关行业关键词）
+MAJOR_FIELD_MAP: dict[str, list[str]] = {
+    "药学": ["药", "医", "化学", "生物", "制药", "临床", "药品", "药剂", "生化", "农药"],
+    "中药学": ["药", "医", "化学", "生物", "制药", "中药", "药品", "生化"],
+    "药物化学": ["药", "化学", "制药", "生物", "药品", "分子", "合成"],
+    "临床药学": ["药", "医", "临床", "药品", "药剂", "用药"],
+    "药剂学": ["药", "制剂", "药剂", "制药", "药品", "配方"],
+    "制药工程": ["药", "制药", "工程", "化学", "工艺", "生物"],
+    "生物制药": ["药", "生物", "制药", "细胞", "基因", "抗体"],
+    "计算机": ["计算机", "软件", "IT", "互联网", "程序", "算法", "开发", "数据", "人工智能", "AI"],
+    "软件工程": ["软件", "程序", "开发", "IT", "互联网", "计算机", "代码"],
+    "人工智能": ["AI", "人工智能", "算法", "机器学习", "深度学习", "数据", "智能", "计算机"],
+    "数据科学": ["数据", "分析", "算法", "统计", "机器学习", "AI", "可视化", "计算机"],
+    "信息工程": ["IT", "信息", "软件", "网络", "通信", "计算机", "数据"],
+    "电子信息": ["电子", "通信", "IT", "硬件", "信号", "微电子", "电路"],
+    "通信工程": ["通信", "网络", "IT", "信号", "电子", "无线", "电信"],
+    "机械": ["机械", "制造", "汽车", "自动化", "设计", "工艺", "装备", "机电"],
+    "机械工程": ["机械", "制造", "汽车", "自动化", "设计", "工艺", "机电"],
+    "车辆工程": ["汽车", "车辆", "机械", "制造", "研发", "设计"],
+    "自动化": ["自动化", "控制", "机械", "电气", "仪表", "工业", "智能"],
+    "电气工程": ["电气", "电力", "自动化", "控制", "电子", "电机"],
+    "土木工程": ["土木", "建筑", "工程", "结构", "施工", "设计", "造价"],
+    "生物": ["生物", "化学", "医药", "食品", "农业", "环境", "生化", "分子"],
+    "生物工程": ["生物", "工程", "发酵", "制药", "食品", "生化", "细胞"],
+    "化学": ["化学", "化工", "制药", "材料", "分析", "合成", "医药"],
+    "应用化学": ["化学", "化工", "材料", "分析", "制药", "工业", "工艺"],
+    "材料": ["材料", "化学", "化工", "金属", "高分子", "纳米", "研发"],
+    "金融": ["金融", "银行", "投资", "证券", "保险", "财务", "会计", "经济"],
+    "金融学": ["金融", "银行", "投资", "证券", "经济", "财务"],
+    "经济学": ["经济", "金融", "管理", "市场", "贸易", "财政"],
+    "财务管理": ["财务", "会计", "金融", "审计", "税务", "管理"],
+    "会计": ["会计", "财务", "审计", "税务", "金融", "管理"],
+    "市场营销": ["市场", "营销", "销售", "品牌", "运营", "广告", "电商"],
+    "工商管理": ["管理", "企业", "经营", "战略", "市场", "人力资源"],
+    "人力资源": ["人力资源", "HR", "招聘", "培训", "绩效", "员工", "人才"],
+    "行政管理": ["行政", "管理", "政府", "公共", "文秘", "后勤"],
+    "法学": ["法律", "法学", "合规", "律师", "司法", "法规", "法务"],
+    "英语": ["英语", "语言", "翻译", "外贸", "国际", "教育"],
+    "新闻传播": ["新闻", "传播", "媒体", "编辑", "内容", "广告", "公关"],
+    "汉语言文学": ["文学", "语言", "编辑", "文案", "内容", "教育", "写作"],
+    "教育学": ["教育", "教学", "学校", "培训", "课程", "教师"],
+    "心理学": ["心理", "咨询", "人力资源", "临床", "教育", "健康"],
+    "医学": ["医学", "临床", "医院", "医疗", "诊断", "治疗", "护理"],
+    "护理": ["护理", "医院", "医疗", "临床", "健康", "护士"],
+    "艺术设计": ["设计", "视觉", "创意", "美术", "UI", "平面", "品牌"],
+    "视觉传达": ["视觉", "设计", "平面", "创意", "广告", "UI"],
+    "环境工程": ["环境", "工程", "生态", "废水", "废气", "治理", "能源"],
+    "食品科学": ["食品", "安全", "营养", "检测", "生物", "化学", "工程"],
+}
+
+# 反查表：行业关键词 → 关联专业列表（用于 job → major 匹配）
+FIELD_TO_MAJORS: dict[str, list[str]] = {}
+for _major, _fields in MAJOR_FIELD_MAP.items():
+    for _field in _fields:
+        if _field not in FIELD_TO_MAJORS:
+            FIELD_TO_MAJORS[_field] = []
+        if _major not in FIELD_TO_MAJORS[_field]:
+            FIELD_TO_MAJORS[_field].append(_major)
+
+
+def major_relevance_coefficient(student_major: str, job_title: str, job_desc: str) -> float:
+    """
+    计算学生专业与目标岗位的相关度系数（0.3-1.0）。
+    完全不相关返回 0.3，强相关返回 1.0。
+    系数会乘以 basic_score 后再参与加权求和。
+    """
+    if not student_major:
+        return 0.8  # 未知专业，不惩罚
+
+    student_lower = student_major.lower()
+    # 提取学生专业 tokens
+    student_tokens = [
+        token.strip()
+        for token in re.split(r"[、/,\s·]+", student_lower)
+        if len(token.strip()) >= 2
+    ]
+    # 简化：去掉"学"、"工程"等常见后缀
+    student_tokens = [
+        re.sub(r"(学|工程|技术|科学|设计|管理|经济|师范)$", "", t)
+        for t in student_tokens
+    ]
+
+    # 收集岗位文本
+    job_text = (job_title + " " + job_desc).lower()
+
+    # 1. 检查学生专业关键词是否命中岗位文本
+    field_hits = 0
+    for token in student_tokens:
+        if len(token) < 2:
+            continue
+        if token in job_text:
+            field_hits += 1
+
+    # 2. 检查岗位所属行业关键词是否命中学生专业领域
+    student_major_field_hits = 0
+    for field, majors in FIELD_TO_MAJORS.items():
+        if len(field) < 2:
+            continue
+        if field in job_text and student_major in majors:
+            student_major_field_hits += 1
+
+    total_hits = field_hits + student_major_field_hits
+
+    if total_hits >= 3:
+        return 1.0
+    elif total_hits >= 1:
+        # 有一定相关性，但不直接匹配
+        # 检查是否为跨领域相邻（如药学 → 咨询顾问，有一定的跨领域合理性）
+        adjacent_score = _is_adjacent_field(student_tokens, job_text)
+        return 0.8 if adjacent_score > 0 else 0.6
+    else:
+        # 完全不相关
+        return 0.3
+
+
+def _is_adjacent_field(student_tokens: list[str], job_text: str) -> float:
+    """
+    判断学生专业与岗位是否存在相邻跨领域可能性。
+    返回 0.0-1.0 的相邻度。
+    """
+    # 跨领域相邻判断规则
+    ADJACENT_PAIRS = [
+        (["药", "生物", "化学"], ["管理", "咨询", "销售", "市场", "运营"], 0.7),
+        (["计算机", "软件"], ["产品", "运营", "管理", "咨询", "市场"], 0.8),
+        (["生物"], ["食品", "环境", "农业"], 0.7),
+        (["机械", "电气"], ["销售", "市场", "管理"], 0.6),
+        (["金融", "经济"], ["咨询", "管理", "运营"], 0.7),
+        (["英语"], ["外贸", "运营", "市场", "管理", "教育"], 0.7),
+    ]
+    for major_group, job_groups, score in ADJACENT_PAIRS:
+        has_major = any(token in job_text or token in "".join(major_group) for token in major_group if len(token) >= 2)
+        if has_major:
+            for job_group in job_groups:
+                if job_group in job_text:
+                    return score
+    return 0.0
+
+
 DEGREE_ORDER: dict[str, int] = {
     "初中": 1,
     "中专": 2,
@@ -984,14 +1122,42 @@ async def compute_match(
     )
 
     weights = _get_weight_for_role(role_category)
+
+    # 专业相关度惩罚：完全不匹配专业时降低基础分
+    student_basic = _extract_student_basic(student_profile_data)
+    student_major = str(student_basic["major"] or "")
+    job_desc = str(job_profile_data.get("summary") or "")
+    role_nm = role_name or str(job_profile_data.get("role_name") or "")
+    major_coef = major_relevance_coefficient(student_major, role_nm, job_desc)
+
+    basic_score_after_penalty = basic_score.score * major_coef
+
     total_score = (
-        weights.basic * basic_score.score
+        weights.basic * basic_score_after_penalty
         + weights.skill * skill_score.score
         + weights.competency * competency_score.score
         + weights.potential * potential_score.score
     )
     scores = FourDimensionScores(
-        basic=basic_score,
+        basic=BasicScore(
+            score=round(basic_score_after_penalty, 2),
+            education_match=basic_score.education_match,
+            major_match=basic_score.major_match,
+            experience_match=basic_score.experience_match,
+            hard_conditions=basic_score.hard_conditions,
+            penalties=basic_score.penalties
+            + (
+                [
+                    {
+                        "type": "major_relevance",
+                        "detail": f"专业相关度系数: {major_coef:.2f}（{student_major} → {role_nm}）",
+                        "deduction": round((1 - major_coef) * 100, 1),
+                    }
+                ]
+                if major_coef < 1.0
+                else []
+            ),
+        ),
         skill=skill_score,
         competency=competency_score,
         potential=potential_score,

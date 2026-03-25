@@ -5,6 +5,35 @@ import MobileShell from '../components/MobileShell'
 import { useMobileApp } from '../context/MobileAppContext'
 import './ParsingPage.css'
 
+const CircleProgress = ({ percent }: { percent: number }) => {
+  const r = 44
+  const circ = 2 * Math.PI * r
+  const offset = circ * (1 - percent / 100)
+  return (
+    <svg width={100} height={100} style={{ transform: 'rotate(-90deg)' }}>
+      <circle cx={50} cy={50} r={r} fill="none" stroke="#E5E7EB" strokeWidth={6} />
+      <circle
+        cx={50} cy={50} r={r} fill="none"
+        stroke="#4F46E5" strokeWidth={6}
+        strokeLinecap="round"
+        strokeDasharray={circ}
+        strokeDashoffset={offset}
+        style={{ transition: 'stroke-dashoffset 0.4s ease' }}
+      />
+      <text
+        x={50} y={50}
+        textAnchor="middle" dominantBaseline="central"
+        style={{ transform: 'rotate(90deg)', transformOrigin: '50px 50px' }}
+        fontSize={18}
+        fontWeight={800}
+        fill="#1d4ed8"
+      >
+        {Math.round(percent)}%
+      </text>
+    </svg>
+  )
+}
+
 const progressSteps = [
   { key: 'queued', label: '上传文件' },
   { key: 'extracting', label: '提取简历文本' },
@@ -16,7 +45,6 @@ const progressSteps = [
 const ParsingPage: React.FC = () => {
   const navigate = useNavigate()
   const { uploadState, profile } = useMobileApp()
-  const progressDegrees = Math.min(360, Math.max(0, uploadState.progress * 3.6))
 
   useEffect(() => {
     if (uploadState.status === 'completed' && profile) {
@@ -54,7 +82,7 @@ const ParsingPage: React.FC = () => {
       >
         <div
           style={{
-            borderRadius: 28,
+            borderRadius: 11,
             padding: 22,
             background: '#ffffff',
             border: '1px solid rgba(99, 102, 241, 0.12)',
@@ -69,30 +97,18 @@ const ParsingPage: React.FC = () => {
               borderRadius: '50%',
               display: 'grid',
               placeItems: 'center',
-              background: `conic-gradient(#4f46e5 0deg, #2563eb ${progressDegrees}deg, #dbeafe ${progressDegrees}deg, #dbeafe 360deg)`,
+              background: '#ffffff',
+              border: '1px solid rgba(99, 102, 241, 0.12)',
+              boxShadow: '0 4px 12px rgba(15, 23, 42, 0.08)',
               position: 'relative',
             }}
           >
-            <div
-              style={{
-                width: 70,
-                height: 70,
-                borderRadius: '50%',
-                background: '#ffffff',
-                display: 'grid',
-                placeItems: 'center',
-                color: '#1d4ed8',
-                fontSize: 18,
-                fontWeight: 800,
-              }}
-            >
-              {Math.round(uploadState.progress)}%
-            </div>
+            <CircleProgress percent={uploadState.progress} />
           </div>
 
           <div style={{ marginTop: 20, textAlign: 'center' }}>
-            <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>正在解析你的简历</div>
-            <div style={{ marginTop: 10, color: '#475569', lineHeight: 1.7, fontSize: 14 }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: '#0A0A0A' }}>正在解析你的简历</div>
+            <div style={{ marginTop: 10, color: '#374151', lineHeight: 1.7, fontSize: 14 }}>
               {uploadState.message}
             </div>
           </div>
@@ -111,7 +127,7 @@ const ParsingPage: React.FC = () => {
                     padding: '12px 14px',
                     borderRadius: 16,
                     background: active ? '#eef2ff' : '#f8fafc',
-                    border: `1px solid ${active ? '#c7d2fe' : '#e2e8f0'}`,
+                    border: `1px solid ${active ? '#c7d2fe' : '#E5E7EB'}`,
                   }}
                 >
                   <div
@@ -121,7 +137,7 @@ const ParsingPage: React.FC = () => {
                       borderRadius: '50%',
                       display: 'grid',
                       placeItems: 'center',
-                      background: completed ? '#10b981' : active ? '#4f46e5' : '#e2e8f0',
+                      background: completed ? '#10b981' : active ? '#4f46e5' : '#E5E7EB',
                       color: '#ffffff',
                       fontSize: 12,
                       fontWeight: 800,
@@ -129,7 +145,7 @@ const ParsingPage: React.FC = () => {
                   >
                     {completed ? '✓' : index + 1}
                   </div>
-                  <div style={{ color: '#0f172a', fontWeight: active ? 800 : 600, fontSize: 14 }}>{step.label}</div>
+                  <div style={{ color: '#0A0A0A', fontWeight: active ? 800 : 600, fontSize: 14 }}>{step.label}</div>
                 </div>
               )
             })}
@@ -176,7 +192,7 @@ const ParsingPage: React.FC = () => {
                     border: 'none',
                     borderRadius: 14,
                     padding: '12px 14px',
-                    background: '#0f172a',
+                    background: '#0A0A0A',
                     color: '#ffffff',
                     fontWeight: 700,
                   }}

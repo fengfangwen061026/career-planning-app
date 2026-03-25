@@ -219,7 +219,7 @@
 .skill-name {
   font-size: 10px;
   color: var(--color-text-secondary);
-  width: 36px;
+  width: 50px;
   flex-shrink: 0;
 }
 

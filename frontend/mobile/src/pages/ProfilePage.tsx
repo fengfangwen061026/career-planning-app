@@ -36,6 +36,13 @@ function getSkillColor(pct: number): string {
   return '#93C5FD'
 }
 
+const PILL_COLORS = [
+  { bg: '#EEF2FF', text: '#4F46E5', border: '#C7D2FE' },
+  { bg: '#FFF7ED', text: '#EA580C', border: '#FED7AA' },
+  { bg: '#F0FDF4', text: '#16A34A', border: '#BBF7D0' },
+  { bg: '#FDF4FF', text: '#9333EA', border: '#E9D5FF' },
+];
+
 const ProfilePage: React.FC = () => {
   const navigate = useNavigate()
   const location = useLocation()
@@ -80,8 +87,8 @@ const ProfilePage: React.FC = () => {
   const circumference = 132
   const ringOffset = circumference * (1 - competitiveness / 100)
 
-  const nameStr = String(basicInfo.name || currentStudent?.name || '未命名同学')
-  const avatarChar = nameStr[0] || '学'
+  const nameStr = String(basicInfo.name || currentStudent?.name || profile?.name ?? profile?.student_name || '未命名同学')
+  const avatarChar = nameStr.charAt(0)
 
   if (isLoadingProfile && !profile) {
     return (
@@ -269,29 +276,23 @@ const ProfilePage: React.FC = () => {
               ))}
             </div>
           )}
-          {(softSkills as Array<Record<string, unknown>>).slice(0, 3).map((item, index) => (
-            <div
-              key={`${String(item.dimension || 'ss')}-${index}`}
-              style={{
-                marginTop: 6,
-                padding: '7px 8px',
-                borderRadius: 7,
-                background: 'var(--color-background-secondary)',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                  {String(item.dimension || '软技能')}
-                </span>
-                <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-success-text)' }}>
-                  {toPercentScore(item.score)}%
-                </span>
-              </div>
-              <div style={{ fontSize: 9, color: 'var(--color-text-tertiary)', lineHeight: 1.6, marginTop: 2 }}>
-                {String(item.evidence || '暂无证据')}
-              </div>
-            </div>
-          ))}
+          {(softSkills as Array<Record<string, unknown>>).slice(0, 3).map((item, index) => {
+            const c = PILL_COLORS[index % PILL_COLORS.length]
+            const label = String(item.dimension || item.name || item.key || '素养')
+            const score = toPercentScore(item.score)
+            return (
+              <span key={`${label}-${index}`} style={{
+                display: 'inline-flex', alignItems: 'center',
+                padding: '3px 8px', borderRadius: 20,
+                fontSize: 10, fontWeight: 500,
+                background: c.bg, color: c.text,
+                border: `1px solid ${c.border}`,
+                marginRight: 6, marginBottom: 6,
+              }}>
+                {label}·{score}分
+              </span>
+            )
+          })}
           {!certificates.length && !awards.length && softSkills.length === 0 && (
             <div style={{ color: 'var(--color-text-tertiary)', fontSize: 10 }}>暂未识别到证书、奖项或软技能。</div>
           )}
@@ -320,8 +321,8 @@ const ProfilePage: React.FC = () => {
                   <div>
                     <div className="missing-item-name">{item}</div>
                   </div>
-                  <span className="missing-item-score">
-                    -{index === 0 ? 12 : index === 1 ? 6 : 4}分
+                  <span style={{ fontSize: 10, color: '#EF4444', fontWeight: 600, marginLeft: 'auto' }}>
+                    {index === 0 ? '·12分' : index === 1 ? '·6分' : '·4分'}
                   </span>
                 </div>
               </div>
@@ -341,23 +342,6 @@ const ProfilePage: React.FC = () => {
             className="profile-action-btn pressable"
           >
             AI 对话补全画像
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/explore')}
-            className="pressable"
-            style={{
-              width: '100%',
-              border: '0.5px solid var(--color-primary)',
-              borderRadius: 9,
-              padding: 9,
-              background: 'white',
-              color: 'var(--color-primary)',
-              fontWeight: 700,
-              fontSize: 11,
-            }}
-          >
-            查看真实岗位推荐
           </button>
         </div>
       </div>

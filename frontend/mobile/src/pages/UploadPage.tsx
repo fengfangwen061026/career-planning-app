@@ -49,7 +49,7 @@ const UploadPage: React.FC = () => {
     <MobileShell hasTabBar activeTab="upload">
       <div
         className="upload-page toolbar-anim"
-        style={{ background: 'linear-gradient(135deg, #F8F9FF 0%, #F0F4FF 50%, #F8FFF8 100%)', paddingBottom: 100 }}
+        style={{ background: 'linear-gradient(135deg, #F8F9FF 0%, #F0F4FF 50%, #F8FFF8 100%)' }}
       >
         <input
           ref={inputRef}
@@ -105,15 +105,6 @@ const UploadPage: React.FC = () => {
           <div className="upload-divider-line" />
         </div>
 
-        {/* Manual fill link */}
-        <button
-          type="button"
-          className="upload-manual-link pressable"
-          onClick={() => navigate('/chat-fill')}
-        >
-          手动填写基本信息 →
-        </button>
-
         {/* Preview card */}
         <div className="upload-preview-card card-bounce" style={{ '--ci': 0 } as React.CSSProperties}>
           <div className="preview-card-header">
@@ -130,39 +121,16 @@ const UploadPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Profile status hint */}
-        <div
-          className="upload-preview-card card-bounce"
+        {/* Manual fill link */}
+        <span
+          onClick={() => navigate('/chat-fill')}
           style={{
-            '--ci': 1,
-            marginTop: 8,
-            background: profile ? '#ecfdf5' : '#fff7ed',
-            borderColor: profile ? '#bbf7d0' : '#fed7aa',
-          } as React.CSSProperties}
+            fontSize: 12, color: '#4F46E5', cursor: 'pointer',
+            textDecoration: 'none', background: 'none', border: 'none',
+          }}
         >
-          <div className="preview-card-header">
-            <div
-              className="preview-card-indicator"
-              style={{ background: profile ? '#10B981' : '#D97706' }}
-            />
-            <span className="preview-card-title">
-              {profile ? '已有学生画像' : '首次使用'}
-            </span>
-          </div>
-          <div style={{ fontSize: 9, color: 'var(--color-text-tertiary)', lineHeight: 1.6, marginBottom: 8 }}>
-            {profile
-              ? '重新上传会基于最新简历重建画像，推荐与报告也会随之刷新。'
-              : `${currentStudent?.name ? `${currentStudent.name}，` : ''}如果现在没有简历，可以先去画像页查看当前状态。`}
-          </div>
-          <button
-            type="button"
-            onClick={() => navigate('/profile')}
-            className="upload-select-btn pressable"
-            style={{ background: profile ? '#10B981' : 'var(--color-warning)' }}
-          >
-            前往画像页
-          </button>
-        </div>
+          手动填写基本信息 →
+        </span>
       </div>
     </MobileShell>
   )

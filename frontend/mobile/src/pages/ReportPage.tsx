@@ -239,17 +239,17 @@ const ReportPage: React.FC = () => {
         >
           <div
             style={{
-              borderRadius: 28,
+              borderRadius: 11,
               padding: 22,
               background: '#ffffff',
               border: '1px solid #dbeafe',
               boxShadow: '0 14px 32px rgba(15, 23, 42, 0.06)',
             }}
           >
-            <div style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: '#0A0A0A', lineHeight: 1.2 }}>
               还不能生成职业报告
             </div>
-            <p style={{ color: '#475569', fontSize: 14, lineHeight: 1.7, marginTop: 10 }}>
+            <p style={{ color: '#374151', fontSize: 14, lineHeight: 1.7, marginTop: 10 }}>
               先上传简历并生成学生画像，报告页才会使用真实匹配结果和职业路径生成完整内容。
             </p>
             <button
@@ -295,8 +295,8 @@ const ReportPage: React.FC = () => {
         >
           <div style={{ display: 'grid', gap: 14 }}>
             <div>
-              <div style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', lineHeight: 1.2 }}>职业发展报告</div>
-              <div style={{ marginTop: 10, color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: '#0A0A0A', lineHeight: 1.2 }}>职业发展报告</div>
+              <div style={{ marginTop: 10, color: '#374151', fontSize: 13, lineHeight: 1.7 }}>
                 当前学生：{currentStudent?.name || currentStudent?.email || '未命名学生'}
                 <br />
                 生成范围：{selectedRecommendation ? `围绕「${reportScopeLabel}」生成` : '基于当前画像与推荐岗位生成'}
@@ -308,7 +308,7 @@ const ReportPage: React.FC = () => {
                 borderRadius: 999,
                 padding: '8px 12px',
                 background: activeReport ? '#eef2ff' : '#f8fafc',
-                color: activeReport ? '#4338ca' : '#64748b',
+                color: activeReport ? '#4338ca' : '#6B7280',
                 fontWeight: 700,
                 fontSize: 12,
               }}
@@ -373,13 +373,13 @@ const ReportPage: React.FC = () => {
         {reports.length > 0 && (
           <div
             style={{
-              borderRadius: 24,
+              borderRadius: 11,
               padding: 18,
               background: '#ffffff',
-              border: '1px solid #e2e8f0',
+              border: '1px solid #E5E7EB',
             }}
           >
-            <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 12 }}>历史报告</div>
+            <div style={{ fontWeight: 800, color: '#0A0A0A', marginBottom: 12 }}>历史报告</div>
             <div style={{ display: 'grid', gap: 10 }}>
               {reports.map((report) => {
                 const selected = report.id === activeReport?.id
@@ -393,13 +393,13 @@ const ReportPage: React.FC = () => {
                       borderRadius: 18,
                       padding: '14px 16px',
                       background: selected ? '#eef2ff' : '#f8fafc',
-                      border: `1px solid ${selected ? '#c7d2fe' : '#e2e8f0'}`,
+                      border: `1px solid ${selected ? '#c7d2fe' : '#E5E7EB'}`,
                     }}
                   >
-                    <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                    <div style={{ fontWeight: 700, color: '#0A0A0A' }}>
                       {report.title || report.summary || '职业发展报告'}
                     </div>
-                    <div style={{ marginTop: 6, color: '#475569', fontSize: 12, lineHeight: 1.6 }}>
+                    <div style={{ marginTop: 6, color: '#374151', fontSize: 12, lineHeight: 1.6 }}>
                       创建时间：{formatDateTime(report.created_at)}
                       <br />
                       状态：{report.status || 'completed'}
@@ -414,15 +414,32 @@ const ReportPage: React.FC = () => {
         {generating && (
           <div
             style={{
-              borderRadius: 24,
+              borderRadius: 11,
               padding: 18,
               background: '#ffffff',
-              border: '1px solid #e2e8f0',
+              border: '1px solid #E5E7EB',
             }}
           >
-            <div style={{ fontWeight: 800, color: '#0f172a' }}>正在生成真实报告</div>
-            <div style={{ marginTop: 8, color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
-              页面会等待后端完成画像、匹配与职业路径汇总，生成完成后自动切换到最新报告。
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div className="skeleton-line" style={{ height: 20, width: '60%', borderRadius: 4 }} />
+              <div className="skeleton-line" style={{ height: 14, width: '40%', borderRadius: 4 }} />
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  style={{
+                    background: 'var(--color-surface)',
+                    borderRadius: 11,
+                    padding: 14,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  <div className="skeleton-line" style={{ height: 16, width: '50%', borderRadius: 4 }} />
+                  <div className="skeleton-line" style={{ height: 11, width: '100%', borderRadius: 4 }} />
+                  <div className="skeleton-line" style={{ height: 11, width: '80%', borderRadius: 4 }} />
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -430,11 +447,11 @@ const ReportPage: React.FC = () => {
         {!generating && !activeReport && !isLoadingReports && (
           <div
             style={{
-              borderRadius: 24,
+              borderRadius: 11,
               padding: 18,
               background: '#ffffff',
-              border: '1px solid #e2e8f0',
-              color: '#475569',
+              border: '1px solid #E5E7EB',
+              color: '#374151',
               lineHeight: 1.7,
             }}
           >
@@ -446,88 +463,99 @@ const ReportPage: React.FC = () => {
           <>
             <div
               style={{
-                borderRadius: 24,
+                borderRadius: 11,
                 padding: 18,
                 background: '#ffffff',
-                border: '1px solid #e2e8f0',
+                border: '1px solid #E5E7EB',
               }}
             >
               <div style={{ display: 'grid', gap: 14 }}>
                 <div>
-                  <div style={{ fontWeight: 800, color: '#0f172a', fontSize: 20 }}>
+                  <div className="report-header-title">
                     {activeReport.title || '职业发展报告'}
                   </div>
-                  <div style={{ marginTop: 8, color: '#475569', fontSize: 12, lineHeight: 1.7 }}>
+                  <div style={{ marginTop: 8, color: '#374151', fontSize: 12, lineHeight: 1.7 }}>
                     更新时间：{formatDateTime(activeReport.updated_at)}
                     <br />
                     创建时间：{formatDateTime(activeReport.created_at)}
                   </div>
                 </div>
-                <div style={{ display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 0 16px' }}>
+                  {/* 主按钮：导出 PDF */}
                   <button
                     type="button"
                     onClick={() => handleExport('pdf')}
                     disabled={exportingFormat !== null}
                     style={{
                       width: '100%',
+                      padding: '12px',
+                      borderRadius: 11,
+                      background: '#4F46E5',
+                      color: '#fff',
+                      fontSize: 13,
+                      fontWeight: 600,
                       border: 'none',
-                      borderRadius: 14,
-                      padding: '10px 14px',
-                      background: '#0f172a',
-                      color: '#ffffff',
-                      fontWeight: 700,
+                      cursor: 'pointer',
                     }}
                   >
                     {exportingFormat === 'pdf' ? '导出中...' : '导出 PDF'}
                   </button>
+                  {/* 次要按钮：导出 DOCX */}
                   <button
                     type="button"
                     onClick={() => handleExport('docx')}
                     disabled={exportingFormat !== null}
                     style={{
                       width: '100%',
-                      borderRadius: 14,
-                      padding: '10px 14px',
-                      background: '#ffffff',
-                      color: '#334155',
-                      border: '1px solid #cbd5e1',
-                      fontWeight: 700,
+                      padding: '12px',
+                      borderRadius: 11,
+                      background: 'transparent',
+                      color: '#4F46E5',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      border: '1.5px solid #4F46E5',
+                      cursor: 'pointer',
                     }}
                   >
-                    {exportingFormat === 'docx' ? '导出中...' : '导出 DOCX'}
+                    {exportingFormat === 'docx' ? '导出中...' : '导出 Word'}
                   </button>
-                  <button
-                    type="button"
-                    onClick={handlePolish}
-                    disabled={polishing || exportingFormat !== null}
-                    style={{
-                      width: '100%',
-                      borderRadius: 14,
-                      padding: '10px 14px',
-                      background: '#f0fdf4',
-                      color: '#166534',
-                      border: '1px solid #86efac',
-                      fontWeight: 700,
-                    }}
-                  >
-                    {polishing ? '润色中...' : '润色报告'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCheck}
-                    disabled={polishing || exportingFormat !== null}
-                    style={{
-                      width: '100%',
-                      borderRadius: 14,
-                      padding: '10px 14px',
-                      background: '#fefce8',
-                      color: '#854d0e',
-                      border: '1px solid #fde047',
-                      fontWeight: 700,
-                    }}
-                  >
-                    完整性检查
-                  </button>
+                  {/* 行动项：文字行 */}
+                  <div style={{ display: 'flex', gap: 16, justifyContent: 'center', paddingTop: 4 }}>
+                    <button
+                      type="button"
+                      onClick={handlePolish}
+                      disabled={polishing || exportingFormat !== null}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        color: '#6B7280',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      {polishing ? '润色中...' : '✨ 润色报告'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCheck}
+                      disabled={polishing || exportingFormat !== null}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        color: '#6B7280',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      🔍 质量检查
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -574,83 +602,97 @@ const ReportPage: React.FC = () => {
             {recommendationItems.length > 0 && (
               <div
                 style={{
-                  borderRadius: 24,
+                  borderRadius: 11,
                   padding: 18,
                   background: '#ffffff',
-                  border: '1px solid #e2e8f0',
+                  border: '1px solid #E5E7EB',
                 }}
               >
-                <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 12 }}>行动建议</div>
-                <div style={{ display: 'grid', gap: 10 }}>
-                  {recommendationItems.map((item, index) => (
-                    <div
-                      key={`${item.title || 'recommendation'}-${index}`}
-                      style={{
-                        borderRadius: 18,
-                        padding: '14px 16px',
-                        background: '#f8fafc',
-                        border: '1px solid #e2e8f0',
-                      }}
-                    >
-                      <div style={{ fontWeight: 700, color: '#0f172a' }}>{item.title || '建议'}</div>
-                      <div style={{ marginTop: 8, color: '#475569', fontSize: 13, lineHeight: 1.7 }}>
-                        {item.content || '暂无详细建议'}
+                <div style={{ fontWeight: 800, color: '#0A0A0A', marginBottom: 12 }}>行动建议</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {recommendationItems.map((item, index) => {
+                    const priority = (item as { priority?: string }).priority || 'medium'
+                    const PRIORITY_COLOR: Record<string, string> = {
+                      high: '#EF4444',
+                      medium: '#F59E0B',
+                      low: '#10B981',
+                    }
+                    return (
+                      <div
+                        key={`${item.title || 'recommendation'}-${index}`}
+                        style={{
+                          borderRadius: 11,
+                          padding: '12px 14px',
+                          marginBottom: 8,
+                          borderLeft: `3px solid ${PRIORITY_COLOR[priority] ?? '#4F46E5'}`,
+                          background: '#f8fafc',
+                          boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, color: '#0A0A0A', fontSize: 11 }}>
+                          {item.title || '建议'}
+                        </div>
+                        <div style={{ marginTop: 4, color: '#374151', fontSize: 10, lineHeight: 1.5 }}>
+                          {item.content || '暂无详细建议'}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}
 
-            <div style={{ display: 'grid', gap: 14 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {chapters.map((chapter, chapterIndex) => (
                 <div
                   key={`${chapter.title || 'chapter'}-${chapterIndex}`}
                   style={{
-                    borderRadius: 24,
-                    padding: 18,
-                    background: '#ffffff',
-                    border: '1px solid #e2e8f0',
+                    background: 'var(--color-surface)',
+                    borderRadius: 11,
+                    padding: '14px 16px',
+                    marginBottom: 12,
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
                   }}
                 >
-                  <div style={{ fontWeight: 800, color: '#0f172a', fontSize: 18 }}>
+                  {/* 章节标题 */}
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0A0A0A', marginBottom: 8 }}>
                     {chapter.title || `章节 ${chapterIndex + 1}`}
                   </div>
-
+                  {/* 正文 */}
+                  <div style={{ fontSize: 10, color: '#374151', lineHeight: 1.6 }}>
+                    {(chapter as { content?: string }).content || ''}
+                  </div>
+                  {/* sections 渲染 */}
                   {(chapter.sections || []).length > 0 && (
-                    <div style={{ display: 'grid', gap: 14, marginTop: 14 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
                       {(chapter.sections || []).map((section, sectionIndex) => (
-                        <div
-                          key={`${section.title || 'section'}-${sectionIndex}`}
-                          style={{
-                            borderRadius: 18,
-                            padding: '14px 16px',
-                            background: '#f8fafc',
-                          }}
-                        >
-                          <div style={{ fontWeight: 700, color: '#0f172a' }}>{section.title || '小节'}</div>
+                        <div key={`${section.title || 'section'}-${sectionIndex}`}>
+                          {section.title && (
+                            <div style={{ fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+                              {section.title}
+                            </div>
+                          )}
                           {section.content && (
-                            <div style={{ marginTop: 8, color: '#334155', fontSize: 13, lineHeight: 1.8 }}>
+                            <div style={{ fontSize: 10, color: '#6B7280', lineHeight: 1.5 }}>
                               {section.content}
                             </div>
                           )}
                           {Array.isArray(section.key_points) && section.key_points.length > 0 && (
-                            <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                               {section.key_points.map((point, pointIndex) => (
-                                <div
+                                <span
                                   key={`${point}-${pointIndex}`}
                                   style={{
-                                    borderRadius: 14,
-                                    padding: '10px 12px',
-                                    background: '#ffffff',
-                                    color: '#475569',
-                                    fontSize: 12,
-                                    lineHeight: 1.6,
-                                    border: '1px solid #e2e8f0',
+                                    fontSize: 9,
+                                    padding: '2px 8px',
+                                    borderRadius: 20,
+                                    background: '#EEF2FF',
+                                    color: '#4F46E5',
+                                    border: '1px solid #C7D2FE',
                                   }}
                                 >
                                   {point}
-                                </div>
+                                </span>
                               ))}
                             </div>
                           )}
@@ -658,23 +700,26 @@ const ReportPage: React.FC = () => {
                       ))}
                     </div>
                   )}
-
+                  {/* tables 渲染 */}
                   {(chapter.tables || []).length > 0 && (
-                    <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
                       {(chapter.tables || []).map((table, tableIndex) => (
                         <div
                           key={`${table.title || 'table'}-${tableIndex}`}
                           style={{
-                            borderRadius: 18,
-                            padding: '14px 16px',
+                            borderRadius: 11,
+                            padding: '12px',
                             background: '#f8fafc',
                             overflowX: 'auto',
+                            WebkitOverflowScrolling: 'touch',
                           }}
                         >
-                          <div style={{ fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>
-                            {table.title || '数据表'}
-                          </div>
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          {table.title && (
+                            <div style={{ fontWeight: 700, color: '#0A0A0A', marginBottom: 8, fontSize: 11 }}>
+                              {table.title}
+                            </div>
+                          )}
+                          <table style={{ minWidth: 520, borderCollapse: 'collapse', fontSize: 10 }}>
                             <thead>
                               <tr>
                                 {(table.headers || []).map((header) => (
@@ -682,9 +727,9 @@ const ReportPage: React.FC = () => {
                                     key={header}
                                     style={{
                                       textAlign: 'left',
-                                      padding: '8px 10px',
+                                      padding: '6px 8px',
                                       borderBottom: '1px solid #cbd5e1',
-                                      color: '#475569',
+                                      color: '#374151',
                                       fontWeight: 700,
                                     }}
                                   >
@@ -700,8 +745,8 @@ const ReportPage: React.FC = () => {
                                     <td
                                       key={`${rowIndex}-${cellIndex}`}
                                       style={{
-                                        padding: '8px 10px',
-                                        borderBottom: '1px solid #e2e8f0',
+                                        padding: '6px 8px',
+                                        borderBottom: '1px solid #E5E7EB',
                                         color: '#334155',
                                         verticalAlign: 'top',
                                       }}
@@ -717,12 +762,35 @@ const ReportPage: React.FC = () => {
                       ))}
                     </div>
                   )}
-
-                  {(chapter.sections || []).length === 0 && (chapter.tables || []).length === 0 && (
-                    <div style={{ marginTop: 12, color: '#64748b', fontSize: 13 }}>
-                      该章节暂无可展示内容。
+                  {/* key_points Tag列表 - 章节级别 */}
+                  {Array.isArray((chapter as { key_points?: string[] }).key_points) && (chapter as { key_points?: string[] }).key_points!.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                      {(chapter as { key_points?: string[] }).key_points!.map((pt, i) => (
+                        <span
+                          key={i}
+                          style={{
+                            fontSize: 9,
+                            padding: '2px 8px',
+                            borderRadius: 20,
+                            background: '#EEF2FF',
+                            color: '#4F46E5',
+                            border: '1px solid #C7D2FE',
+                          }}
+                        >
+                          {pt}
+                        </span>
+                      ))}
                     </div>
                   )}
+                  {/* 空内容提示 */}
+                  {(chapter.sections || []).length === 0 &&
+                    (chapter.tables || []).length === 0 &&
+                    !(chapter as { content?: string }).content &&
+                    !(chapter as { key_points?: string[] }).key_points && (
+                      <div style={{ marginTop: 8, color: '#9CA3AF', fontSize: 10 }}>
+                        该章节暂无可展示内容
+                      </div>
+                    )}
                 </div>
               ))}
             </div>

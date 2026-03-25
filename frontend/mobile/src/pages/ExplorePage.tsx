@@ -196,9 +196,9 @@ const ExplorePage: React.FC = () => {
             const iconColor = ICON_COLORS[index % ICON_COLORS.length]
             const scoreColor = item.total_score >= 75 ? '#10B981' : item.total_score >= 55 ? '#4F46E5' : '#9CA3AF'
             const dims = [
-              { label: '基', value: scoreOf(item, 'basic'), color: '#1D4ED8' },
+              { label: '基', value: scoreOf(item, 'basic'), color: '#3B82F6' },
               { label: '技', value: scoreOf(item, 'skill'), color: '#10B981' },
-              { label: '素', value: scoreOf(item, 'competency'), color: '#D97706' },
+              { label: '素', value: scoreOf(item, 'competency'), color: '#F59E0B' },
               { label: '潜', value: scoreOf(item, 'potential'), color: '#8B5CF6' },
             ]
 

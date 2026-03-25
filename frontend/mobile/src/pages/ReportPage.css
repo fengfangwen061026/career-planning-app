@@ -34,6 +34,12 @@
   margin-top: 2px;
 }
 
+.report-header-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0A0A0A;
+}
+
 .export-btn {
   border: none;
   border-radius: 7px;
@@ -346,4 +352,16 @@
 .report-content > .chapter-card:last-of-type,
 .report-content > .pending-chapter:last-of-type {
   margin-bottom: 10px;
+}
+
+/* Skeleton line animation */
+.skeleton-line {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: skeleton-scan 1.4s infinite;
+}
+
+@keyframes skeleton-scan {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }

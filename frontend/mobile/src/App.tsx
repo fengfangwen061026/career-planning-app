@@ -70,10 +70,10 @@ function AppRoutes() {
             textAlign: 'center',
           }}
         >
-          <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a', marginBottom: 10 }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: '#0A0A0A', marginBottom: 10 }}>
             画像加载失败
           </div>
-          <p style={{ color: '#475569', fontSize: 13, lineHeight: 1.7, marginBottom: 18 }}>
+          <p style={{ color: '#374151', fontSize: 13, lineHeight: 1.7, marginBottom: 18 }}>
             无法加载学生画像，可能是网络问题或服务暂时不可用。
           </p>
           <div style={{ display: 'grid', gap: 10 }}>
