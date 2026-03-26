@@ -29,8 +29,24 @@ export default function UploadPage() {
 
   return (
     <>
-      <div className="scroll-body" style={{ padding: '12px 12px 0' }}>
-        {/* 拖拽区 */}
+      {/* 固定白色顶部 header */}
+      <div style={{
+        padding: '12px 12px 8px',
+        background: 'white',
+        borderBottom: '0.5px solid #E5E7EB',
+        flexShrink: 0,
+      }}>
+        <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: '-0.5px', color: '#0A0A0A' }}>
+          上传简历
+        </div>
+        <div style={{ fontSize: 10, color: '#6B7280', marginTop: 3 }}>
+          AI 自动解析，生成你的职业画像
+        </div>
+      </div>
+
+      {/* 滚动内容区 */}
+      <div className="scroll-body" style={{ padding: '10px 10px 12px' }}>
+        {/* 拖���区 */}
         <div
           onDragOver={e => { e.preventDefault(); setDragging(true) }}
           onDragLeave={() => setDragging(false)}
