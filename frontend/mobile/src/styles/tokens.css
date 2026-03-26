@@ -79,27 +79,27 @@ body {
 .card {
   background: white;
   border: 0.5px solid var(--g2);
-  border-radius: var(--r-lg);
-  padding: 11px;
-  margin-bottom: 8px;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 7px;
 }
 .card:last-child { margin-bottom: 0; }
 
 /* 卡片标题 */
 .card-hd {
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
-  color: var(--g4);
+  color: var(--g5);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  margin-bottom: 9px;
+  margin-bottom: 8px;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
 }
 .card-hd-bar {
-  width: 2.5px;
-  height: 10px;
+  width: 2px;
+  height: 9px;
   border-radius: 1px;
   flex-shrink: 0;
 }
@@ -107,28 +107,26 @@ body {
 /* 主按钮 */
 .btn-primary {
   width: 100%;
-  padding: 9px;
+  padding: 8px;
   background: var(--p);
   color: white;
   border: none;
-  border-radius: 9px;
-  font-size: 11px;
+  border-radius: 8px;
+  font-size: 10px;
   font-weight: 700;
   cursor: pointer;
   font-family: var(--font);
-  letter-spacing: -0.1px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 /* Tag 变体 */
 .tag {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  padding: 2px 7px;
   border-radius: 20px;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 600;
-  letter-spacing: 0.01em;
 }
 .tag-blue  { background: var(--bl); color: var(--pd); }
 .tag-green { background: var(--gl); color: #065F46; }
@@ -140,7 +138,7 @@ body {
 /* 进度条 */
 .bar-track {
   flex: 1;
-  height: 4px;
+  height: 2.5px;
   background: var(--g1);
   border-radius: 2px;
   overflow: hidden;
@@ -168,6 +166,7 @@ body {
 /* 动效 */
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 @keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+@keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
 @keyframes shimmer { 0%{transform:translateX(-100%)} 100%{transform:translateX(200%)} }
 @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-4px)} }
 

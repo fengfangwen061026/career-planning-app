@@ -31,12 +31,12 @@ export default function UploadPage() {
     <>
       {/* 固定白色顶部 header */}
       <div style={{
-        padding: '12px 12px 8px',
+        padding: '10px 10px 8px',
         background: 'white',
         borderBottom: '0.5px solid #E5E7EB',
         flexShrink: 0,
       }}>
-        <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: '-0.5px', color: '#0A0A0A' }}>
+        <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: '-0.5px', color: '#0A0A0A' }}>
           上传简历
         </div>
         <div style={{ fontSize: 10, color: '#6B7280', marginTop: 3 }}>
@@ -53,7 +53,7 @@ export default function UploadPage() {
           onDrop={handleDrop}
           style={{
             border: `1.5px dashed ${dragging ? '#4F46E5' : '#D1D5DB'}`,
-            borderRadius: 11,
+            borderRadius: 10,
             padding: '24px 12px',
             textAlign: 'center',
             marginBottom: 10,

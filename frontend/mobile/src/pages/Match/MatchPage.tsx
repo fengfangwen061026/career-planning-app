@@ -34,7 +34,7 @@ export default function MatchPage() {
     <>
       <div className="scroll-body" style={{ padding: '12px 12px 0' }}>
         {/* 顶部 */}
-        <div style={{ background: 'white', borderRadius: 11, padding: '10px 11px', marginBottom: 8, border: '0.5px solid #E5E7EB' }}>
+        <div style={{ background: 'white', borderRadius: 10, padding: '10px 11px', marginBottom: 8, border: '0.5px solid #E5E7EB' }}>
           <div style={{ fontSize: 9, fontWeight: 600, color: '#4F46E5', marginBottom: 2, cursor: 'pointer' }} onClick={() => navigate('/explore')}>
             ← 返回探索
           </div>

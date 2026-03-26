@@ -139,7 +139,7 @@ export default function ReportPage() {
           color: generating ? '#9CA3AF' : '#fff', border: 'none', borderRadius: 7,
           fontSize: 9, fontWeight: 700, cursor: generating ? 'not-allowed' : 'pointer',
         }}>
-          ↓ 导出
+          {generating ? '导出 PDF' : '↓ 导出'}
         </button>
       </div>
 
@@ -150,7 +150,7 @@ export default function ReportPage() {
 
           if (done) {
             return (
-              <div key={ch.index} style={{ background: 'white', border: '0.5px solid #E5E7EB', borderRadius: 10, padding: 11, marginBottom: 7, animation: 'fadeUp 0.4s ease forwards' }}>
+              <div key={ch.index} style={{ background: 'white', border: '0.5px solid #E5E7EB', borderRadius: 10, padding: 11, marginBottom: 7, animation: 'fadeIn 0.4s ease forwards' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                   <div style={{ fontSize: 10, fontWeight: 800, color: '#0A0A0A', letterSpacing: '-0.2px' }}>{ch.title}</div>
                   <span style={{ padding: '2px 7px', borderRadius: 20, fontSize: 8, fontWeight: 600, background: '#D1FAE5', color: '#065F46' }}>已生成</span>
@@ -170,15 +170,15 @@ export default function ReportPage() {
                     <span style={{ fontSize: 8, color: '#4F46E5', fontWeight: 600 }}>生成中</span>
                   </div>
                 </div>
-                {['90%', '100%', '75%', '85%'].map((w, i) => (
-                  <div key={i} className="skeleton" style={{ height: 8, width: w, marginBottom: i < 3 ? 5 : 0 }} />
+                {['90%', '100%', '75%'].map((w, i) => (
+                  <div key={i} className="skeleton" style={{ height: 8, width: w, marginBottom: i < 2 ? 5 : 0 }} />
                 ))}
               </div>
             )
           }
 
           const pendingIdx = idx - doneCount
-          const opacities = [0.5, 0.35, 0.2, 0.15]
+          const opacities = [0.5, 0.35, 0.2]
           return (
             <div key={ch.index} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',

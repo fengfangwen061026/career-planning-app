@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom'
 
 const STEPS = [
   { label: '读取简历文件', duration: 1200 },
+  { label: '识别教育经历', duration: 1500 },
   { label: '抽取技能 & 项目', duration: 2000 },
   { label: '识别证书 & 荣誉', duration: 1800 },
-  { label: '分析软素养信号', duration: 1500 },
   { label: '生成学生画像', duration: 2000 },
 ]
 
