@@ -710,3 +710,48 @@ async def create_report_version(
         "version": report_version.version,
         "created_at": report_version.created_at.isoformat() if report_version.created_at else None,
     }
+
+
+@router.get("/{report_id}/status")
+async def get_chapter_status(
+    report_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """前端轮询端点：返回已完成章节数及各章内容。
+
+    响应格���：
+    {
+      "chapters_done": 2,
+      "status": "generating" | "done" | "failed",
+      "chapters": [
+        {"index": 1, "text": "...", "data": null},
+        {"index": 2, "text": "...", "data": {...}},
+        ...
+      ]
+    }
+    """
+    import json as _json
+
+    report = await db.get(CareerReport, report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    chapters = []
+    for i in range(1, 6):
+        text = getattr(report, f"chapter_{i}_text", None)
+        data_str = getattr(report, f"chapter_{i}_data", None)
+        data = None
+        if data_str:
+            try:
+                data = _json.loads(data_str)
+            except Exception:
+                data = None
+        if text is not None or data is not None:
+            chapters.append({"index": i, "text": text, "data": data})
+
+    return {
+        "report_id": str(report.id),
+        "chapters_done": report.chapters_done or 0,
+        "status": report.status,
+        "chapters": chapters,
+    }

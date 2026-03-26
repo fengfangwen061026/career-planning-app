@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -16,11 +16,8 @@ class CareerReport(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     student_id = Column(UUID(as_uuid=True), ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
 
-    # 报告内容（JSONB 存储）
-    content_json = Column(JSON, nullable=False)  # 完整报告结构
-
     # 状态
-    status = Column(String(32), nullable=False, default="pending")  # pending/generating/completed/failed
+    status = Column(String(32), nullable=False, default="pending")  # pending/generating/done/failed
 
     # 版本管理
     version = Column(String(32), nullable=False, default="1.0")
@@ -29,9 +26,32 @@ class CareerReport(Base):
     pdf_path = Column(String(1000))
     docx_path = Column(String(1000))
 
-    # 元信息
-    summary = Column(Text)  # 执行摘要
-    recommendations = Column(JSON)  # 推荐建议列表
+    # 旧版整体 JSON（保留向后兼容）
+    content_json = Column(JSON, nullable=True)
+    summary = Column(Text)
+    recommendations = Column(JSON)
+
+    # 五章分字段存储（新版）
+    # 第一章：个人优势总结（纯文字）
+    chapter_1_text = Column(Text, nullable=True)
+
+    # 第二章：目标岗位分析（文字 + 四维分数 JSON）
+    chapter_2_text = Column(Text, nullable=True)
+    chapter_2_data = Column(Text, nullable=True)  # JSON string: {overall_score, dimensions}
+
+    # 第三章：差距与行动计划（文字引言 + 行动项 JSON）
+    chapter_3_text = Column(Text, nullable=True)
+    chapter_3_data = Column(Text, nullable=True)  # JSON string: [{priority, item, action, timeline, ...}]
+
+    # 第四章：职业路径规划（文字 + 路径节点 JSON）
+    chapter_4_text = Column(Text, nullable=True)
+    chapter_4_data = Column(Text, nullable=True)  # JSON string: {primary_path, alt_paths}
+
+    # 第五章：评估周期（纯文字）
+    chapter_5_text = Column(Text, nullable=True)
+
+    # 已完成章节数（0–5），前端轮询用
+    chapters_done = Column(Integer, default=0, nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
