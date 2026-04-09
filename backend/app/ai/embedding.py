@@ -111,14 +111,17 @@ class EmbeddingProvider:
         from app.database import async_session_factory
 
         result_map: dict[str, list[float]] = {}
-        async with async_session_factory() as session:
-            result = await session.execute(
-                select(SkillEmbedding).where(
-                    SkillEmbedding.skill_name_normalized.in_(normalized_names)
+        try:
+            async with async_session_factory() as session:
+                result = await session.execute(
+                    select(SkillEmbedding).where(
+                        SkillEmbedding.skill_name_normalized.in_(normalized_names)
+                    )
                 )
-            )
-            for db_embedding in result.scalars().all():
-                result_map[db_embedding.skill_name_normalized] = db_embedding.embedding
+                for db_embedding in result.scalars().all():
+                    result_map[db_embedding.skill_name_normalized] = db_embedding.embedding
+        except Exception as exc:
+            logger.warning("Embedding DB batch cache lookup failed, falling back to provider-only path: %s", exc)
         return result_map
 
     async def _put_db_batch(
@@ -127,26 +130,29 @@ class EmbeddingProvider:
         """Store multiple embeddings in database."""
         from app.database import async_session_factory
 
-        async with async_session_factory() as session:
-            for normalized_name, original_name, embedding in entries:
-                # Check if already exists
-                result = await session.execute(
-                    select(SkillEmbedding).where(
-                        SkillEmbedding.skill_name_normalized == normalized_name
+        try:
+            async with async_session_factory() as session:
+                for normalized_name, original_name, embedding in entries:
+                    # Check if already exists
+                    result = await session.execute(
+                        select(SkillEmbedding).where(
+                            SkillEmbedding.skill_name_normalized == normalized_name
+                        )
                     )
-                )
-                existing = result.scalar_one_or_none()
+                    existing = result.scalar_one_or_none()
 
-                if existing is None:
-                    db_embedding = SkillEmbedding(
-                        skill_name_normalized=normalized_name,
-                        skill_name_original=original_name,
-                        embedding=embedding,
-                        model_name=self.model,
-                    )
-                    session.add(db_embedding)
+                    if existing is None:
+                        db_embedding = SkillEmbedding(
+                            skill_name_normalized=normalized_name,
+                            skill_name_original=original_name,
+                            embedding=embedding,
+                            model_name=self.model,
+                        )
+                        session.add(db_embedding)
 
-            await session.commit()
+                await session.commit()
+        except Exception as exc:
+            logger.warning("Embedding DB batch cache write failed, continuing without persistence: %s", exc)
 
     # ------------------------------------------------------------------
     # Public API

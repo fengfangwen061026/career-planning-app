@@ -3,6 +3,7 @@ import type { StudentProfileResponse } from '../types/student';
 
 export interface GenerateProfileRequest {
   resume_id: string;
+  parsed_data?: Record<string, unknown>;
 }
 
 /**

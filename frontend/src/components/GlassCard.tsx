@@ -1,10 +1,10 @@
 import React from 'react';
 
-export const GlassCard: React.FC<{
+type GlassCardProps = React.HTMLAttributes<HTMLDivElement> & {
   children: React.ReactNode;
-  className?: string;
-  style?: React.CSSProperties;
-}> = ({ children, className = '', style = {} }) => (
+};
+
+export const GlassCard: React.FC<GlassCardProps> = ({ children, className = '', style = {}, ...rest }) => (
   <div
     className={`glass-card ${className}`}
     style={{
@@ -16,6 +16,7 @@ export const GlassCard: React.FC<{
       padding: '20px',
       ...style,
     }}
+    {...rest}
   >
     {children}
   </div>

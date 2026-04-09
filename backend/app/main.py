@@ -45,7 +45,6 @@ from app.api import (
     jobs,
     matching,
     reports,
-    resumes,
     roles,
     student_app,
     students,
@@ -59,7 +58,6 @@ app.include_router(matching.router, prefix="/api/matching", tags=["matching"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(graph.router, prefix="/api/graph", tags=["graph"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
-app.include_router(resumes.router, prefix="/api/resumes", tags=["resumes"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(student_app.router, prefix="/api/student-app", tags=["student-app"])
 

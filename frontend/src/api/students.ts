@@ -6,7 +6,6 @@ import type {
   ResumeResponse,
   ResumeUploadResponse,
   StudentProfileResponse,
-  StudentProfileCreate,
 } from '../types/student';
 
 export const studentsApi = {
@@ -39,19 +38,16 @@ export const studentsApi = {
     });
   },
 
-  deleteResume: (studentId: string, resumeId: string) =>
-    client.delete(`/students/${studentId}/resumes/${resumeId}`),
-
   // Student Profile
   getStudentProfile: (id: string) =>
     client.get<StudentProfileResponse>(`/students/${id}/profile`),
 
-  createStudentProfile: (id: string, data: Partial<StudentProfileCreate>) =>
+  createStudentProfile: (id: string, data: Record<string, unknown>) =>
     client.put<StudentProfileResponse>(`/students/${id}/profile`, {
       profile_json: data,
     }),
 
-  updateStudentProfile: (id: string, data: Partial<StudentProfileCreate>) =>
+  updateStudentProfile: (id: string, data: Record<string, unknown>) =>
     client.put<StudentProfileResponse>(`/students/${id}/profile`, {
       profile_json: data,
     }),

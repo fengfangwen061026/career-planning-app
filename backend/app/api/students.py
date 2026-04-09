@@ -29,16 +29,17 @@ from app.schemas.student import (
 )
 from app.services.resume_parser import (
     _calculate_completeness,
-    _cheap_resume_fallback,
     _generate_suggestions,
+    enrich_parsed_resume_payload,
     is_fallback_result,
     parse_resume,
     parse_resume_text,
-    resume_parser_service,
     update_student_basic_info,
 )
 from app.services.student_profile import (
     generate_student_profile,
+    repair_student_profile_record,
+    serialize_student_profile,
     update_student_profile,
 )
 from app.utils.evidence_filler import fill_parse_result_evidence
@@ -46,6 +47,16 @@ from app.utils.file_extractor import extract_text
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _profile_competitiveness(profile_json: dict | None) -> float:
+    if not isinstance(profile_json, dict):
+        return 0.0
+    try:
+        score = float(profile_json.get("competitiveness_score") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return round(score * 100, 1) if 0 < score <= 1 else round(score, 1)
 
 
 @router.post("/", response_model=StudentResponse, status_code=status.HTTP_201_CREATED)
@@ -186,6 +197,7 @@ async def upload_resume(
     if raw_text:
         parse_result = await parse_resume_text(raw_text)
         parsed_dict = fill_parse_result_evidence(parse_result.model_dump(mode="json"), raw_text)
+        parsed_dict = enrich_parsed_resume_payload(parsed_dict, raw_text)
         parse_result = ResumeParseResult.model_validate(parsed_dict)
         resume.parsed_json = parsed_dict
     else:
@@ -277,62 +289,35 @@ async def upload_resume_stream(
         log_stream_event("extracting_completed", is_fallback=False, detail=f"text_len={len(raw_text)}")
         yield sse({"type": "stage", "stage": "parsing", "progress": 30})
 
-        try:
-            parse_result = await resume_parser_service._llm_parse_resume_text(raw_text)
-            final_status = "ai_success"
-            log_stream_event("ai_parse_success", is_fallback=False)
-        except Exception as first_error:
-            retry_count = 1
-            final_status = "fallback_retrying"
-            logger_inner.warning("Primary AI parse failed, switching to fallback + retry: %s", first_error)
-            log_stream_event("ai_parse_failed", is_fallback=True, detail=str(first_error))
-            fallback_result = _cheap_resume_fallback(raw_text, str(first_error))
-            fallback_dict = fill_parse_result_evidence(fallback_result.model_dump(mode="json"), raw_text)
-            fallback_validated = ResumeParseResult.model_validate(fallback_dict)
-
+        parse_result = await parse_resume_text(raw_text)
+        parsed_dict = fill_parse_result_evidence(parse_result.model_dump(mode="json"), raw_text)
+        parsed_dict = enrich_parsed_resume_payload(parsed_dict, raw_text)
+        parsed_result = ResumeParseResult.model_validate(parsed_dict)
+        is_final_fallback = is_fallback_result(parsed_result)
+        if is_final_fallback:
+            final_status = "fallback_final"
+            log_stream_event("ai_parse_fallback", is_fallback=True)
             yield sse({
                 "type": "fallback",
                 "progress": 72,
-                "message": "AI解析失败，正在自动重试，当前先展示兜底结果",
+                "message": "AI结构化结果不可用，已切换到快速规则解析",
                 "data": {
-                    "parsed_data": fallback_dict,
-                    "completeness_score": _calculate_completeness(fallback_validated),
-                    "missing_suggestions": _generate_suggestions(fallback_validated),
+                    "parsed_data": parsed_dict,
+                    "completeness_score": _calculate_completeness(parsed_result),
+                    "missing_suggestions": _generate_suggestions(parsed_result),
                     "normalization_log": [],
                     "parse_meta": {
-                        "status": "fallback_retrying",
+                        "status": "fallback_final",
                         "is_fallback": True,
-                        "retrying": True,
+                        "retrying": False,
                     },
                 },
             })
-            yield sse({
-                "type": "retrying",
-                "stage": "retrying",
-                "progress": 84,
-                "message": "AI解析失败，正在重试",
-            })
+        else:
+            final_status = "ai_success"
+            log_stream_event("ai_parse_success", is_fallback=False)
 
-            log_stream_event("fallback_preview_emitted", is_fallback=True)
-            log_stream_event("retrying_started", is_fallback=True)
-            try:
-                parse_result = await resume_parser_service._llm_parse_resume_text(raw_text)
-                final_status = "ai_success_after_retry"
-                log_stream_event("ai_retry_success", is_fallback=False)
-            except Exception as retry_error:
-                logger_inner.warning("AI retry failed, keeping fallback result: %s", retry_error)
-                final_status = "fallback_final"
-                log_stream_event("ai_retry_failed", is_fallback=True, detail=str(retry_error))
-                parse_result = fallback_validated
-
-        parsed_dict = fill_parse_result_evidence(parse_result.model_dump(mode="json"), raw_text)
-        parsed_result = ResumeParseResult.model_validate(parsed_dict)
-        is_final_fallback = is_fallback_result(parsed_result)
-        parse_meta_status = (
-            "fallback_final"
-            if is_final_fallback
-            else ("ai_success_after_retry" if retry_count else "ai_success")
-        )
+        parse_meta_status = "fallback_final" if is_final_fallback else "ai_success"
         final_status = parse_meta_status
 
         try:
@@ -462,6 +447,7 @@ async def _parse_single_resume(
 
     parse_result = await parse_resume_text(raw_text)
     parsed_dict = fill_parse_result_evidence(parse_result.model_dump(mode="json"), raw_text)
+    parsed_dict = enrich_parsed_resume_payload(parsed_dict, raw_text)
     validated = ResumeParseResult.model_validate(parsed_dict)
 
     resume = Resume(
@@ -501,6 +487,45 @@ async def batch_parse_resumes(
 
     Each file is uploaded, parsed, and returned with structured results.
     Use this endpoint for bulk resume processing.
+    result = await db.execute(
+        select(StudentProfile).where(StudentProfile.student_id == student_id)
+    )
+    profile = result.scalars().first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+    if repair_student_profile_record(profile, student):
+        await db.flush()
+    return StudentProfileResponse.model_validate(serialize_student_profile(profile, student))
+
+    result = await db.execute(
+        select(StudentProfile).where(StudentProfile.student_id == student_id)
+    )
+    profile = result.scalars().first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+    if repair_student_profile_record(profile, student):
+        await db.flush()
+    return StudentProfileResponse.model_validate(serialize_student_profile(profile, student))
+
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    try:
+        profile = await update_student_profile(student_id, _manual_profile_to_payload(data), db)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if repair_student_profile_record(profile, student):
+        await db.flush()
+
+    serialized = serialize_student_profile(profile, student)
+    return {
+        **serialized,
+        "competitiveness_score": _profile_competitiveness(serialized.get("profile_json")),
+        "message": "鐢诲儚鏇存柊鎴愬姛",
+    }
+
     """
     student = await db.get(Student, student_id)
     if not student:
@@ -545,12 +570,79 @@ async def get_resume(
     return ResumeResponse.model_validate(resume)
 
 
-@router.get("/{student_id}/profile", response_model=StudentProfileResponse)
+@router.get("/_legacy/{student_id}/profile", include_in_schema=False)
 async def get_student_profile(
     student_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> StudentProfileResponse:
     """Get student profile."""
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    try:
+        profile = await update_student_profile(student_id, _manual_profile_to_payload(data), db)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if repair_student_profile_record(profile, student):
+        await db.flush()
+
+    serialized = serialize_student_profile(profile, student)
+    return {
+        **serialized,
+        "competitiveness_score": _profile_competitiveness(serialized.get("profile_json")),
+        "message": "鐢诲儚鏇存柊鎴愬姛",
+    }
+
+    result = await db.execute(
+        select(StudentProfile).where(StudentProfile.student_id == student_id)
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="瀛︾敓鐢诲儚涓嶅瓨鍦?")
+
+    base_profile = serialize_student_profile(profile, student)["profile_json"]
+    patched_profile = _apply_profile_patch(base_profile, patch.field, patch.value)
+    profile = await update_student_profile(student_id, patched_profile, db)
+
+    if repair_student_profile_record(profile, student):
+        await db.flush()
+
+    serialized = serialize_student_profile(profile, student)
+    return {
+        "field": patch.field,
+        "updated": True,
+        "completeness_score": serialized["completeness_score"],
+        "profile_json": serialized["profile_json"],
+    }
+
+    result = await db.execute(
+        select(StudentProfile).where(StudentProfile.student_id == student_id)
+    )
+    profile = result.scalars().first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+    student = await db.get(Student, student_id)
+    if repair_student_profile_record(profile, student):
+        await db.flush()
+    return StudentProfileResponse.model_validate(serialize_student_profile(profile, student))
+
+
+@router.get("/{student_id}/profile", response_model=StudentProfileResponse)
+async def get_student_profile_current(
+    student_id: UUID,
+    db: AsyncSession = Depends(get_db),
+) -> StudentProfileResponse:
+    """Get a normalized student profile."""
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
     result = await db.execute(
         select(StudentProfile).where(StudentProfile.student_id == student_id)
     )
@@ -558,10 +650,10 @@ async def get_student_profile(
     if not profile:
         raise HTTPException(status_code=404, detail="Student profile not found")
 
-    response = StudentProfileResponse.model_validate(profile)
-    evidence = profile.evidence_json or {}
-    response.missing_suggestions = evidence.get("missing_suggestions")
-    return response
+    if repair_student_profile_record(profile, student):
+        await db.flush()
+
+    return StudentProfileResponse.model_validate(serialize_student_profile(profile, student))
 
 
 @router.post("/profiles/batch", response_model=dict[str, list[StudentProfileResponse | None]])
@@ -574,17 +666,27 @@ async def batch_get_student_profiles(
         select(StudentProfile).where(StudentProfile.student_id.in_(request.student_ids))
     )
     profile_map = {str(p.student_id): p for p in profiles.scalars().all()}
+    students = await db.execute(select(Student).where(Student.id.in_(request.student_ids)))
+    student_map = {str(student.id): student for student in students.scalars().all()}
+    changed = False
 
     result: list[StudentProfileResponse | None] = []
     for student_id in request.student_ids:
-        profile = profile_map.get(student_id)
+        student_id_str = str(student_id)
+        profile = profile_map.get(student_id_str)
         if profile:
-            response = StudentProfileResponse.model_validate(profile)
-            evidence = profile.evidence_json or {}
-            response.missing_suggestions = evidence.get("missing_suggestions")
-            result.append(response)
+            if repair_student_profile_record(profile, student_map.get(student_id_str)):
+                changed = True
+            result.append(
+                StudentProfileResponse.model_validate(
+                    serialize_student_profile(profile, student_map.get(student_id_str))
+                )
+            )
         else:
             result.append(None)
+
+    if changed:
+        await db.flush()
 
     return {"profiles": result}
 
@@ -608,7 +710,9 @@ async def put_student_profile(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
-    return StudentProfileResponse.model_validate(profile)
+    if repair_student_profile_record(profile, student):
+        await db.flush()
+    return StudentProfileResponse.model_validate(serialize_student_profile(profile, student))
 
 
 @router.post("/{student_id}/profile/generate", response_model=StudentProfileResponse)
@@ -629,16 +733,30 @@ async def generate_profile(
     if not resume.parsed_json:
         raise HTTPException(status_code=400, detail="Resume has not been parsed yet")
 
+    parsed_override = None
+    if request.parsed_data:
+        merged_parsed = dict(resume.parsed_json or {})
+        merged_parsed.update(request.parsed_data)
+        merged_parsed = fill_parse_result_evidence(merged_parsed, resume.raw_text or "")
+        merged_parsed = enrich_parsed_resume_payload(merged_parsed, resume.raw_text or "")
+        resume.parsed_json = merged_parsed
+        await db.flush()
+        parsed_override = merged_parsed
+
     try:
-        result = await generate_student_profile(student_id, db, request.resume_id)
+        result = await generate_student_profile(
+            student_id,
+            db,
+            request.resume_id,
+            parsed_override=parsed_override,
+        )
         profile = result["profile"]
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    response = StudentProfileResponse.model_validate(profile)
-    evidence = profile.evidence_json or {}
-    response.missing_suggestions = evidence.get("missing_suggestions")
-    return response
+    if repair_student_profile_record(profile, student):
+        await db.flush()
+    return StudentProfileResponse.model_validate(serialize_student_profile(profile, student))
 
 
 # ====== 画像手动编辑相关 ======
@@ -669,7 +787,98 @@ class ProfilePatchItem(BaseModel):
     value: object  # 新值
 
 
-@router.post("/{student_id}/profile/manual")
+def _manual_profile_to_payload(data: ManualProfileInput) -> dict:
+    payload = data.model_dump(exclude_none=True)
+    career_intention = payload.get("career_intention") or {}
+    target_roles = career_intention.get("target_roles") or []
+    target_cities = career_intention.get("target_cities") or []
+
+    basic_info = {
+        "name": payload.get("name"),
+        "gender": payload.get("gender"),
+        "phone": payload.get("phone"),
+        "email": payload.get("email"),
+        "job_intention": target_roles[0] if target_roles else None,
+        "location": target_cities[0] if target_cities else None,
+        "expected_salary": career_intention.get("salary_expectation"),
+    }
+
+    education = []
+    for item in payload.get("education") or []:
+        if not isinstance(item, dict):
+            continue
+        education.append(
+            {
+                "school": item.get("school"),
+                "major": item.get("major"),
+                "degree": item.get("degree"),
+                "start_date": item.get("start"),
+                "end_date": item.get("end"),
+            }
+        )
+
+    projects = []
+    for item in payload.get("projects") or []:
+        if not isinstance(item, dict):
+            continue
+        projects.append(
+            {
+                "name": item.get("name"),
+                "role": item.get("role"),
+                "description": item.get("description"),
+                "tech_stack": item.get("tech_stack") or [],
+                "outcome": "; ".join(str(v) for v in (item.get("achievements") or []) if v),
+            }
+        )
+
+    internships = []
+    for item in payload.get("internships") or []:
+        if not isinstance(item, dict):
+            continue
+        internships.append(
+            {
+                "company": item.get("company"),
+                "role": item.get("position"),
+                "start_date": item.get("start"),
+                "end_date": item.get("end"),
+                "description": item.get("description"),
+                "is_internship": True,
+            }
+        )
+
+    certificates = [{"name": item} for item in (payload.get("certificates") or []) if item]
+    awards = [{"name": item} for item in (payload.get("awards") or []) if item]
+
+    return {
+        "basic_info": {key: value for key, value in basic_info.items() if value},
+        "education": education,
+        "skills": payload.get("skills") or [],
+        "projects": projects,
+        "work_experience": internships,
+        "certificates": certificates,
+        "awards": awards,
+        "self_intro": payload.get("self_evaluation"),
+    }
+
+
+def _apply_profile_patch(profile_data: dict, field_path: str, value: object) -> dict:
+    updated = dict(profile_data)
+    keys = [segment for segment in field_path.split(".") if segment]
+    if not keys:
+        return updated
+
+    target = updated
+    for key in keys[:-1]:
+        next_value = target.get(key)
+        if not isinstance(next_value, dict):
+            next_value = {}
+            target[key] = next_value
+        target = next_value
+    target[keys[-1]] = value
+    return updated
+
+
+@router.post("/_legacy/{student_id}/profile/manual", include_in_schema=False)
 async def create_or_update_profile_manual(
     student_id: UUID,
     data: ManualProfileInput,
@@ -728,7 +937,7 @@ async def create_or_update_profile_manual(
     }
 
 
-@router.patch("/{student_id}/profile/field")
+@router.patch("/_legacy/{student_id}/profile/field", include_in_schema=False)
 async def patch_profile_field(
     student_id: UUID,
     patch: ProfilePatchItem,
@@ -762,6 +971,67 @@ async def patch_profile_field(
     await db.commit()
 
     return {"field": patch.field, "updated": True, "completeness_score": completeness}
+
+
+@router.post("/{student_id}/profile/manual")
+async def create_or_update_profile_manual_current(
+    student_id: UUID,
+    data: ManualProfileInput,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create or update a student profile from manual input."""
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    try:
+        profile = await update_student_profile(student_id, _manual_profile_to_payload(data), db)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if repair_student_profile_record(profile, student):
+        await db.flush()
+
+    serialized = serialize_student_profile(profile, student)
+    return {
+        **serialized,
+        "competitiveness_score": _profile_competitiveness(serialized.get("profile_json")),
+        "message": "鐢诲儚鏇存柊鎴愬姛",
+    }
+
+
+@router.patch("/{student_id}/profile/field")
+async def patch_profile_field_current(
+    student_id: UUID,
+    patch: ProfilePatchItem,
+    db: AsyncSession = Depends(get_db),
+):
+    """Patch one field in a student profile."""
+    student = await db.get(Student, student_id)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    result = await db.execute(
+        select(StudentProfile).where(StudentProfile.student_id == student_id)
+    )
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="瀛︾敓鐢诲儚涓嶅瓨鍦?")
+
+    base_profile = serialize_student_profile(profile, student)["profile_json"]
+    patched_profile = _apply_profile_patch(base_profile, patch.field, patch.value)
+    profile = await update_student_profile(student_id, patched_profile, db)
+
+    if repair_student_profile_record(profile, student):
+        await db.flush()
+
+    serialized = serialize_student_profile(profile, student)
+    return {
+        "field": patch.field,
+        "updated": True,
+        "completeness_score": serialized["completeness_score"],
+        "profile_json": serialized["profile_json"],
+    }
 
 
 def _calc_completeness(profile_data: dict) -> float:

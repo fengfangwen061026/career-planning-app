@@ -14,6 +14,7 @@ export interface ProfileSkill {
   name: string;
   category: string;
   level?: string;
+  proficiency?: string;
 }
 
 export interface ProfileExperience {

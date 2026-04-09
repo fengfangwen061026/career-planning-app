@@ -34,6 +34,7 @@ from app.schemas.matching import (
     WEIGHT_PRESETS,
     WeightConfig,
 )
+from app.services.student_profile import normalize_student_profile_json
 
 logger = logging.getLogger(__name__)
 
@@ -1213,10 +1214,11 @@ async def _load_match_context(
         raise ValueError(f"Job profile not found: id={job_profile_id}")
 
     job_profile, role = job_row
+    normalized_student_profile_data = normalize_student_profile_json(student_profile.profile_json or {})
     return MatchContext(
         student_profile=student_profile,
         job_profile=job_profile,
-        student_profile_data=student_profile.profile_json or {},
+        student_profile_data=normalized_student_profile_data,
         job_profile_data=job_profile.profile_json or {},
         role_name=role.name if role else None,
         role_category=role.category if role else None,
@@ -1432,6 +1434,11 @@ async def recommend_jobs(
     student_profile = student_result.scalar_one_or_none()
     if student_profile is None:
         raise ValueError(f"Student profile not found for student_id={student_id}")
+    normalized_student_profile = normalize_student_profile_json(student_profile.profile_json or {})
+    if normalized_student_profile != (student_profile.profile_json or {}):
+        student_profile.profile_json = normalized_student_profile
+        student_profile.updated_at = datetime.utcnow()
+        await db.flush()
 
     cached_query = (
         select(MatchResult, JobProfile, Role)
@@ -1469,7 +1476,7 @@ async def recommend_jobs(
         (job_profile, role.name if role else None, role.category if role else None)
         for job_profile, role in rows
     ]
-    ranked_candidates = _prefilter_candidates(student_profile.profile_json or {}, candidates)
+    ranked_candidates = _prefilter_candidates(normalized_student_profile, candidates)
     shortlist_size = min(len(ranked_candidates), max(top_k + 2, min(top_k * 2, 15)))
     shortlist = ranked_candidates[:shortlist_size]
 
@@ -1477,7 +1484,7 @@ async def recommend_jobs(
     computed_results = await asyncio.gather(
         *[
             _compute_recommendation_candidate(
-                student_profile.profile_json or {},
+                normalized_student_profile,
                 job_profile,
                 current_role_name,
                 current_role_category,

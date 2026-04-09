@@ -19,6 +19,7 @@ _RETRYABLE_STATUS_CODES = {405, 408, 409, 429, 500, 502, 503, 504}
 _CHAT_COMPLETION_CREATE_PARAMS = {
     name for name in inspect.signature(AsyncCompletions.create).parameters if name != "self"
 }
+_STEPFUN_UNSUPPORTED_CHAT_PARAMS = {"enable_thinking", "reasoning_effort", "verbosity"}
 
 
 class LLMProvider:
@@ -26,6 +27,7 @@ class LLMProvider:
 
     def __init__(self) -> None:
         self._clients: dict[ProviderName, AsyncOpenAI] = {}
+        self._semaphore = asyncio.Semaphore(max(1, settings.llm_concurrent_limit))
 
     def _provider_config(self, provider: ProviderName) -> tuple[str, str, str]:
         if provider == "profile":
@@ -47,6 +49,28 @@ class LLMProvider:
                 "HTTP-Referer": "https://career-planning-app.local",
                 "X-Title": "Career Planning App",
             }
+        return None
+
+    def _provider_family(self, provider: ProviderName) -> str:
+        base_url, _, _ = self._provider_config(provider)
+        if "api.stepfun.com" in base_url:
+            return "stepfun"
+        if "openrouter.ai" in base_url:
+            return "openrouter"
+        if "api.openai.com" in base_url:
+            return "openai"
+        return "generic"
+
+    @staticmethod
+    def _request_timeout_seconds(timeout_value: Any) -> float | None:
+        if timeout_value is None:
+            return None
+        if isinstance(timeout_value, (int, float)):
+            return float(timeout_value)
+        for attr in ("read", "timeout", "connect"):
+            candidate = getattr(timeout_value, attr, None)
+            if isinstance(candidate, (int, float)):
+                return float(candidate)
         return None
 
     def _get_client(self, provider: ProviderName) -> AsyncOpenAI:
@@ -92,11 +116,35 @@ class LLMProvider:
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        provider_family = self._provider_family(provider)
+        if disable_reasoning and provider_family != "stepfun":
+            extra_kwargs.setdefault("enable_thinking", False)
+            extra_kwargs.setdefault("reasoning_effort", "low")
+            extra_kwargs.setdefault("verbosity", "low")
+        if provider_family == "stepfun":
+            filtered_kwargs = {
+                key: value for key, value in extra_kwargs.items()
+                if key not in _STEPFUN_UNSUPPORTED_CHAT_PARAMS
+            }
+            dropped = sorted(set(extra_kwargs) - set(filtered_kwargs))
+            if dropped:
+                logger.info(
+                    "Dropping unsupported StepFun chat params: provider=%s params=%s",
+                    provider,
+                    ",".join(dropped),
+                )
+            extra_kwargs = filtered_kwargs
         self._merge_extra_body(kwargs, extra_kwargs)
+        request_timeout = self._request_timeout_seconds(kwargs.get("timeout"))
 
         for attempt in range(1, max_retries + 1):
             try:
-                response = await client.chat.completions.create(**kwargs)
+                async with self._semaphore:
+                    request = client.chat.completions.create(**kwargs)
+                    if request_timeout is not None:
+                        response = await asyncio.wait_for(request, timeout=request_timeout)
+                    else:
+                        response = await request
                 choice = response.choices[0]
                 content = choice.message.content or ""
                 finish_reason = getattr(choice, "finish_reason", None)
@@ -222,7 +270,7 @@ class LLMProvider:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     disable_reasoning=disable_reasoning,
-                    max_retries=max_retries,
+                    max_retries=1,
                     provider=provider,
                     model=model,
                     **extra_kwargs,

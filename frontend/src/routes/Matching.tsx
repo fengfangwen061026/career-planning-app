@@ -231,8 +231,9 @@ export default function Matching() {
         setSelectedResult(response.data.results[0]);
       }
       message.success('推荐完成');
-    } catch (error) {
-      message.error('推荐失败');
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      message.error(detail || '推荐失败');
     } finally {
       setMatching(false);
     }
@@ -261,8 +262,9 @@ export default function Matching() {
       });
       setSelectedResult(response.data);
       message.success('匹配完成');
-    } catch (error) {
-      message.error('匹配失败');
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      message.error(detail || '匹配失败');
     } finally {
       setMatching(false);
     }
@@ -394,7 +396,16 @@ export default function Matching() {
                       <div className="font-medium text-sm truncate" style={{ color: '#0A0A0A' }}>
                         {result.role_name || `岗位 #${index + 1}`}
                       </div>
-                      <div className="text-xs" style={{ color: '#6B7280' }}>排名 #{index + 1}</div>
+                      <div className="text-xs" style={{ color: '#6B7280' }}>
+                        {result.job_snapshot?.company_name
+                          ? `${result.job_snapshot.company_name} · ${result.job_snapshot.city || '未知城市'}`
+                          : `排名 #${index + 1}`}
+                      </div>
+                      {result.match_reasons[0] && (
+                        <div className="text-xs mt-1 line-clamp-2" style={{ color: '#8A4B5F' }}>
+                          {result.match_reasons[0]}
+                        </div>
+                      )}
                     </div>
                     <div
                       className="text-2xl font-bold ml-2"
@@ -934,7 +945,9 @@ export default function Matching() {
                         {selectedResult.role_name || '未知岗位'}
                       </div>
                       <div className="text-sm" style={{ color: '#6B7280' }}>
-                        综合匹配度
+                        {selectedResult.job_snapshot?.company_name
+                          ? `${selectedResult.job_snapshot.company_name} · ${selectedResult.job_snapshot.city || '未知城市'}`
+                          : '综合匹配度'}
                       </div>
                     </div>
                   </div>

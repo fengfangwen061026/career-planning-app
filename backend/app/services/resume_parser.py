@@ -1,6 +1,8 @@
 """Resume parser service - parses resumes and extracts structured information."""
 
+import asyncio
 import logging
+import os
 import re
 from typing import Any
 from uuid import UUID
@@ -9,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm_provider import llm
+from app.config import settings
 from app.models.student import Resume, Student
 from app.prompts.resume_parse import (
     RESUME_PARSE_SYSTEM_PROMPT,
@@ -16,18 +19,35 @@ from app.prompts.resume_parse import (
 )
 from app.schemas.profiles import ResumeParseResult
 from app.utils.file_extractor import extract_text
+from app.utils.skill_normalizer import normalize_skill
 
 logger = logging.getLogger(__name__)
+
+_RESUME_EXCERPT_MAX_CHARS = int(os.getenv("RESUME_PARSE_EXCERPT_MAX_CHARS", "1800"))
+_RESUME_LLM_MAX_TOKENS = int(os.getenv("RESUME_PARSE_MAX_TOKENS", "1800"))
+_RESUME_LLM_TIMEOUT_SECONDS = float(os.getenv("RESUME_PARSE_LLM_TIMEOUT_SECONDS", "7"))
+_RESUME_PARSE_TIMEOUT_SECONDS = float(os.getenv("RESUME_PARSE_TIMEOUT_SECONDS", "8"))
 
 _SECTION_HINTS = ("教育", "实习", "工作", "项目", "技能", "证书", "奖项", "自我评价", "校园", "科研")
 _SKILL_KEYWORDS = [
     "Python", "Java", "JavaScript", "TypeScript", "C++", "C#", "Go", "Rust", "SQL",
     "React", "Vue", "FastAPI", "Django", "Flask", "PostgreSQL", "MySQL", "Redis",
     "Docker", "Kubernetes", "Git", "Linux", "Excel", "Word", "PowerPoint",
+    "ChatGPT", "Gemini", "Claude", "Office",
 ]
 _CERTIFICATE_KEYWORDS = [
     "CET-4", "CET-6", "计算机二级", "计算机三级", "普通话", "教师资格证", "初级会计",
 ]
+
+def _resume_parse_model() -> str:
+    return settings.resume_parse_llm_model or settings.llm_model
+
+
+def _resume_parse_extra_kwargs(model: str) -> dict[str, Any]:
+    extra_kwargs: dict[str, Any] = {}
+    if model.startswith("step-2"):
+        extra_kwargs["response_format"] = {"type": "json_object"}
+    return extra_kwargs
 
 
 def _normalize_resume_text(text: str) -> str:
@@ -47,7 +67,7 @@ def _normalize_resume_text(text: str) -> str:
     return "\n".join(cleaned_lines).strip()
 
 
-def _select_resume_excerpt(text: str, max_chars: int = 4000) -> str:
+def _select_resume_excerpt(text: str, max_chars: int = _RESUME_EXCERPT_MAX_CHARS) -> str:
     normalized = _normalize_resume_text(text)
     if len(normalized) <= max_chars:
         return normalized
@@ -78,7 +98,81 @@ def _extract_name(text: str) -> str | None:
     match = re.search(r"(?:姓名|Name)[:：]?\s*([^\s/|]+)", first_non_empty, re.IGNORECASE)
     if match:
         return match.group(1).strip()
+    if re.fullmatch(r"[\u4e00-\u9fa5]{2,4}", first_non_empty.strip()):
+        return first_non_empty.strip()
     return None
+
+
+def _extract_email(text: str) -> str | None:
+    match = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, re.IGNORECASE)
+    return match.group(0) if match else None
+
+
+def _extract_phone(text: str) -> str | None:
+    match = re.search(r"1[3-9]\d{9}", text)
+    return match.group(0) if match else None
+
+
+def _extract_location(text: str) -> str | None:
+    patterns = [
+        r"(?:现居地|所在地|地址|Address)[:：]?\s*([^\n]+)",
+        r"(?:居住地|意向城市)[:：]?\s*([^\n]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def _extract_self_intro(text: str) -> str | None:
+    patterns = [
+        r"(?:自我评价|自我介绍|个人总结|个人评价|SELF\s*EVALUATION?).*?\n+\s*(.+?)(?:\n\s*\n(?:项目经历|教育经历|研究技能|荣誉奖项|科研经历|技能)|$)",
+        r"(?:自我评价|自我介绍|个人总结|个人评价)[:：]?\s*(.+?)(?:\n\s*\n|$)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+        if match:
+            value = re.sub(r"\s+", " ", match.group(1)).strip()
+            if value and "SELF EVALUTATION" not in value.upper():
+                return value
+    return None
+
+
+def _ensure_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        parts = [str(item).strip() for item in value if str(item).strip()]
+        value = " ".join(parts)
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    return text or None
+
+
+def _coerce_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    match = re.search(r"\d{4}", str(value))
+    return int(match.group(0)) if match else None
+
+
+def _normalize_degree(value: Any, default: str = "本科") -> str:
+    text = _ensure_string(value) or default
+    mapping = {
+        "博士": "博士",
+        "硕士": "硕士",
+        "研究生": "硕士",
+        "本科": "本科",
+        "学士": "本科",
+        "大专": "大专",
+        "专科": "大专",
+    }
+    for keyword, normalized in mapping.items():
+        if keyword in text:
+            return normalized
+    return default
 
 
 def _cheap_resume_fallback(text: str, reason: str) -> ResumeParseResult:
@@ -93,6 +187,16 @@ def _cheap_resume_fallback(text: str, reason: str) -> ResumeParseResult:
         if keyword.lower() in lowered and keyword not in seen_skills:
             seen_skills.add(keyword)
             skills.append({"name": keyword, "category": "其他", "proficiency": "掌握"})
+    for line in lines:
+        if "：" not in line:
+            continue
+        title, _, detail = line.partition("：")
+        title = title.strip()
+        if any(token in title for token in ("工具", "技能", "语言", "Office", "编写")) and 1 < len(title) <= 16:
+            proficiency = "熟练" if "熟练" in detail else ("掌握" if "掌握" in detail else "了解")
+            if title not in seen_skills:
+                seen_skills.add(title)
+                skills.append({"name": title, "category": "其他", "proficiency": proficiency})
 
     certificates = []
     seen_certificates: set[str] = set()
@@ -102,21 +206,36 @@ def _cheap_resume_fallback(text: str, reason: str) -> ResumeParseResult:
             certificates.append({"name": keyword})
 
     education = []
-    for line in lines[:10]:
-        if any(token in line for token in ("大学", "学院", "本科", "硕士", "博士", "大专")):
+    school = None
+    major = None
+    degree = None
+    for line in lines:
+        school_match = re.search(r"(?:学校[:：]?)?\s*([^\s,，]+(?:大学|学院))", line)
+        if school_match and not school:
+            school = school_match.group(1)
+        major_match = re.search(r"(?:专业|研究方向)[:：]?\s*([^\s,，/]+)", line)
+        if major_match and not major:
+            major = major_match.group(1)
+        degree_match = re.search(r"(本科|学士|硕士|博士|大专)", line)
+        if degree_match and not degree:
+            degree = _normalize_degree(degree_match.group(1))
+        if any(token in line for token in ("大学", "学院", "本科", "硕士", "博士", "大专")) and not school:
             edu_match = re.search(
-                r"(?P<school>[^\s,，]+(?:大学|学院))\s*(?P<major>[^\s,，]+)?\s*(?P<degree>本科|硕士|博士|大专)?",
+                r"(?P<school>[^\s,，]+(?:大学|学院))\s*(?P<major>[^\s,，]+)?\s*(?P<degree>本科|学士|硕士|博士|大专)?",
                 line,
             )
             if edu_match:
-                education.append(
-                    {
-                        "school": edu_match.group("school"),
-                        "major": edu_match.group("major") or "",
-                        "degree": edu_match.group("degree") or "本科",
-                    }
-                )
-                break
+                school = school or edu_match.group("school")
+                major = major or edu_match.group("major")
+                degree = degree or _normalize_degree(edu_match.group("degree"))
+    if school or major or degree:
+        education.append(
+            {
+                "school": school or "",
+                "major": major or "",
+                "degree": degree or "本科",
+            }
+        )
 
     experience = []
     for line in lines:
@@ -132,16 +251,32 @@ def _cheap_resume_fallback(text: str, reason: str) -> ResumeParseResult:
             break
 
     projects = []
-    for line in lines:
-        if any(token in line for token in ("项目", "系统", "平台", "小程序", "大赛")):
+    for index, line in enumerate(lines):
+        if re.search(r"20\d{2}[-./]\d{1,2}|至今", line) and any(token in line for token in ("项目", "平台", "系统", "大赛", "竞赛")):
+            description = lines[index + 1] if index + 1 < len(lines) else line
             projects.append(
                 {
-                    "name": line[:40],
-                    "description": line[:160],
-                    "tech_stack": [skill["name"] for skill in skills[:3]],
+                    "name": re.sub(r"^\d{4}[-./~至今0-9]+\s*", "", line)[:60],
+                    "description": description[:200],
+                    "tech_stack": [skill["name"] for skill in skills[:4]],
                 }
             )
-            break
+    if not projects:
+        for line in lines:
+            if any(token in line for token in ("项目", "系统", "平台", "小程序", "大赛")):
+                projects.append(
+                    {
+                        "name": line[:40],
+                        "description": line[:160],
+                        "tech_stack": [skill["name"] for skill in skills[:3]],
+                    }
+                )
+                break
+
+    awards = []
+    for line in lines:
+        if "奖" in line and any(token in line for token in ("竞赛", "大赛", "奖", "获")):
+            awards.append({"name": line[:80], "level": "其他"})
 
     missing_fields = [f"AI解析失败，已使用兜底结果: {reason}"]
     if not _extract_name(normalized):
@@ -154,11 +289,193 @@ def _cheap_resume_fallback(text: str, reason: str) -> ResumeParseResult:
         projects=projects,
         skills=skills,
         certificates=certificates,
-        awards=[],
-        self_intro=None,
-        parse_confidence=0.35 if (education or experience or projects or skills or certificates) else 0.15,
+        awards=awards,
+        self_intro=_extract_self_intro(normalized),
+        parse_confidence=0.55 if (education or experience or projects or len(skills) >= 3) else 0.35,
         missing_fields=missing_fields,
     )
+
+
+def _dedupe_named_items(items: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        value = _ensure_string(item.get(key))
+        if not value:
+            continue
+        normalized = re.sub(r"\s+", "", value).lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(item)
+    return deduped
+
+
+def _merge_resume_parse_payload(
+    text: str,
+    llm_data: dict[str, Any],
+    fallback_result: ResumeParseResult,
+) -> dict[str, Any]:
+    fallback = fallback_result.model_dump(mode="json")
+
+    education: list[dict[str, Any]] = []
+    for index, item in enumerate(llm_data.get("education") or []):
+        if not isinstance(item, dict):
+            continue
+        backup = (fallback.get("education") or [{}])[index if index < len(fallback.get("education") or []) else 0]
+        merged = {
+            "school": _ensure_string(item.get("school")) or _ensure_string(backup.get("school")),
+            "degree": _normalize_degree(item.get("degree"), _normalize_degree(backup.get("degree"))),
+            "major": _ensure_string(item.get("major")) or _ensure_string(backup.get("major")) or "",
+            "start_year": _coerce_int(item.get("start_year")) or _coerce_int(backup.get("start_year")),
+            "end_year": _coerce_int(item.get("end_year")) or _coerce_int(backup.get("end_year")),
+        }
+        if merged["school"]:
+            education.append(merged)
+    if not education:
+        education = fallback.get("education") or []
+
+    experience: list[dict[str, Any]] = []
+    for index, item in enumerate(llm_data.get("experience") or []):
+        if not isinstance(item, dict):
+            continue
+        backup = (fallback.get("experience") or [{}])[index if index < len(fallback.get("experience") or []) else 0]
+        merged = {
+            "company": _ensure_string(item.get("company")) or _ensure_string(backup.get("company")) or "",
+            "role": _ensure_string(item.get("role")) or _ensure_string(backup.get("role")),
+            "start_date": _ensure_string(item.get("start_date")) or _ensure_string(backup.get("start_date")),
+            "end_date": _ensure_string(item.get("end_date")) or _ensure_string(backup.get("end_date")),
+            "description": _ensure_string(item.get("description")) or _ensure_string(backup.get("description")),
+            "is_internship": bool(item.get("is_internship", backup.get("is_internship", True))),
+        }
+        if merged["company"] or merged["role"] or merged["description"]:
+            experience.append(merged)
+    if not experience:
+        experience = fallback.get("experience") or []
+
+    projects: list[dict[str, Any]] = []
+    for index, item in enumerate(llm_data.get("projects") or []):
+        if not isinstance(item, dict):
+            continue
+        backup = (fallback.get("projects") or [{}])[index if index < len(fallback.get("projects") or []) else 0]
+        tech_stack_raw = item.get("tech_stack") or backup.get("tech_stack") or []
+        tech_stack = [
+            normalize_skill(str(tech).strip())
+            for tech in tech_stack_raw
+            if str(tech).strip()
+        ]
+        merged = {
+            "name": _ensure_string(item.get("name")) or _ensure_string(backup.get("name")) or "",
+            "description": _ensure_string(item.get("description")) or _ensure_string(backup.get("description")),
+            "tech_stack": tech_stack,
+            "role": _ensure_string(item.get("role")) or _ensure_string(backup.get("role")),
+            "outcome": _ensure_string(item.get("outcome")) or _ensure_string(backup.get("outcome")),
+        }
+        if merged["name"] or merged["description"] or merged["tech_stack"]:
+            projects.append(merged)
+    if not projects:
+        projects = fallback.get("projects") or []
+
+    skills: list[dict[str, Any]] = []
+    for item in llm_data.get("skills") or []:
+        if not isinstance(item, dict):
+            continue
+        name = normalize_skill(_ensure_string(item.get("name")) or "")
+        if not name:
+            continue
+        skills.append(
+            {
+                "name": name,
+                "category": _ensure_string(item.get("category")) or "其他",
+                "proficiency": _ensure_string(item.get("proficiency")) or "掌握",
+            }
+        )
+    for item in fallback.get("skills") or []:
+        if not isinstance(item, dict):
+            continue
+        name = normalize_skill(_ensure_string(item.get("name")) or "")
+        if not name:
+            continue
+        skills.append(
+            {
+                "name": name,
+                "category": _ensure_string(item.get("category")) or "其他",
+                "proficiency": _ensure_string(item.get("proficiency")) or "掌握",
+            }
+        )
+    skills = _dedupe_named_items(skills, "name")
+
+    certificates: list[dict[str, Any]] = []
+    for item in (llm_data.get("certificates") or []) + (fallback.get("certificates") or []):
+        if not isinstance(item, dict):
+            continue
+        name = _ensure_string(item.get("name"))
+        if not name:
+            continue
+        certificates.append(
+            {
+                "name": name,
+                "level": _ensure_string(item.get("level")),
+                "obtained_date": _ensure_string(item.get("obtained_date")) or _ensure_string(item.get("date")),
+            }
+        )
+    certificates = _dedupe_named_items(certificates, "name")
+
+    awards: list[dict[str, Any]] = []
+    for item in (llm_data.get("awards") or []) + (fallback.get("awards") or []):
+        if not isinstance(item, dict):
+            continue
+        name = _ensure_string(item.get("name"))
+        if not name:
+            continue
+        awards.append(
+            {
+                "name": name,
+                "level": _ensure_string(item.get("level")) or "其他",
+                "date": _ensure_string(item.get("date")),
+            }
+        )
+    awards = _dedupe_named_items(awards, "name")
+
+    llm_confidence = llm_data.get("parse_confidence")
+    if isinstance(llm_confidence, (int, float)):
+        parse_confidence = float(llm_confidence)
+    else:
+        parse_confidence = fallback_result.parse_confidence
+    parse_confidence = max(0.0, min(parse_confidence, 1.0))
+    if any((education, experience, projects, skills)):
+        parse_confidence = max(parse_confidence, 0.55)
+
+    missing_fields = list(dict.fromkeys([
+        *[str(item) for item in (llm_data.get("missing_fields") or []) if str(item).strip()],
+        *fallback_result.missing_fields,
+    ]))
+
+    return {
+        "raw_text": text,
+        "education": education,
+        "experience": experience,
+        "projects": projects,
+        "skills": skills,
+        "certificates": certificates,
+        "awards": awards,
+        "self_intro": _ensure_string(llm_data.get("self_intro")) or fallback_result.self_intro or _extract_self_intro(text),
+        "parse_confidence": parse_confidence,
+        "missing_fields": missing_fields,
+    }
+
+
+def enrich_parsed_resume_payload(parsed_data: dict[str, Any], raw_text: str) -> dict[str, Any]:
+    payload = {**parsed_data}
+    basic_info = dict(payload.get("basic_info") or {})
+    basic_info.setdefault("name", _extract_name(raw_text))
+    basic_info.setdefault("email", _extract_email(raw_text))
+    basic_info.setdefault("phone", _extract_phone(raw_text))
+    basic_info.setdefault("location", _extract_location(raw_text))
+    payload["basic_info"] = {key: value for key, value in basic_info.items() if value}
+    if not payload.get("self_intro"):
+        payload["self_intro"] = _extract_self_intro(raw_text)
+    return payload
 
 
 def is_fallback_result(parse_result: ResumeParseResult) -> bool:
@@ -183,13 +500,12 @@ def _is_parse_result_substantial(parse_result: ResumeParseResult) -> bool:
 class ResumeParserService:
     """Service for parsing resumes."""
 
-    async def _llm_parse_resume_text(self, text: str, *, max_tokens: int = 12000) -> ResumeParseResult:
-        # step-3.5-flash counts reasoning tokens against max_tokens. Disabling
-        # thinking keeps resume parsing within budget, but real resume templates
-        # can still consume 7k-8k completion tokens on longer samples. Use 12k
-        # to avoid finish_reason=length returning empty content on real templates.
-        # Keep temperature at 0 for stricter JSON formatting and allow an extra
-        # retry because the provider can occasionally return malformed JSON.
+    async def _llm_parse_resume_text(
+        self,
+        text: str,
+        *,
+        max_tokens: int = _RESUME_LLM_MAX_TOKENS,
+    ) -> ResumeParseResult:
         prompt = RESUME_PARSE_USER_TEMPLATE.format(resume_text=_select_resume_excerpt(text))
         allowed_fields = {
             "education",
@@ -199,39 +515,32 @@ class ResumeParserService:
             "certificates",
             "awards",
             "self_intro",
-            "parse_confidence",
-            "missing_fields",
         }
+        fallback_result = _cheap_resume_fallback(text, "启发式补全")
 
-        for attempt in range(1, 3):
-            data = await llm.generate_json(
-                prompt=prompt,
-                system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
-                temperature=0.0,
-                max_tokens=max_tokens,
-                max_retries=3,
-                enable_thinking=False,
-                timeout=180,
-            )
-            filtered_data = {key: value for key, value in data.items() if key in allowed_fields}
-            result = ResumeParseResult(raw_text=text, **filtered_data)
-            if _is_parse_result_substantial(result):
-                return result
+        model = _resume_parse_model()
+        data = await llm.generate_json(
+            prompt=prompt,
+            system_prompt=RESUME_PARSE_SYSTEM_PROMPT,
+            temperature=0.0,
+            max_tokens=max_tokens,
+            max_retries=1,
+            disable_reasoning=True,
+            model=model,
+            timeout=_RESUME_LLM_TIMEOUT_SECONDS,
+            **_resume_parse_extra_kwargs(model),
+        )
+        filtered_data = {key: value for key, value in data.items() if key in allowed_fields}
+        merged_payload = _merge_resume_parse_payload(text, filtered_data, fallback_result)
+        result = ResumeParseResult.model_validate(merged_payload)
+        if _is_parse_result_substantial(result):
+            return result
 
-            logger.warning(
-                "Resume parse returned degenerate JSON on semantic attempt %d/2; retrying",
-                attempt,
-            )
-
-        # 超过重试次数后，调用cheap fallback而不是直接抛出异常
-        logger.warning("LLM returned degenerate JSON after 2 attempts, using cheap fallback")
-        return _cheap_resume_fallback(text, "语义解析失败超过重试次数")
+        logger.warning("Resume parse returned insubstantial payload after merge, using fallback")
+        return fallback_result
 
     async def parse_resume_text(self, text: str) -> ResumeParseResult:
         """Parse resume text using LLM, then fall back to local rules on failure."""
-        print(f"[ResumeParser] 收到文本，长度={len(text)}")
-        print(f"[ResumeParser] 文本前300字: {text[:300]}")
-
         if not text or len(text.strip()) < 50:
             logger.warning("Resume text too short, returning empty parse result")
             return ResumeParseResult(
@@ -241,7 +550,10 @@ class ResumeParserService:
             )
 
         try:
-            result = await self._llm_parse_resume_text(text)
+            result = await asyncio.wait_for(
+                self._llm_parse_resume_text(text),
+                timeout=_RESUME_PARSE_TIMEOUT_SECONDS,
+            )
             logger.info(
                 "Resume parse success: skills=%d, education=%d, experience=%d, projects=%d",
                 len(result.skills),
@@ -250,8 +562,11 @@ class ResumeParserService:
                 len(result.projects),
             )
             return result
+        except asyncio.TimeoutError:
+            logger.warning("Resume parse timed out, using fallback parser")
+            return _cheap_resume_fallback(text, "LLM timeout")
         except Exception as exc:
-            logger.exception("Resume parse failed: %s", exc)
+            logger.warning("Resume parse failed, using fallback parser: %s", exc)
             return _cheap_resume_fallback(text, str(exc))
 
     async def process_upload(
@@ -450,5 +765,119 @@ def _generate_suggestions(parse_result: ResumeParseResult) -> list[str]:
     return suggestions
 
 
-compute_completeness_score = _calculate_completeness
-generate_missing_suggestions = _generate_suggestions
+def _coerce_parse_result(parse_result: ResumeParseResult | dict[str, Any]) -> ResumeParseResult:
+    if isinstance(parse_result, ResumeParseResult):
+        return parse_result
+
+    base = {
+        "raw_text": parse_result.get("raw_text", ""),
+        "education": parse_result.get("education", []),
+        "experience": parse_result.get("experience", parse_result.get("work_experience", [])),
+        "projects": parse_result.get("projects", parse_result.get("project_experience", [])),
+        "skills": parse_result.get("skills", []),
+        "certificates": parse_result.get("certificates", []),
+        "awards": parse_result.get("awards", []),
+        "self_intro": parse_result.get("self_intro", parse_result.get("self_evaluation")),
+        "parse_confidence": parse_result.get("parse_confidence", parse_result.get("_meta", {}).get("parse_confidence", 0.0)),
+        "missing_fields": parse_result.get("missing_fields", parse_result.get("_meta", {}).get("missing_fields", [])),
+    }
+    return ResumeParseResult.model_validate(base)
+
+
+def normalize_parsed_skills(parsed_data: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    normalized = {**parsed_data}
+    normalization_log: list[dict[str, str]] = []
+
+    skills = []
+    for skill in parsed_data.get("skills", []):
+        if not isinstance(skill, dict):
+            skills.append(skill)
+            continue
+
+        original_name = str(skill.get("name", "")).strip()
+        normalized_name = normalize_skill(original_name) if original_name else original_name
+        if normalized_name and normalized_name != original_name:
+            normalization_log.append({"field": "skills", "from": original_name, "to": normalized_name})
+
+        skills.append({**skill, "name": normalized_name})
+
+    normalized["skills"] = skills
+
+    project_key = "project_experience" if "project_experience" in parsed_data else "projects"
+    normalized_projects = []
+    for project in parsed_data.get(project_key, []):
+        if not isinstance(project, dict):
+            normalized_projects.append(project)
+            continue
+
+        tech_stack = []
+        for tech in project.get("tech_stack", []):
+            normalized_tech = normalize_skill(str(tech).strip()) if str(tech).strip() else tech
+            if normalized_tech != tech:
+                normalization_log.append({"field": f"{project_key}.tech_stack", "from": str(tech), "to": normalized_tech})
+            tech_stack.append(normalized_tech)
+
+        normalized_projects.append({**project, "tech_stack": tech_stack})
+
+    normalized[project_key] = normalized_projects
+    return normalized, normalization_log
+
+
+def _legacy_compute_completeness(parsed_data: dict[str, Any]) -> float:
+    checks = [
+        bool(parsed_data.get("basic_info")),
+        bool(parsed_data.get("education")),
+        bool(parsed_data.get("work_experience") or parsed_data.get("experience")),
+        bool(parsed_data.get("project_experience") or parsed_data.get("projects")),
+        bool(parsed_data.get("skills")),
+        bool(parsed_data.get("certificates")),
+        bool(parsed_data.get("awards")),
+    ]
+    return round(sum(checks) / len(checks), 2)
+
+
+def _has_quantified_achievement(items: list[dict[str, Any]]) -> bool:
+    for item in items:
+        for key in ("achievements", "responsibilities", "description", "outcome"):
+            value = item.get(key)
+            values = value if isinstance(value, list) else [value]
+            for entry in values:
+                if entry and any(char.isdigit() for char in str(entry)):
+                    return True
+    return False
+
+
+def _legacy_generate_missing_suggestions(parsed_data: dict[str, Any]) -> list[str]:
+    suggestions: list[str] = []
+    basic_info = parsed_data.get("basic_info", {})
+    work_experience = parsed_data.get("work_experience") or parsed_data.get("experience") or []
+    projects = parsed_data.get("project_experience") or parsed_data.get("projects") or []
+
+    if not basic_info.get("email"):
+        suggestions.append("建议补充邮箱信息")
+    if not basic_info.get("phone"):
+        suggestions.append("建议补充联系电话")
+    if not parsed_data.get("education"):
+        suggestions.append("建议补充教育经历")
+    if not work_experience:
+        suggestions.append("建议补充工作或实习经历")
+    if not projects:
+        suggestions.append("建议补充项目经验")
+    if work_experience and not _has_quantified_achievement(work_experience):
+        suggestions.append("建议补充量化成果")
+    if not parsed_data.get("certificates"):
+        suggestions.append("建议补充专业证书")
+
+    return suggestions
+
+
+def compute_completeness_score(parse_result: ResumeParseResult | dict[str, Any]) -> float:
+    if isinstance(parse_result, dict):
+        return _legacy_compute_completeness(parse_result)
+    return _calculate_completeness(_coerce_parse_result(parse_result))
+
+
+def generate_missing_suggestions(parse_result: ResumeParseResult | dict[str, Any]) -> list[str]:
+    if isinstance(parse_result, dict):
+        return _legacy_generate_missing_suggestions(parse_result)
+    return _generate_suggestions(_coerce_parse_result(parse_result))

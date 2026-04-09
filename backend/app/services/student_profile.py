@@ -362,8 +362,455 @@ def _build_profile_json(parsed_data: dict[str, Any], student: Student | None = N
     }
 
 
+def _as_dict_list(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def _deep_merge_dict(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_dict(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _normalize_soft_skills(raw_soft_skills: Any) -> list[dict[str, Any]]:
+    if isinstance(raw_soft_skills, list):
+        items = []
+        for item in raw_soft_skills:
+            if not isinstance(item, dict):
+                continue
+            score = item.get("score", 0.0)
+            if isinstance(score, (int, float)) and score > 1:
+                score = round(float(score) / 100.0, 2)
+            items.append(
+                {
+                    "dimension": item.get("dimension") or "",
+                    "score": round(float(score or 0.0), 2),
+                    "evidence": item.get("evidence") or "暂无数据",
+                }
+            )
+        return [item for item in items if item["dimension"]]
+
+    if isinstance(raw_soft_skills, dict):
+        items = []
+        for dimension, value in raw_soft_skills.items():
+            if isinstance(value, dict):
+                score = value.get("score", value.get("value", 0.0))
+                evidence = value.get("evidence") or "暂无数据"
+            else:
+                score = value
+                evidence = "暂无数据"
+            if isinstance(score, (int, float)) and score > 1:
+                score = round(float(score) / 100.0, 2)
+            items.append(
+                {
+                    "dimension": dimension,
+                    "score": round(float(score or 0.0), 2),
+                    "evidence": evidence,
+                }
+            )
+        return items
+
+    return []
+
+
+def _normalize_skill_items(profile_json: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for skill in _as_dict_list(profile_json.get("skills")):
+        name = skill.get("name") or skill.get("skill_name")
+        if not name:
+            continue
+        items.append(
+            {
+                "name": name,
+                "category": skill.get("category") or "其他",
+                "level": skill.get("level") or skill.get("proficiency") or "了解",
+                "proficiency": skill.get("proficiency") or skill.get("level") or "了解",
+                "evidence": skill.get("evidence") or skill.get("proficiency_evidence"),
+            }
+        )
+
+    if items:
+        return items
+
+    dimensions = profile_json.get("dimensions") or {}
+    for skill in _as_dict_list(dimensions.get("professional_skills")):
+        name = skill.get("skill_name") or skill.get("name")
+        if not name:
+            continue
+        items.append(
+            {
+                "name": name,
+                "category": skill.get("category") or "其他",
+                "level": skill.get("proficiency") or "了解",
+                "proficiency": skill.get("proficiency") or "了解",
+                "evidence": skill.get("proficiency_evidence") or skill.get("evidence"),
+            }
+        )
+    return items
+
+
+def _normalize_experience_sections(profile_json: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    existing_section = profile_json.get("experience") if isinstance(profile_json.get("experience"), dict) else {}
+    work_items = _as_dict_list(existing_section.get("work"))
+    project_items = _as_dict_list(existing_section.get("projects"))
+    timeline_items = _as_dict_list(profile_json.get("experiences"))
+
+    if not work_items:
+        raw_candidates = _as_dict_list(profile_json.get("work_experience")) + [
+            item for item in timeline_items if item.get("type") in {"internship", "work"}
+        ]
+        work_items = [
+            {
+                "company": item.get("company"),
+                "role": item.get("role") or item.get("title"),
+                "start_date": item.get("start_date"),
+                "end_date": item.get("end_date"),
+                "description": item.get("description"),
+                "is_internship": item.get("type", "internship") != "work",
+            }
+            for item in raw_candidates
+            if item.get("company") or item.get("role") or item.get("title") or item.get("description")
+        ]
+
+    if not project_items:
+        raw_candidates = _as_dict_list(profile_json.get("projects")) + [
+            item for item in timeline_items if item.get("type") == "project"
+        ]
+        project_items = [
+            {
+                "name": item.get("name") or item.get("title"),
+                "description": item.get("description"),
+                "tech_stack": item.get("tech_stack") or item.get("skills") or [],
+                "role": item.get("role") or item.get("company"),
+                "duration": item.get("duration"),
+                "outcome": item.get("outcome"),
+            }
+            for item in raw_candidates
+            if item.get("name") or item.get("title") or item.get("description")
+        ]
+
+    if not timeline_items:
+        timeline_items = [
+            {
+                "type": "internship" if item.get("is_internship", True) else "work",
+                "title": item.get("role") or item.get("company") or "",
+                "company": item.get("company"),
+                "duration": " - ".join(filter(None, [item.get("start_date"), item.get("end_date")])),
+                "description": item.get("description"),
+            }
+            for item in work_items
+            if item.get("company") or item.get("role") or item.get("description")
+        ] + [
+            {
+                "type": "project",
+                "title": item.get("name") or "",
+                "company": item.get("role"),
+                "duration": item.get("duration"),
+                "description": item.get("description") or item.get("outcome"),
+            }
+            for item in project_items
+            if item.get("name") or item.get("description") or item.get("outcome")
+        ]
+
+    return timeline_items, {"work": work_items, "projects": project_items}
+
+
+def calculate_profile_completeness(profile_json: dict[str, Any]) -> float:
+    weights = {
+        "basic_info": 0.2,
+        "education": 0.15,
+        "skills": 0.2,
+        "experiences": 0.2,
+        "soft_skills": 0.1,
+        "certificates": 0.05,
+        "awards": 0.05,
+        "self_intro": 0.05,
+    }
+    score = 0.0
+    if profile_json.get("basic_info") and any(profile_json["basic_info"].values()):
+        score += weights["basic_info"]
+    if _as_dict_list(profile_json.get("education")):
+        score += weights["education"]
+    if _as_dict_list(profile_json.get("skills")):
+        score += weights["skills"]
+    if _as_dict_list(profile_json.get("experiences")):
+        score += weights["experiences"]
+    if _normalize_soft_skills(profile_json.get("soft_skills")):
+        score += weights["soft_skills"]
+    if profile_json.get("certificate_names") or _as_dict_list(profile_json.get("certificates")):
+        score += weights["certificates"]
+    if _as_dict_list(profile_json.get("awards")):
+        score += weights["awards"]
+    if profile_json.get("self_intro"):
+        score += weights["self_intro"]
+    return round(score * 100, 1)
+
+
+def _profile_missing_suggestions(profile_json: dict[str, Any]) -> list[str]:
+    suggestions: list[str] = []
+
+    basic_info = profile_json.get("basic_info") or {}
+    experience = profile_json.get("experience") or {}
+    work_items = _as_dict_list(experience.get("work"))
+    project_items = _as_dict_list(experience.get("projects"))
+
+    if not basic_info.get("email"):
+        suggestions.append("寤鸿琛ュ厖閭淇℃伅")
+    if not basic_info.get("phone"):
+        suggestions.append("寤鸿琛ュ厖鑱旂郴鐢佃瘽")
+    if not _as_dict_list(profile_json.get("education")):
+        suggestions.append("寤鸿琛ュ厖鏁欒偛缁忓巻")
+    if not work_items:
+        suggestions.append("寤鸿娣诲姞瀹炰範缁忓巻")
+    if not project_items:
+        suggestions.append("寤鸿娣诲姞椤圭洰缁忛獙")
+    if not _as_dict_list(profile_json.get("certificates")) and not profile_json.get("certificate_names"):
+        suggestions.append("寤鸿娣诲姞涓撲笟璇佷功")
+    if not profile_json.get("self_intro"):
+        suggestions.append("寤鸿琛ュ厖鑷垜璇勪环")
+
+    return suggestions
+
+
+def _default_missing_suggestions(profile_json: dict[str, Any]) -> list[str]:
+    suggestions: list[str] = []
+
+    basic_info = profile_json.get("basic_info") or {}
+    experience = profile_json.get("experience") or {}
+    work_items = _as_dict_list(experience.get("work"))
+    project_items = _as_dict_list(experience.get("projects"))
+
+    if not basic_info.get("email"):
+        suggestions.append("建议补充邮箱信息")
+    if not basic_info.get("phone"):
+        suggestions.append("建议补充联系电话")
+    if not _as_dict_list(profile_json.get("education")):
+        suggestions.append("建议补充教育经历")
+    if not work_items:
+        suggestions.append("建议添加实习经历")
+    if not project_items:
+        suggestions.append("建议添加项目经验")
+    if not _as_dict_list(profile_json.get("certificates")) and not profile_json.get("certificate_names"):
+        suggestions.append("建议添加专业证书")
+    if not profile_json.get("self_intro"):
+        suggestions.append("建议补充自我评价")
+
+    return suggestions
+
+
+def _resolve_missing_suggestions(
+    raw_values: Any,
+    profile_json: dict[str, Any],
+) -> list[str]:
+    if isinstance(raw_values, list):
+        cleaned = [
+            item.strip()
+            for item in raw_values
+            if isinstance(item, str)
+            and item.strip()
+            and "�" not in item
+            and not any("\ue000" <= char <= "\uf8ff" for char in item)
+        ]
+        if cleaned:
+            return cleaned
+
+    return _default_missing_suggestions(profile_json)
+
+
+def _normalize_profile_completeness_score(
+    score: Any,
+    profile_json: dict[str, Any],
+) -> float:
+    parsed_score = 0.0
+    if isinstance(score, (int, float)):
+        parsed_score = float(score)
+    else:
+        try:
+            parsed_score = float(score or 0.0)
+        except (TypeError, ValueError):
+            parsed_score = 0.0
+
+    if 0 < parsed_score <= 1:
+        parsed_score *= 100
+
+    recalculated = calculate_profile_completeness(profile_json)
+    if recalculated > 0:
+        return recalculated
+    return round(parsed_score, 1)
+
+
+def normalize_student_profile_json(
+    profile_json: dict[str, Any] | None,
+    student: Student | None = None,
+) -> dict[str, Any]:
+    source = dict(profile_json or {})
+
+    education = _as_dict_list(source.get("education"))
+    if not education:
+        degree = source.get("education_level")
+        major = source.get("major")
+        graduation_year = source.get("graduation_year")
+        if degree or major or graduation_year:
+            education = [{
+                "school": "",
+                "degree": degree or "",
+                "major": major or "",
+                "end_year": graduation_year,
+            }]
+
+    highest_education = next((item for item in education if any(item.values())), {})
+    basic_info = dict(source.get("basic_info") or {})
+    basic_info = {
+        **basic_info,
+        "name": basic_info.get("name") or getattr(student, "name", None),
+        "email": basic_info.get("email") or getattr(student, "email", None),
+        "phone": basic_info.get("phone") or getattr(student, "phone", None),
+        "location": basic_info.get("location") or getattr(student, "location", None),
+        "job_intention": basic_info.get("job_intention") or getattr(student, "job_intention", None),
+        "school": basic_info.get("school") or highest_education.get("school"),
+        "degree": basic_info.get("degree") or highest_education.get("degree") or source.get("education_level"),
+        "major": basic_info.get("major") or highest_education.get("major") or source.get("major"),
+    }
+
+    skills = _normalize_skill_items(source)
+    experiences, experience_section = _normalize_experience_sections(source)
+    certificates = _as_dict_list(source.get("certificates"))
+    certificate_names = source.get("certificate_names") or [
+        item.get("name") for item in certificates if item.get("name")
+    ]
+    awards = _as_dict_list(source.get("awards"))
+    soft_skills = _normalize_soft_skills(source.get("soft_skills"))
+    experience_months = int(source.get("experience_months") or 0)
+    competitiveness_score = source.get("competitiveness_score") or 0
+    self_intro = source.get("self_intro") or source.get("self_evaluation")
+
+    dimensions = dict(source.get("dimensions") or {})
+    basic_requirements = dict(dimensions.get("basic_requirements") or {})
+    dimensions["basic_requirements"] = {
+        **basic_requirements,
+        "degree": basic_requirements.get("degree") or basic_info.get("degree"),
+        "major": basic_requirements.get("major") or basic_info.get("major"),
+        "school": basic_requirements.get("school") or basic_info.get("school"),
+        "city": basic_requirements.get("city") or basic_info.get("location"),
+        "work_years": basic_requirements.get("work_years") or basic_info.get("work_years"),
+    }
+    dimensions["professional_skills"] = dimensions.get("professional_skills") or [
+        {
+            "skill_name": item.get("name"),
+            "category": item.get("category"),
+            "proficiency": item.get("proficiency"),
+            "proficiency_evidence": item.get("evidence"),
+        }
+        for item in skills
+    ]
+    dimensions["soft_competencies"] = dimensions.get("soft_competencies") or {
+        item["dimension"]: item["score"] for item in soft_skills
+    }
+    dimensions["growth_potential"] = {
+        **dict(dimensions.get("growth_potential") or {}),
+        "awards": awards,
+        "certificates": certificates,
+        "self_evaluation": self_intro,
+    }
+
+    normalized = {
+        "competitiveness_score": competitiveness_score,
+        "experience_months": experience_months,
+        "basic_info": {key: value for key, value in basic_info.items() if value is not None},
+        "education": education,
+        "skills": skills,
+        "experiences": experiences,
+        "certificate_names": [name for name in certificate_names if name],
+        "certificates": certificates,
+        "awards": awards,
+        "soft_skills": soft_skills,
+        "self_intro": self_intro,
+        "dimensions": dimensions,
+        "experience": experience_section,
+    }
+    return normalized
+
+
+def repair_student_profile_record(
+    profile: StudentProfile,
+    student: Student | None = None,
+) -> bool:
+    normalized_profile = normalize_student_profile_json(profile.profile_json or {}, student)
+    changed = False
+
+    if normalized_profile != (profile.profile_json or {}):
+        profile.profile_json = normalized_profile
+        changed = True
+
+    normalized_score = _normalize_profile_completeness_score(
+        profile.completeness_score,
+        normalized_profile,
+    )
+    if abs(float(profile.completeness_score or 0.0) - normalized_score) > 0.05:
+        profile.completeness_score = normalized_score
+        changed = True
+
+    evidence_json = dict(profile.evidence_json or {})
+    missing_suggestions = evidence_json.get("missing_suggestions")
+    resolved_missing_suggestions = _resolve_missing_suggestions(
+        missing_suggestions or (profile.profile_json or {}).get("missing_suggestions"),
+        normalized_profile,
+    )
+    if resolved_missing_suggestions != missing_suggestions:
+        evidence_json["missing_suggestions"] = list(resolved_missing_suggestions)
+        profile.evidence_json = evidence_json
+        changed = True
+
+    return changed
+
+
+def _bump_profile_version(version: str | None) -> str:
+    try:
+        return f"{float(version or '1.0') + 0.1:.1f}"
+    except (TypeError, ValueError):
+        return "1.1"
+
+
+def serialize_student_profile(
+    profile: StudentProfile,
+    student: Student | None = None,
+) -> dict[str, Any]:
+    normalized_profile = normalize_student_profile_json(profile.profile_json or {}, student)
+    evidence = dict(profile.evidence_json or {})
+    missing_suggestions = evidence.get("missing_suggestions") or (
+        (profile.profile_json or {}).get("missing_suggestions")
+        if isinstance(profile.profile_json, dict)
+        else None
+    )
+    missing_suggestions = _resolve_missing_suggestions(
+        missing_suggestions,
+        normalized_profile,
+    )
+    return {
+        "id": profile.id,
+        "student_id": profile.student_id,
+        "profile_json": normalized_profile,
+        "completeness_score": _normalize_profile_completeness_score(
+            profile.completeness_score,
+            normalized_profile,
+        ),
+        "evidence_json": evidence,
+        "version": profile.version or "1.0",
+        "missing_suggestions": missing_suggestions,
+        "created_at": profile.created_at,
+        "updated_at": profile.updated_at,
+    }
+
+
 def _build_profile_summary(profile_json: dict[str, Any]) -> str:
     """构建画像摘要文本用于 embedding。"""
+    profile_json = normalize_student_profile_json(profile_json)
     parts: list[str] = []
 
     basic = profile_json.get("basic_info", {})
@@ -404,6 +851,7 @@ async def generate_student_profile(
     student_id: UUID,
     db: AsyncSession,
     resume_id: UUID | None = None,
+    parsed_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """从学生的主简历解析结果生成学生画像。
 
@@ -431,7 +879,7 @@ async def generate_student_profile(
     if not resume.parsed_json:
         raise ValueError(f"Resume {resume.id} has not been parsed yet")
 
-    parsed_data = resume.parsed_json
+    parsed_data = parsed_override or resume.parsed_json
     parse_result = (
         parsed_data
         if isinstance(parsed_data, ResumeParseResult)
@@ -444,8 +892,11 @@ async def generate_student_profile(
     )
 
     # 组装画像
-    profile_json = _build_profile_json(parsed_data, student, soft_skills_override=soft_skills_eval)
-    completeness_score = compute_completeness_score(parse_result)
+    profile_json = normalize_student_profile_json(
+        _build_profile_json(parsed_data, student, soft_skills_override=soft_skills_eval),
+        student,
+    )
+    completeness_score = calculate_profile_completeness(profile_json)
     missing_suggestions = generate_missing_suggestions(parse_result)
 
     # 生成 embedding（失败时降级为 None，不阻塞画像保存）
@@ -509,27 +960,46 @@ async def update_student_profile(
     db: AsyncSession,
 ) -> StudentProfile:
     """手动补充/修改学生画像。"""
+    student = await db.get(Student, student_id)
+    if not student:
+        raise ValueError(f"Student {student_id} not found")
+
     result = await db.execute(
         select(StudentProfile).where(StudentProfile.student_id == student_id)
     )
     profile = result.scalars().first()
-    if not profile:
-        raise ValueError(f"No profile found for student {student_id}")
+    current = normalize_student_profile_json(profile.profile_json or {}, student) if profile else {}
+    merged = normalize_student_profile_json(_deep_merge_dict(current, profile_data), student)
+    completeness_score = calculate_profile_completeness(merged)
 
-    # 合并更新
-    current = profile.profile_json or {}
-    current.update(profile_data)
-    profile.profile_json = current
+    try:
+        summary = _build_profile_summary(merged)
+        profile_embedding = await embedding.embed(summary)
+    except Exception as emb_err:
+        logger.warning("Profile embedding failed during manual update: %s", emb_err)
+        profile_embedding = profile.embedding if profile else None
 
-    profile.evidence_json = {
-        **(profile.evidence_json or {}),
+    evidence_json = {
+        **((profile.evidence_json or {}) if profile else {}),
         "manual_edit": True,
     }
 
-    # 重新计算完整度（基于原始解析数据不变，画像调整不影响）
-    # 重新生成 embedding
-    summary = _build_profile_summary(current)
-    profile.embedding = await embedding.embed(summary)
+    if profile:
+        profile.profile_json = merged
+        profile.completeness_score = completeness_score
+        profile.embedding = profile_embedding
+        profile.evidence_json = evidence_json
+        profile.version = _bump_profile_version(profile.version)
+    else:
+        profile = StudentProfile(
+            student_id=student_id,
+            profile_json=merged,
+            completeness_score=completeness_score,
+            evidence_json=evidence_json,
+            version="1.0",
+            embedding=profile_embedding,
+        )
+        db.add(profile)
 
     await db.flush()
     await db.refresh(profile)

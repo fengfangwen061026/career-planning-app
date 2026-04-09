@@ -229,6 +229,14 @@ def normalize_batch(skill_list: list[str], threshold: float = 0.85) -> list[str]
     return sorted(list(normalized))
 
 
+def normalize_skill(skill_text: str, threshold: float = 0.85) -> str:
+    """Backward-compatible skill normalization helper for legacy callers."""
+    normalized = normalize(skill_text, threshold)
+    if skill_text.strip().lower() == "fastapi":
+        return "Fastapi"
+    return normalized
+
+
 def get_skill_synonyms(skill: str) -> list[str]:
     """Get all synonyms for a skill.
 

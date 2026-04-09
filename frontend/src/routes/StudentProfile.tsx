@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Select,
   Space,
@@ -76,10 +77,12 @@ const PIE_COLORS = ['#C4758A', '#CB8A4A', '#5B6FD4', '#5E8F6E'];
 const SOFT_SKILL_DIMENSIONS = ['学习能力', '沟通能力', '团队协作', '创新能力', '抗压能力'] as const;
 
 export default function StudentProfile() {
+  const navigate = useNavigate();
+  const { studentId: routeStudentId } = useParams<{ studentId?: string }>();
   const [students, setStudents] = useState<StudentResponse[]>([]);
   const [profiles, setProfiles] = useState<Map<string, StudentProfileResponse>>(new Map());
   const [loading, setLoading] = useState(false);
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(routeStudentId || null);
 
   const fetchStudents = useCallback(async () => {
     setLoading(true);
@@ -110,6 +113,10 @@ export default function StudentProfile() {
   useEffect(() => {
     fetchStudents();
   }, [fetchStudents]);
+
+  useEffect(() => {
+    setSelectedStudentId(routeStudentId || null);
+  }, [routeStudentId]);
 
   const currentProfile = selectedStudentId ? profiles.get(selectedStudentId) : null;
   const profileJson = currentProfile?.profile_json;
@@ -280,12 +287,16 @@ export default function StudentProfile() {
           <Text strong style={{ color: '#374151' }}>选择学生查看画像</Text>
           <Select
             placeholder="请选择学生"
-            style={{ width: '100%', maxWidth: 400 }}
-            loading={loading}
-            value={selectedStudentId}
-            onChange={setSelectedStudentId}
-            allowClear
-            optionLabelProp="label"
+                            style={{ width: '100%', maxWidth: 400 }}
+                            loading={loading}
+                            value={selectedStudentId}
+                            onChange={(value) => {
+                              const nextValue = value || null;
+                              setSelectedStudentId(nextValue);
+                              navigate(nextValue ? `/students/${nextValue}` : '/students', { replace: true });
+                            }}
+                            allowClear
+                            optionLabelProp="label"
           >
             {students.map((student) => {
               const profile = profiles.get(student.id);
@@ -422,7 +433,8 @@ export default function StudentProfile() {
                           </Text>
                           <div className="flex flex-wrap gap-2 mt-2">
                             {skills.map((skill, index) => {
-                              const colors = getLevelColor(skill.level);
+                              const level = skill.level || skill.proficiency;
+                              const colors = getLevelColor(level);
                               return (
                                 <span
                                   key={index}
@@ -437,9 +449,9 @@ export default function StudentProfile() {
                                   }}
                                 >
                                   {skill.name}
-                                  {skill.level && (
+                                  {level && (
                                     <span className="ml-1 text-xs opacity-70">
-                                      ({skill.level})
+                                      ({level})
                                     </span>
                                   )}
                                 </span>

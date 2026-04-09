@@ -1,244 +1,649 @@
-"""Career report service - 职业规划报告生成核心服务.
+"""Career report generation, normalization, and export services."""
 
-采用分块生成策略：
-1. generate_outline - 生成报告纲要
-2. generate_chapters - 逐章节生成
-3. merge_and_save - 合并与存储
-4. polish_report - 智能润色
-5. check_completeness - 完整性检查
-6. export_to_pdf - 导出 PDF
-"""
+from __future__ import annotations
 
 import asyncio
 import html
 import json
 import logging
-import os
-from datetime import datetime
+import subprocess
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm_provider import llm
 from app.models.report import CareerReport, ReportVersion
+from app.models.student import Student, StudentProfile
+from app.prompts.report_generation import (
+    REPORT_POLISH_SYSTEM_PROMPT,
+    REPORT_POLISH_USER_TEMPLATE,
+)
 from app.services.graph import find_path_with_student_profile
-from app.services.matching import recommend_jobs
+from app.services.matching import match_student_job, recommend_jobs
+from app.services.student_profile import normalize_student_profile_json
 
 logger = logging.getLogger(__name__)
 
-
-def _escape_html(text: str) -> str:
-    """Escape HTML special characters to prevent XSS attacks."""
-    return html.escape(str(text), quote=True)
-
-
-# 报告章节定义
+EXPORT_DIR = Path(__file__).resolve().parents[2] / "static" / "exports"
+REPORT_TEMPLATE_VERSION = "2.0"
+DEFAULT_REPORT_TITLE = "职业发展报告"
 REPORT_CHAPTERS = [
-    {
-        "chapter_id": 1,
-        "title": "个人能力画像摘要",
-        "description": "基于简历解析的学生核心竞争力总结",
-        "sections": ["突出优势", "证据来源", "目标岗位匹配点", "一句话定位"],
-    },
-    {
-        "chapter_id": 2,
-        "title": "目标岗位分析",
-        "description": "推荐岗位的匹配度分析和四维评分",
-        "sections": ["岗位核心要求", "四维匹配度分析", "行业发展趋势", "薪资范围与发展前景"],
-    },
-    {
-        "chapter_id": 3,
-        "title": "差距与行动计划",
-        "description": "能力差距分析和短期/中期行动计划",
-        "sections": ["Top差距清单", "必须补齐", "建议提升", "短期行动(1-3月)", "中期行动(3-12月)"],
-    },
-    {
-        "chapter_id": 4,
-        "title": "职业路径规划",
-        "description": "基于图谱的垂直晋升和横向转岗路径",
-        "sections": ["垂直晋升路径", "横向转岗可能性", "推荐主路径"],
-    },
-    {
-        "chapter_id": 5,
-        "title": "评估周期与指标",
-        "description": "自评周期和可量化的阶段检查点",
-        "sections": ["评估周期", "短期指标(1-3月)", "中期指标(3-12月)", "动态调整建议"],
-    },
+    {"chapter_id": 1, "title": "一、个人优势总结"},
+    {"chapter_id": 2, "title": "二、目标岗位分析"},
+    {"chapter_id": 3, "title": "三、差距与行动计划"},
+    {"chapter_id": 4, "title": "四、职业路径规划"},
+    {"chapter_id": 5, "title": "五、评估周期"},
 ]
+DIMENSION_META = [
+    ("basic", "基础"),
+    ("skill", "技能"),
+    ("competency", "素养"),
+    ("potential", "潜力"),
+]
+GAP_ITEM_LABELS = {
+    "major_relevance": "专业与岗位方向匹配度",
+}
 
-REPORT_LLM_TIMEOUT_SECONDS = 20.0
 
-
-def _extract_report_role(matching_results: list[dict[str, Any]]) -> str:
-    if not matching_results:
-        return "目标岗位"
-    job_info = matching_results[0].get("scores_json", {}).get("job_info", {})
-    return str(job_info.get("role") or job_info.get("title") or "目标岗位")
-
-
-def _extract_report_score(matching_results: list[dict[str, Any]]) -> int:
-    if not matching_results:
+def _normalize_score(value: Any) -> int:
+    try:
+        score = float(value or 0)
+    except (TypeError, ValueError):
         return 0
-    raw_score = matching_results[0].get("total_score", 0)
-    score = float(raw_score or 0)
     if score <= 1:
         score *= 100
-    return round(score)
+    return max(0, min(100, round(score)))
 
 
-def _build_fallback_chapter(
-    chapter: dict[str, Any],
+def _safe_text(value: Any, default: str = "") -> str:
+    text = str(value or "").strip()
+    return text or default
+
+
+def _chapter_title(chapter_id: int) -> str:
+    for item in REPORT_CHAPTERS:
+        if item["chapter_id"] == chapter_id:
+            return item["title"]
+    return f"第 {chapter_id} 章"
+
+
+def _escape_html(text: Any) -> str:
+    return html.escape(str(text or ""), quote=True)
+
+
+def _join_non_empty(parts: list[str], separator: str = "，") -> str:
+    return separator.join([part for part in parts if part])
+
+
+def _clean_paragraph(text: str) -> str:
+    text = " ".join(str(text or "").split()).replace("锟?", "").strip()
+    if text and text[-1] not in "。！？!?":
+        text += "。"
+    return text
+
+
+def _normalize_gap_item(raw_item: Any) -> str:
+    text = _safe_text(raw_item, "能力差距")
+    if text in GAP_ITEM_LABELS:
+        return GAP_ITEM_LABELS[text]
+    if text.startswith("必备技能:"):
+        return f"必备技能：{text.split(':', 1)[-1].strip()}"
+    if text.startswith("优选技能:"):
+        return f"加分技能：{text.split(':', 1)[-1].strip()}"
+    if text.startswith("职业素养:"):
+        return f"职业素养：{text.split(':', 1)[-1].strip()}"
+    if text.startswith("发展潜力:"):
+        return f"发展潜力：{text.split(':', 1)[-1].strip()}"
+    return text
+
+
+def _build_gap_description(item_name: str, current_level: str, required_level: str) -> str:
+    if item_name == GAP_ITEM_LABELS["major_relevance"]:
+        return "当前专业背景与目标岗位方向的直接相关性偏弱，需要补足更贴近岗位的项目或实习证据"
+    if current_level and required_level:
+        return f"{current_level} -> {required_level}"
+    if current_level:
+        return f"当前水平：{current_level}"
+    if required_level:
+        return f"目标要求：{required_level}"
+    return "当前能力与目标岗位要求存在差距"
+
+
+def _build_gap_action(item_name: str, suggestion: str) -> str:
+    if suggestion and suggestion != "建议针对该项短板制定补齐计划":
+        return suggestion
+    if item_name == GAP_ITEM_LABELS["major_relevance"]:
+        return "补充与目标岗位更相关的课程、项目或实习经历，并在简历中明确说明转向理由与可迁移能力。"
+    if item_name.startswith("必备技能："):
+        skill_name = item_name.split("：", 1)[-1]
+        return f"围绕 {skill_name} 完成 1 个可展示项目，并在简历中写清使用场景、技术细节和结果。"
+    if item_name.startswith("加分技能："):
+        skill_name = item_name.split("：", 1)[-1]
+        return f"补充 {skill_name} 的基础实践，把它沉淀成面试中的加分项，而不是停留在概念层面。"
+    if item_name.startswith("职业素养："):
+        label = item_name.split("：", 1)[-1]
+        return f"通过团队协作、复盘记录或项目推进过程，补足“{label}”这类软性能力证据。"
+    if item_name.startswith("发展潜力："):
+        label = item_name.split("：", 1)[-1]
+        return f"主动发起新项目、比赛或作品集建设，用连续输出证明“{label}”的成长潜力。"
+    return "建议围绕该短板补充一段可验证的项目、课程或实习经历，并同步更新简历表达。"
+
+
+def _score_band_text(score: int) -> str:
+    if score >= 80:
+        return "具备较强切入基础"
+    if score >= 60:
+        return "具备一定切入基础"
+    return "仍处在重点准备阶段"
+
+
+def _normalize_action_items(items: Any) -> list[dict[str, Any]]:
+    normalized = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        item_name = _normalize_gap_item(item.get("item") or item.get("gap_item"))
+        current_level = _safe_text(item.get("current_level"))
+        required_level = _safe_text(item.get("required_level"))
+        gap_desc = _safe_text(item.get("gap_desc"))
+        if item_name == GAP_ITEM_LABELS["major_relevance"] or not gap_desc:
+            gap_desc = _build_gap_description(item_name, current_level, required_level)
+        normalized.append(
+            {
+                "priority": _safe_text(item.get("priority"), "持续巩固"),
+                "item": item_name,
+                "gap_desc": gap_desc,
+                "score_impact": int(item.get("score_impact") or 0),
+                "action": _build_gap_action(item_name, _safe_text(item.get("action") or item.get("suggestion"))),
+                "timeline": _safe_text(item.get("timeline"), "持续推进"),
+            }
+        )
+    return normalized
+
+
+def _normalize_paths(paths: Any, target_role: str, actions: list[dict[str, Any]]) -> dict[str, Any]:
+    source = dict(paths or {})
+    primary_path = [
+        item for item in source.get("primary_path") or [] if isinstance(item, dict)
+    ]
+    alt_paths = [
+        {"title": _safe_text(item.get("title"), "相关岗位"), "skill_overlap": _normalize_score(item.get("skill_overlap"))}
+        for item in (source.get("alt_paths") or [])
+        if isinstance(item, dict)
+    ]
+    if target_role and (
+        not primary_path
+        or target_role not in _safe_text(primary_path[0].get("title"))
+    ):
+        return {
+            "primary_path": [
+                {
+                    "stage": "现在",
+                    "title": f"{target_role} 准备期",
+                    "condition": _safe_text(
+                        actions[0]["action"] if actions else None,
+                        "补齐岗位核心能力和求职材料，先把第一段可验证证据做出来。",
+                    ),
+                    "is_current": True,
+                },
+                {
+                    "stage": "1-2年",
+                    "title": f"{target_role}（初级）",
+                    "condition": "完成相关实习或项目，形成稳定的岗位胜任力。",
+                    "is_current": False,
+                },
+                {
+                    "stage": "3-5年",
+                    "title": f"{target_role}（进阶）",
+                    "condition": "持续积累复杂项目经验和跨团队协作能力，逐步承担更大范围的结果责任。",
+                    "is_current": False,
+                },
+            ],
+            "alt_paths": alt_paths[:3],
+        }
+    return {"primary_path": primary_path, "alt_paths": alt_paths[:3]}
+
+
+def normalize_report_content(content_json: dict[str, Any] | None) -> dict[str, Any]:
+    """Normalize legacy and current report content into one shape."""
+    content = dict(content_json or {})
+    chapters = []
+    raw_chapters = content.get("chapters") or []
+    for index, item in enumerate(raw_chapters, start=1):
+        if not isinstance(item, dict):
+            continue
+        if "text" in item:
+            text = _clean_paragraph(str(item.get("text") or "")) if item.get("text") else ""
+            data = item.get("data")
+        else:
+            sections = item.get("sections") or []
+            section_texts = []
+            for section in sections:
+                if not isinstance(section, dict):
+                    continue
+                title = _safe_text(section.get("title"))
+                content_text = _safe_text(section.get("content"))
+                section_texts.append(f"{title}：{content_text}" if title and content_text else content_text)
+            text = _clean_paragraph(" ".join([s for s in section_texts if s])) if section_texts else ""
+            data = item.get("data")
+        chapters.append(
+            {
+                "chapter_id": item.get("chapter_id") or index,
+                "title": item.get("title") or _chapter_title(index),
+                "text": text,
+                "data": data,
+                "status": item.get("status") or ("done" if text else "pending"),
+            }
+        )
+    for chapter in REPORT_CHAPTERS:
+        if not any(item["chapter_id"] == chapter["chapter_id"] for item in chapters):
+            chapters.append(
+                {
+                    "chapter_id": chapter["chapter_id"],
+                    "title": chapter["title"],
+                    "text": "",
+                    "data": None,
+                    "status": "pending",
+                }
+            )
+    chapters.sort(key=lambda item: item["chapter_id"])
+    target_job = dict(content.get("target_job") or {})
+    actions = _normalize_action_items(content.get("actions") or [])
+    target_role = _safe_text(
+        target_job.get("role_name") or target_job.get("role") or target_job.get("title")
+    )
+    paths = _normalize_paths(content.get("paths"), target_role, actions)
+    for chapter in chapters:
+        if chapter["chapter_id"] == 3:
+            chapter["data"] = actions
+        elif chapter["chapter_id"] == 4:
+            chapter["data"] = paths
+    return {
+        "title": content.get("title") or DEFAULT_REPORT_TITLE,
+        "summary": _clean_paragraph(str(content.get("summary") or "")) if content.get("summary") else "",
+        "target_job": target_job,
+        "dimensions": list(content.get("dimensions") or []),
+        "actions": actions,
+        "paths": paths,
+        "chapters": chapters,
+        "metadata": dict(content.get("metadata") or {}),
+    }
+
+
+def serialize_career_report(report: CareerReport) -> dict[str, Any]:
+    content = normalize_report_content(report.content_json or {})
+    return {
+        "id": report.id,
+        "student_id": report.student_id,
+        "title": content.get("title") or DEFAULT_REPORT_TITLE,
+        "summary": report.summary or content.get("summary") or "",
+        "recommendations": report.recommendations or [],
+        "suggested_jobs": None,
+        "skill_gaps": content.get("actions"),
+        "career_path": (content.get("paths") or {}).get("primary_path"),
+        "status": report.status,
+        "version": report.version or "1.0",
+        "content_json": content,
+        "pdf_path": report.pdf_path,
+        "docx_path": report.docx_path,
+        "created_at": report.created_at,
+        "updated_at": report.updated_at,
+    }
+
+
+def _extract_skills(profile_json: dict[str, Any], limit: int = 6) -> list[str]:
+    result = []
+    for item in profile_json.get("skills") or []:
+        if isinstance(item, dict):
+            name = item.get("name") or item.get("skill_name")
+        else:
+            name = item
+        if name:
+            result.append(str(name))
+    return result[:limit]
+
+
+def _extract_projects(profile_json: dict[str, Any], limit: int = 3) -> list[str]:
+    result = []
+    experience = profile_json.get("experience") or {}
+    for item in experience.get("projects") or profile_json.get("experiences") or []:
+        if isinstance(item, dict):
+            name = item.get("project_name") or item.get("name") or item.get("title")
+            if name:
+                result.append(str(name))
+    return result[:limit]
+
+
+def _extract_internships(profile_json: dict[str, Any], limit: int = 3) -> list[str]:
+    result = []
+    experience = profile_json.get("experience") or {}
+    for item in experience.get("work") or profile_json.get("experiences") or []:
+        if not isinstance(item, dict):
+            continue
+        company = _safe_text(item.get("company"))
+        title = _safe_text(item.get("title") or item.get("position"))
+        if company or title:
+            result.append(_join_non_empty([company, title], " / "))
+    return result[:limit]
+
+
+def _extract_job_info(match_result: dict[str, Any]) -> dict[str, Any]:
+    scores_json = dict(match_result.get("scores_json") or {})
+    job_info = dict(scores_json.get("job_info") or {})
+    role_name = (
+        job_info.get("role")
+        or job_info.get("title")
+        or match_result.get("role_name")
+        or match_result.get("job_title")
+        or "目标岗位"
+    )
+    return {
+        **job_info,
+        "role_name": role_name,
+        "match_score": _normalize_score(match_result.get("total_score") or scores_json.get("total_score")),
+    }
+
+
+def _extract_dimensions(match_result: dict[str, Any]) -> list[dict[str, Any]]:
+    scores_json = dict(match_result.get("scores_json") or {})
+    dimensions = []
+    for key, label in DIMENSION_META:
+        payload = dict(scores_json.get(key) or {})
+        reason = _safe_text(payload.get("reason"))
+        if not reason and isinstance(payload.get("items"), list) and payload["items"]:
+            first_item = payload["items"][0]
+            if isinstance(first_item, dict):
+                reason = _safe_text(first_item.get("evidence") or first_item.get("dimension"))
+        dimensions.append(
+            {
+                "key": key,
+                "label": label,
+                "score": _normalize_score(payload.get("score")),
+                "reason": reason or "可继续补强这一维度的证据表达。",
+            }
+        )
+    return dimensions
+
+
+def _build_actions(match_result: dict[str, Any]) -> list[dict[str, Any]]:
+    actions = []
+    for item in match_result.get("gaps_json") or []:
+        if not isinstance(item, dict):
+            continue
+        item_name = _normalize_gap_item(item.get("gap_item") or item.get("item"))
+        current_level = _safe_text(item.get("current_level"))
+        required_level = _safe_text(item.get("required_level"))
+        raw_priority = str(item.get("priority") or "").lower()
+        if raw_priority == "high":
+            priority = "必须补齐"
+            score_impact = -12
+            timeline = "2-4周"
+        elif raw_priority == "medium":
+            priority = "建议提升"
+            score_impact = -6
+            timeline = "1-2个月"
+        else:
+            priority = "持续巩固"
+            score_impact = -3
+            timeline = "持续推进"
+        actions.append(
+            {
+                "priority": priority,
+                "item": item_name,
+                "gap_desc": _build_gap_description(item_name, current_level, required_level),
+                "score_impact": score_impact,
+                "action": _build_gap_action(item_name, _safe_text(item.get("suggestion"))),
+                "timeline": timeline,
+            }
+        )
+    if actions:
+        return actions[:5]
+    return [
+        {
+            "priority": "持续巩固",
+            "item": "强化项目表达",
+            "gap_desc": "当前缺少明确阻塞项，但需要更强的求职证据",
+            "score_impact": -3,
+            "action": "补充项目量化成果、技术选型理由和个人贡献，持续优化简历表达。",
+            "timeline": "持续推进",
+        }
+    ]
+
+
+def _build_paths(
+    student_profile: dict[str, Any],
+    target_role: str,
+    career_path: dict[str, Any] | None,
+    related_jobs: list[dict[str, Any]],
+    actions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    action_plan = list((career_path or {}).get("action_plan") or [])
+    primary_path = [
+        {
+            "stage": "现在",
+            "title": f"{target_role} 准备期",
+            "condition": _safe_text(
+                actions[0]["action"] if actions else None,
+                "补齐岗位核心能力和求职材料，先把第一段可验证证据做出来。",
+            ),
+            "is_current": True,
+        },
+        {
+            "stage": "1-2年",
+            "title": f"{target_role}（初级）",
+            "condition": _safe_text(
+                action_plan[0].get("action") if action_plan and isinstance(action_plan[0], dict) else None,
+                "完成相关实习或项目，形成稳定的岗位胜任力。",
+            ),
+            "is_current": False,
+        },
+        {
+            "stage": "3-5年",
+            "title": f"{target_role}（进阶）",
+            "condition": _safe_text(
+                action_plan[1].get("action") if len(action_plan) > 1 and isinstance(action_plan[1], dict) else None,
+                "持续积累复杂项目经验和跨团队协作能力，逐步承担更大范围的结果责任。",
+            ),
+            "is_current": False,
+        },
+    ]
+
+    alt_paths = []
+    for item in (career_path or {}).get("alternative_paths") or []:
+        alt_paths.append({"title": _safe_text(item.get("intermediate_role"), "相关岗位"), "skill_overlap": 65})
+    for item in related_jobs:
+        alt_paths.append(
+            {
+                "title": _safe_text(item.get("role_name"), "相关岗位"),
+                "skill_overlap": _normalize_score(item.get("skill_overlap")),
+            }
+        )
+    seen = set()
+    deduped = []
+    for item in alt_paths:
+        title = item["title"]
+        if title in seen:
+            continue
+        seen.add(title)
+        deduped.append(item)
+    return {"primary_path": primary_path, "alt_paths": deduped[:3]}
+
+
+def _build_summary(student_profile: dict[str, Any], job_info: dict[str, Any], actions: list[dict[str, Any]]) -> str:
+    basic = student_profile.get("basic_info") or {}
+    background = _join_non_empty([_safe_text(basic.get("school")), _safe_text(basic.get("major"))], " / ")
+    next_step = actions[0]["action"] if actions else "继续补强项目与实习证据"
+    return _clean_paragraph(
+        f"{_safe_text(basic.get('name'), '该学生')}当前与“{job_info['role_name']}”的综合匹配度为 {job_info['match_score']} 分。"
+        f"{f'当前背景为 {background}。' if background else ''}"
+        f"下一步建议优先执行：{next_step}"
+    )
+
+
+def _build_recommendations(job_info: dict[str, Any], dimensions: list[dict[str, Any]], actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    score = job_info["match_score"]
+    if score >= 80:
+        primary = {
+            "type": "positive",
+            "title": "匹配基础较好",
+            "content": f"你与“{job_info['role_name']}”已具备较好的进入门槛，接下来重点是强化项目证据和投递表达。",
+        }
+    elif score >= 60:
+        primary = {
+            "type": "improvement",
+            "title": "适合集中补短板",
+            "content": f"你与“{job_info['role_name']}”存在明确提升空间，补齐核心差距后有望明显抬升匹配度。",
+        }
+    else:
+        primary = {
+            "type": "warning",
+            "title": "先补核心能力再投递",
+            "content": f"当前与“{job_info['role_name']}”仍有较大差距，更适合先做阶段性准备后再进入正式投递。",
+        }
+    weakest = sorted(dimensions, key=lambda item: item["score"])[:1]
+    recommendations = [primary]
+    if weakest:
+        recommendations.append(
+            {
+                "type": "action",
+                "title": f"优先提升{weakest[0]['label']}",
+                "content": weakest[0]["reason"],
+            }
+        )
+    if actions:
+        recommendations.append(
+            {
+                "type": "action",
+                "title": "先完成最高优先级动作",
+                "content": actions[0]["action"],
+            }
+        )
+    return recommendations
+
+
+def _build_report_content(
     student_profile: dict[str, Any],
     matching_results: list[dict[str, Any]],
     career_path: dict[str, Any] | None,
-) -> dict[str, Any]:
-    basic_info = student_profile.get("basic_info") or {}
-    role_name = _extract_report_role(matching_results)
-    match_score = _extract_report_score(matching_results)
-    action_plan = career_path.get("action_plan") if isinstance(career_path, dict) else []
-    first_action = ""
-    if isinstance(action_plan, list) and action_plan:
-        first_action = str(
-            action_plan[0].get("action")
-            or action_plan[0].get("title")
-            or action_plan[0].get("content")
-            or ""
-        )
-
-    section_title = (chapter.get("sections") or ["核心结论"])[0]
-    summary = (
-        f"当前学生画像已完成基础分析，建议优先关注“{role_name}”方向，"
-        f"当前匹配度约为 {match_score} 分。"
+) -> tuple[dict[str, Any], str, list[dict[str, Any]]]:
+    top_match = matching_results[0]
+    job_info = _extract_job_info(top_match)
+    dimensions = _extract_dimensions(top_match)
+    actions = _build_actions(top_match)
+    related_jobs = [
+        {
+            "role_name": _extract_job_info(item)["role_name"],
+            "skill_overlap": max(0.4, min(0.95, _extract_job_info(item)["match_score"] / 100)),
+        }
+        for item in matching_results[1:4]
+    ]
+    paths = _build_paths(student_profile, job_info["role_name"], career_path, related_jobs, actions)
+    basic = student_profile.get("basic_info") or {}
+    skills = _extract_skills(student_profile, 5)
+    projects = _extract_projects(student_profile, 2)
+    internships = _extract_internships(student_profile, 2)
+    competitiveness = _normalize_score(student_profile.get("competitiveness_score"))
+    strongest_dimension = max(dimensions, key=lambda item: item["score"], default=None)
+    weakest_dimension = min(dimensions, key=lambda item: item["score"], default=None)
+    score_band = _score_band_text(job_info["match_score"])
+    chapter_one = _clean_paragraph(
+        f"{_safe_text(basic.get('name'), '该学生')}目前的综合竞争力约为 {competitiveness} 分，"
+        f"{f'当前背景为 {_join_non_empty([_safe_text(basic.get('school')), _safe_text(basic.get('major'))], ' / ')}，' if _join_non_empty([_safe_text(basic.get('school')), _safe_text(basic.get('major'))], ' / ') else ''}"
+        f"面向“{job_info['role_name']}”方向整体{score_band}。"
+        f"{f'核心技能集中在 {", ".join(skills)}。' if skills else ''}"
+        f"{f'已有 {", ".join(internships)} 等经历。' if internships else ''}"
+        f"{f'项目实践包括 {", ".join(projects)}。' if projects else ''}"
     )
-    if basic_info.get("school") or basic_info.get("major"):
-        summary += (
-            f" 当前背景为 {basic_info.get('school') or '在校经历'}"
-            f"{(' / ' + str(basic_info.get('major'))) if basic_info.get('major') else ''}。"
-        )
-    if first_action:
-        summary += f" 下一步建议先执行：{first_action}。"
+    chapter_two = _clean_paragraph(
+        f"目标岗位为“{job_info['role_name']}”，当前综合匹配度为 {job_info['match_score']} 分。"
+        f"{f'当前优势主要体现在“{strongest_dimension['label']}”维度。' if strongest_dimension else ''}"
+        f"{f'短板则集中在“{weakest_dimension['label']}”维度，需要优先补强。' if weakest_dimension else ''}"
+    )
+    must_fix = len([item for item in actions if item["priority"] == "必须补齐"])
+    chapter_three = _clean_paragraph(
+        f"围绕“{job_info['role_name']}”的进入门槛，当前共识别出 {len(actions)} 项关键动作，其中必须补齐 {must_fix} 项。"
+        f"优先级越高的事项越应尽快转化为项目、实习或简历中的可验证证据。"
+    )
+    chapter_four = _clean_paragraph(
+        f"推荐以“{job_info['role_name']}”作为当前主路径，先进入准备期，再向初级岗位和进阶岗位逐步推进。"
+        f"{f'同时也可关注 {", ".join(item["title"] for item in paths["alt_paths"])} 等相邻岗位作为横向备选。' if paths['alt_paths'] else ''}"
+    )
+    checkpoints = "、".join(item["item"] for item in actions[:3]) or "核心技能与项目表达"
+    chapter_five = _clean_paragraph(
+        f"建议以 3 个月为一个复盘周期，重点检查 {checkpoints} 是否已经形成可验证成果。"
+        f"完成阶段动作后，重新上传最新简历并复跑匹配与报告，可以直观看到提升幅度。"
+    )
+    summary = _build_summary(student_profile, job_info, actions)
+    chapters = [
+        {"chapter_id": 1, "title": _chapter_title(1), "text": chapter_one, "data": None, "status": "done"},
+        {"chapter_id": 2, "title": _chapter_title(2), "text": chapter_two, "data": {"overall_score": job_info["match_score"], "dimensions": dimensions}, "status": "done"},
+        {"chapter_id": 3, "title": _chapter_title(3), "text": chapter_three, "data": actions, "status": "done"},
+        {"chapter_id": 4, "title": _chapter_title(4), "text": chapter_four, "data": paths, "status": "done"},
+        {"chapter_id": 5, "title": _chapter_title(5), "text": chapter_five, "data": None, "status": "done"},
+    ]
+    recommendations = _build_recommendations(job_info, dimensions, actions)
+    content_json = {
+        "title": f"{_safe_text(basic.get('name'), '学生')} - {job_info['role_name']}职业发展报告",
+        "summary": summary,
+        "target_job": job_info,
+        "dimensions": dimensions,
+        "actions": actions,
+        "paths": paths,
+        "chapters": chapters,
+        "metadata": {"generated_at": datetime.now(UTC).isoformat(), "template_version": REPORT_TEMPLATE_VERSION},
+    }
+    return content_json, summary, recommendations
 
+
+async def _load_student_profile(student_id: UUID, db: AsyncSession) -> tuple[Student, dict[str, Any]]:
+    student = await db.get(Student, student_id)
+    if not student:
+        raise ValueError("Student not found")
+    result = await db.execute(select(StudentProfile).where(StudentProfile.student_id == student_id))
+    profile = result.scalar_one_or_none()
+    if profile is None or not profile.profile_json:
+        raise ValueError("学生画像不存在，请先生成学生画像")
+    return student, normalize_student_profile_json(profile.profile_json or {}, student)
+
+
+def _match_to_payload(match_result: Any) -> dict[str, Any]:
     return {
-        "chapter_id": chapter.get("chapter_id", 0),
-        "title": chapter.get("title", ""),
-        "sections": [
-            {
-                "title": section_title,
-                "content": summary,
-                "key_points": [
-                    f"目标岗位：{role_name}",
-                    f"综合匹配：{match_score} 分",
-                    first_action or "建议结合画像缺口继续补全项目、技能与证书信息",
-                ],
-            }
-        ],
-        "tables": [],
-        "charts": [],
+        "job_id": str(match_result.job_profile_id),
+        "job_profile_id": str(match_result.job_profile_id),
+        "total_score": match_result.total_score,
+        "scores_json": dict(match_result.scores_json or {}),
+        "gaps_json": list(match_result.gaps_json or []),
     }
 
-# Prompt 模板
-OUTLINE_SYSTEM_PROMPT = """你是一个专业的职业规划分析师，擅长生成结构化的职业发展报告。
 
-请根据以下信息生成报告纲要 JSON。"""
+async def _resolve_matching_results(db: AsyncSession, student_id: UUID, target_job_ids: list[UUID] | None = None) -> list[dict[str, Any]]:
+    if target_job_ids:
+        results = []
+        for job_id in target_job_ids:
+            results.append(_match_to_payload(await match_student_job(db, student_id, job_id, mode="deep")))
+        if not results:
+            raise ValueError("未能生成目标岗位的匹配结果")
+        return results
+    recommended = await recommend_jobs(db, student_id, top_k=5)
+    if not recommended:
+        raise ValueError("暂无岗位匹配结果，请先完成匹配推荐")
+    return [_match_to_payload(item) for item in recommended]
 
-OUTLINE_USER_PROMPT = """请根据以下学生画像、匹配结果和职业路径信息，生成一份职业规划报告的纲要。
 
-## 学生画像（JSON）
-{student_profile}
-
-## 匹配结果（JSON）
-{matching_results}
-
-## 职业路径（JSON）
-{career_path}
-
-请生成以下结构的 JSON 报告纲要：
-{{
-    "title": "大学生职业规划报告",
-    "chapters": [
-        {{
-            "chapter_id": 1,
-            "title": "个人画像分析",
-            "description": "...",
-            "sections": ["基本条件", "专业技能", "软性素养", "成长潜力"]
-        }}
-    ],
-    "estimated_length": "约5000字"
-}}
-
-只需要输出 JSON，不要其他文字。"""
-
-CHAPTER_SYSTEM_PROMPT = """你是一个专业的职业规划分析师，擅长生成详实的职业发展报告内容。
-
-请根据提供的信息生成专业的报告章节内容。"""
-
-CHAPTER_USER_PROMPT = """请为职业规划报告生成第 {chapter_id} 章的内容。
-
-## 章节信息
-- 标题：{title}
-- 描述：{description}
-- 小节：{sections}
-
-## 学生画像（JSON）
-{student_profile}
-
-## 匹配结果（JSON）
-{matching_results}
-
-## 职业路径（JSON）
-{career_path}
-
-请生成以下结构的 JSON 内容：
-{{
-    "title": "章节标题",
-    "sections": [
-        {{
-            "title": "小节标题",
-            "content": "小节内容（详细的分析和阐述）",
-            "key_points": ["要点1", "要点2"]
-        }}
-    ],
-    "tables": [
-        {{
-            "title": "表格标题",
-            "headers": ["列1", "列2"],
-            "rows": [["数据1", "数据2"]]
-        }}
-    ],
-    "charts": [
-        {{
-            "type": "radar|bar|line|table",
-            "title": "图表标题",
-            "data": {{}}
-        }}
-    ]
-}}
-
-只需要输出 JSON，不要其他文字。"""
-
-POLISH_SYSTEM_PROMPT = """你是一个专业的文字编辑，擅长润色和改写文章。
-
-你的任务是只改写报告的措辞和表达方式，使其更加专业、流畅、易读。
-**重要**：不要改变任何事实数据、分数、建议等实质性内容。
-只优化语言表达，保持原意不变。"""
-
-POLISH_USER_PROMPT = """请润色以下职业规划报告内容，只改写措辞，不改变任何事实数据。
-
-## 原始报告
-{original_report}
-
-请返回润色后的版本，格式为：
-{{
-    "polished_content": "润色后的完整报告内容",
-    "changes": ["修改点1描述", "修改点2描述"]
-}}
-
-只需要输出 JSON，不要其他文字。"""
-
-# PDF 模板目录
-PDF_OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "static", "exports")
+async def _resolve_career_path(db: AsyncSession, student_profile: dict[str, Any], matching_results: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not matching_results:
+        return None
+    target_role = _extract_job_info(matching_results[0])["role_name"]
+    try:
+        return await find_path_with_student_profile(db, student_profile, target_role, "expert")
+    except Exception as exc:
+        logger.warning("Career path generation failed for %s: %s", target_role, exc)
+        return None
 
 
 async def generate_outline(
@@ -246,53 +651,8 @@ async def generate_outline(
     matching_results: list[dict[str, Any]],
     career_path: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """生成报告纲要.
-
-    Args:
-        student_profile: 学生画像数据
-        matching_results: 匹配结果列表
-        career_path: 职业路径规划数据
-
-    Returns:
-        {"chapters": [...]}
-    """
-    # 序列化数据用于 prompt
-    profile_str = json.dumps(student_profile, ensure_ascii=False, indent=2)
-    matching_str = json.dumps(matching_results[:5], ensure_ascii=False, indent=2)  # 只取前5个
-    path_str = json.dumps(career_path or {}, ensure_ascii=False, indent=2)
-
-    prompt = OUTLINE_USER_PROMPT.format(
-        student_profile=profile_str,
-        matching_results=matching_str,
-        career_path=path_str,
-    )
-
-    try:
-        result = await asyncio.wait_for(
-            llm.generate_json(
-                prompt=prompt,
-                system_prompt=OUTLINE_SYSTEM_PROMPT,
-                temperature=0.3,
-            ),
-            timeout=REPORT_LLM_TIMEOUT_SECONDS,
-        )
-
-        # 确保有 chapters 字段
-        if "chapters" not in result:
-            result["chapters"] = REPORT_CHAPTERS
-
-        logger.info("Generated report outline with %d chapters", len(result.get("chapters", [])))
-        return result
-
-    except Exception as e:
-        logger.error("Failed to generate outline: %s", e)
-        # 返回默认章节结构
-        return {
-            "title": "大学生职业规划报告",
-            "chapters": REPORT_CHAPTERS,
-            "estimated_length": "约5000字",
-            "generated_by": "fallback",
-        }
+    del student_profile, matching_results, career_path
+    return {"title": DEFAULT_REPORT_TITLE, "chapters": REPORT_CHAPTERS, "generated_by": "template"}
 
 
 async def generate_chapters(
@@ -302,1256 +662,385 @@ async def generate_chapters(
     career_path: dict[str, Any] | None,
     db: AsyncSession,
 ) -> list[dict[str, Any]]:
-    """逐章节生成报告内容.
-
-    Args:
-        outline: 报告纲要
-        student_profile: 学生画像数据
-        matching_results: 匹配结果列表
-        career_path: 职业路径规划数据
-        db: 数据库会话
-
-    Returns:
-        每章节的生成内容列表
-    """
-    chapters = outline.get("chapters", REPORT_CHAPTERS)
-    chapter_contents: list[dict[str, Any]] = []
-
-    if outline.get("generated_by") == "fallback":
-        return [
-            _build_fallback_chapter(chapter, student_profile, matching_results, career_path)
-            for chapter in chapters
-        ]
-
-    # 序列化数据
-    profile_str = json.dumps(student_profile, ensure_ascii=False, indent=2)
-    matching_str = json.dumps(matching_results[:5], ensure_ascii=False, indent=2)
-    path_str = json.dumps(career_path or {}, ensure_ascii=False, indent=2)
-
-    async def _generate_single_chapter(chapter: dict[str, Any]) -> dict[str, Any]:
-        """生成单个章节内容。失败时返回兜底内容。"""
-        chapter_id = chapter.get("chapter_id", 1)
-        title = chapter.get("title", "")
-        description = chapter.get("description", "")
-        sections = chapter.get("sections", [])
-
-        prompt = CHAPTER_USER_PROMPT.format(
-            chapter_id=chapter_id,
-            title=title,
-            description=description,
-            sections=json.dumps(sections, ensure_ascii=False),
-            student_profile=profile_str,
-            matching_results=matching_str,
-            career_path=path_str,
-        )
-
-        try:
-            result = await asyncio.wait_for(
-                llm.generate_json(
-                    prompt=prompt,
-                    system_prompt=CHAPTER_SYSTEM_PROMPT,
-                    temperature=0.5,
-                    max_tokens=4000,
-                ),
-                timeout=REPORT_LLM_TIMEOUT_SECONDS,
-            )
-            logger.info("Generated chapter %d: %s", chapter_id, title)
-            return {
-                "chapter_id": chapter_id,
-                "title": result.get("title", title),
-                "sections": result.get("sections", []),
-                "tables": result.get("tables", []),
-                "charts": result.get("charts", []),
-            }
-        except Exception as e:
-            logger.error("Failed to generate chapter %d: %s", chapter_id, e)
-            return _build_fallback_chapter(chapter, student_profile, matching_results, career_path)
-
-    # 并行生成所有章节
-    tasks = [_generate_single_chapter(chapter) for chapter in chapters]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # 按顺序提取结果，过滤异常
-    for i, result in enumerate(results):
-        if isinstance(result, Exception):
-            chapter = chapters[i]
-            chapter_contents.append(
-                _build_fallback_chapter(chapter, student_profile, matching_results, career_path)
-            )
-        else:
-            chapter_contents.append(result)
-
-    return chapter_contents
+    del outline, db
+    content_json, _, _ = _build_report_content(student_profile, matching_results, career_path)
+    return list(content_json["chapters"])
 
 
-async def merge_and_save(
-    student_id: UUID,
-    report_data: dict[str, Any],
-    db: AsyncSession,
-) -> CareerReport:
-    """合并与存储报告.
-
-    Args:
-        student_id: 学生 ID
-        report_data: 报告数据（包含 outline 和 chapters）
-        db: 数据库会话
-
-    Returns:
-        生成的 CareerReport 对象
-    """
-    # 合并所有章节为完整报告
-    outline = report_data.get("outline", {})
-    chapters = report_data.get("chapters", [])
-    matching_results = report_data.get("matching_results", [])
-
-    # 生成摘要
-    summary = _generate_summary(chapters, matching_results)
-
-    # 生成推荐建议
-    recommendations = _generate_recommendations(report_data)
-
-    # 构建报告 JSON
-    content_json = {
-        "outline": outline,
-        "chapters": chapters,
-        "matching_results": matching_results,
-        "metadata": {
-            "generated_at": datetime.utcnow().isoformat(),
-            "student_id": str(student_id),
-            "version": "1.0",
-        },
-    }
-
-    # 查询是否已有报告
-    stmt = select(CareerReport).where(CareerReport.student_id == student_id)
-    result = await db.execute(stmt)
-    existing_report = result.scalar_one_or_none()
-
-    if existing_report:
-        # 更新现有报告
-        existing_report.content_json = content_json
-        existing_report.summary = summary
-        existing_report.recommendations = recommendations
-        existing_report.status = "completed"
-        existing_report.updated_at = datetime.utcnow()
-
-        # 版本递增
-        try:
-            ver = float(existing_report.version)
-            existing_report.version = f"{ver + 0.1:.1f}"
-        except (ValueError, TypeError):
-            existing_report.version = "1.1"
-
-        report = existing_report
-    else:
-        # 创建新报告
-        report = CareerReport(
-            student_id=student_id,
-            content_json=content_json,
-            summary=summary,
-            recommendations=recommendations,
-            status="completed",
-            version="1.0",
-        )
-        db.add(report)
-
-    await db.flush()
-    await db.refresh(report)
-
-    # 创建版本快照
-    version = ReportVersion(
-        report_id=report.id,
-        version=report.version,
-        content=content_json,
-        change_notes="初始版本",
-    )
-    db.add(version)
-
-    await db.commit()
-
-    logger.info("Saved career report for student %s, version %s", student_id, report.version)
-    return report
-
-
-def _generate_summary(
-    chapters: list[dict[str, Any]],
-    matching_results: list[dict[str, Any]],
-) -> str:
-    """生成报告摘要."""
-    if not matching_results:
-        return "暂无匹配结果"
-
-    # 从第一章获取基本信息
-    if chapters and len(chapters) > 0:
-        first_chapter = chapters[0]
-        if first_chapter.get("sections"):
-            first_section = first_chapter["sections"][0]
-            return first_section.get("content", "")[:200] + "..."
-
-    # 从匹配结果生成
-    top_match = matching_results[0] if matching_results else None
-    if top_match:
-        score = top_match.get("total_score", 0) * 100
-        job_info = top_match.get("scores_json", {}).get("job_info", {})
-        job_title = job_info.get("title", "目标岗位")
-        return f"与 {job_title} 的综合匹配度为 {score:.1f} 分，建议针对差距进行针对性提升。"
-
-    return "职业规划报告已生成。"
-
-
-def _generate_recommendations(report_data: dict[str, Any]) -> list[dict[str, Any]]:
-    """生成推荐建议列表."""
-    recommendations: list[dict[str, Any]] = []
-    matching_results = report_data.get("matching_results", [])
-    career_path = report_data.get("career_path", {})
-
-    # 基于匹配结果生成建议
-    if matching_results:
-        top_match = matching_results[0]
-        scores_json = top_match.get("scores_json", {})
-        total_score = scores_json.get("total_score", 0)
-
-        if total_score >= 80:
-            recommendations.append({
-                "type": "positive",
-                "title": "匹配度高",
-                "content": "您与推荐岗位的匹配度较高，建议继续保持并提升核心竞争力。",
-            })
-        elif total_score >= 60:
-            recommendations.append({
-                "type": "improvement",
-                "title": "需要提升",
-                "content": "建议针对差距项进行针对性提升，补齐能力短板。",
-            })
-        else:
-            recommendations.append({
-                "type": "warning",
-                "title": "差距较大",
-                "content": "建议重新评估目标岗位，或先积累相关经验后再投递。",
-            })
-
-    # 基于职业路径生成建议
-    if career_path:
-        action_plan = career_path.get("action_plan", [])
-        if action_plan:
-            recommendations.append({
-                "type": "action",
-                "title": "行动计划",
-                "content": f"建议按照职业路径规划逐步推进，共 {len(action_plan)} 个步骤。",
-            })
-
-    return recommendations
-
-
-async def polish_report(report_id: UUID, db: AsyncSession) -> dict[str, Any]:
-    """智能润色报告.
-
-    Args:
-        report_id: 报告 ID
-        db: 数据库会话
-
-    Returns:
-        {"polished": bool, "changes": [...], "version": "..."}
-    """
-    # 加载报告
-    report = await db.get(CareerReport, report_id)
-    if not report:
-        raise ValueError(f"Report {report_id} not found")
-
-    # 序列化原始内容
-    original_content = json.dumps(report.content_json, ensure_ascii=False, indent=2)
-
-    prompt = POLISH_USER_PROMPT.format(original_report=original_content)
-
+def _next_version(version: str | None) -> str:
     try:
-        result = await llm.generate_json(
-            prompt=prompt,
-            system_prompt=POLISH_SYSTEM_PROMPT,
-            temperature=0.3,
-        )
-
-        polished_content_str = result.get("polished_content", original_content)
-        changes = result.get("changes", [])
-
-        # 解析润色后的内容
-        try:
-            polished_json = json.loads(polished_content_str)
-        except json.JSONDecodeError:
-            # 如果不是 JSON，保留原结构只更新文本字段
-            polished_json = report.content_json
-
-        # 创建新版本
-        version_num = _increment_version(report.version)
-
-        # 保存润色版本
-        polished_version = ReportVersion(
-            report_id=report.id,
-            version=version_num,
-            content=polished_json,
-            change_notes=f"润色版本：{', '.join(changes[:3])}" if changes else "语言润色",
-        )
-        db.add(polished_version)
-
-        # 更新报告
-        report.content_json = polished_json
-        report.version = version_num
-        report.updated_at = datetime.utcnow()
-
-        await db.commit()
-
-        logger.info("Polished report %s to version %s", report_id, version_num)
-
-        return {
-            "polished": True,
-            "changes": changes,
-            "version": version_num,
-        }
-
-    except Exception as e:
-        logger.error("Failed to polish report %s: %s", report_id, e)
-        return {
-            "polished": False,
-            "changes": [],
-            "error": str(e),
-        }
-
-
-def _increment_version(current: str) -> str:
-    """递增版本号."""
-    try:
-        ver = float(current)
-        return f"{ver + 0.1:.1f}"
-    except (ValueError, TypeError):
+        return f"{float(version or '1.0') + 0.1:.1f}"
+    except (TypeError, ValueError):
         return "1.1"
 
 
-async def check_completeness(report_id: UUID, db: AsyncSession) -> dict[str, Any]:
-    """检查报告完整性.
-
-    Args:
-        report_id: 报告 ID
-        db: 数据库会话
-
-    Returns:
-        {"complete": bool, "missing_items": [...], "suggestions": [...]}
-    """
-    report = await db.get(CareerReport, report_id)
-    if not report:
-        raise ValueError(f"Report {report_id} not found")
-
-    content = report.content_json or {}
-    chapters = content.get("chapters", [])
-
-    missing_items: list[str] = []
-    suggestions: list[str] = []
-
-    # 检查章节完整性
-    expected_chapters = 5
-    if len(chapters) < expected_chapters:
-        missing_items.append(f"报告章节不完整：只有 {len(chapters)} 章，预期 {expected_chapters} 章")
-        suggestions.append("建议重新生成完整报告")
-
-    # 检查每章内容
-    for i, chapter in enumerate(chapters):
-        chapter_id = chapter.get("chapter_id", i + 1)
-        title = chapter.get("title", "")
-
-        # 检查小节
-        sections = chapter.get("sections", [])
-        if not sections:
-            missing_items.append(f"第{chapter_id}章 '{title}' 没有内容")
-            suggestions.append(f"补充第{chapter_id}章详细内容")
-
-        # 检查表格
-        tables = chapter.get("tables", [])
-        if not tables and chapter_id in [3, 4]:  # 匹配和差距章节应该有表格
-            suggestions.append(f"建议为第{chapter_id}章添加数据表格")
-
-        # 检查图表
-        charts = chapter.get("charts", [])
-        if not charts and chapter_id in [1, 3]:  # 画像和匹配章节应该有图表
-            suggestions.append(f"建议为第{chapter_id}章添加可视化图表")
-
-    # 检查元信息
-    if not report.summary:
-        missing_items.append("报告缺少摘要")
-        suggestions.append("补充执行摘要")
-
-    if not report.recommendations:
-        missing_items.append("报告缺少推荐建议")
-        suggestions.append("添加具体的行动建议")
-
-    # 检查职业路径
-    career_path = content.get("outline", {}).get("career_path") or content.get("career_path")
-    if not career_path:
-        missing_items.append("报告缺少职业路径规划")
-        suggestions.append("生成职业发展路径规划")
-
-    is_complete = len(missing_items) == 0
-
-    return {
-        "complete": is_complete,
-        "missing_items": missing_items,
-        "suggestions": suggestions,
-        "chapter_count": len(chapters),
-    }
-
-
-async def export_to_pdf(report_id: UUID, db: AsyncSession) -> str:
-    """导出 PDF 报告（使用 Playwright Chromium 渲染）.
-
-    Args:
-        report_id: 报告 ID
-        db: 数据库会话
-
-    Returns:
-        PDF 文件路径（失败时回退为 HTML 文件路径）
-    """
-    report = await db.get(CareerReport, report_id)
-    if not report:
-        raise ValueError(f"Report {report_id} not found")
-
-    content = report.content_json or {}
-    html_content = _build_export_html(report, content)
-
-    os.makedirs(PDF_OUTPUT_DIR, exist_ok=True)
-
-    filename = f"career_report_{report.student_id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.pdf"
-    pdf_path = os.path.join(PDF_OUTPUT_DIR, filename)
-
-    try:
-        from playwright.async_api import async_playwright
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            page = await browser.new_page()
-            await page.set_content(html_content, wait_until="domcontentloaded")
-            await page.pdf(path=pdf_path, format="A4", print_background=True)
-            await browser.close()
-        logger.info("Exported PDF via Playwright: %s", pdf_path)
-    except ImportError:
-        logger.warning("playwright not installed, falling back to HTML export")
-        return await _export_to_html(report_id, db)
-    except Exception as e:
-        logger.error("Playwright PDF failed: %s, falling back to HTML", e)
-        return await _export_to_html(report_id, db)
-
-    report.pdf_path = pdf_path
-    await db.commit()
-
-    return pdf_path
-
-
-async def _export_to_html(report_id: UUID, db: AsyncSession) -> str:
-    """导出 HTML 报告（备选方案）。"""
-    report = await db.get(CareerReport, report_id)
-    if not report:
-        raise ValueError(f"Report {report_id} not found")
-
-    content = report.content_json or {}
-    html_content = _build_export_html(report, content)
-
-    # 确保输出目录存在
-    os.makedirs(PDF_OUTPUT_DIR, exist_ok=True)
-
-    # 生成文件名
-    filename = f"career_report_{report.student_id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.html"
-    html_path = os.path.join(PDF_OUTPUT_DIR, filename)
-
-    with open(html_path, "w", encoding="utf-8") as f:
-        f.write(html_content)
-
-    # 更新报告的 PDF 路径（实际上是 HTML）
-    report.pdf_path = html_path
-    await db.commit()
-
-    return html_path
-
-
-def _generate_pdf_html(report: CareerReport, content: dict[str, Any]) -> str:
-    """生成 PDF/HTML 内容."""
-    chapters = content.get("chapters", [])
-    summary = report.summary or ""
-
-    # 生成章节 HTML
-    chapters_html = ""
-    for chapter in chapters:
-        title = chapter.get("title", "")
-        sections = chapter.get("sections", [])
-
-        sections_html = ""
-        for section in sections:
-            section_title = section.get("title", "")
-            section_content = section.get("content", "")
-            key_points = section.get("key_points", [])
-
-            points_html = ""
-            if key_points:
-                points_html = "<ul>" + "".join(f"<li>{p}</li>" for p in key_points) + "</ul>"
-
-            sections_html += f"""
-            <div class="section">
-                <h3>{section_title}</h3>
-                <p>{section_content}</p>
-                {points_html}
-            </div>
-            """
-
-        # 生成表格 HTML
-        tables_html = ""
-        for table in chapter.get("tables", []):
-            table_title = table.get("title", "")
-            headers = table.get("headers", [])
-            rows = table.get("rows", [])
-
-            header_cells = "".join(f"<th>{h}</th>" for h in headers)
-            body_rows = ""
-            for row in rows:
-                body_rows += "<tr>" + "".join(f"<td>{c}</td>" for c in row) + "</tr>"
-
-            tables_html += f"""
-            <div class="table-container">
-                <h4>{table_title}</h4>
-                <table>
-                    <thead><tr>{header_cells}</tr></thead>
-                    <tbody>{body_rows}</tbody>
-                </table>
-            </div>
-            """
-
-        chapters_html += f"""
-        <div class="chapter">
-            <h2>{title}</h2>
-            {sections_html}
-            {tables_html}
-        </div>
-        """
-
-    # 生成雷达图数据
-    radar_chart = _generate_radar_chart_data(content)
-
-    # 生成推荐建议 HTML
-    recommendations_html = ""
-    if report.recommendations:
-        for rec in report.recommendations:
-            rec_type = rec.get("type", "")
-            rec_title = rec.get("title", "")
-            rec_content = rec.get("content", "")
-            recommendations_html += f'<div class="recommendation-item"><strong>{rec_title}</strong>: {rec_content}</div>'
-
-    html = f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>职业规划报告</title>
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }}
-        h1 {{
-            color: #1a73e8;
-            text-align: center;
-            border-bottom: 2px solid #1a73e8;
-            padding-bottom: 10px;
-        }}
-        h2 {{
-            color: #333;
-            margin-top: 30px;
-            border-left: 4px solid #1a73e8;
-            padding-left: 10px;
-        }}
-        h3 {{
-            color: #555;
-            margin-top: 20px;
-        }}
-        h4 {
-            color: #666;
-            margin-top: 15px;
-        }
-        .summary {
-            background: #f5f5f5;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 5px;
-        }
-        .chapter {{
-            margin-bottom: 40px;
-        }}
-        .section {{
-            margin-bottom: 15px;
-        }}
-        .section p {{
-            text-indent: 2em;
-            margin: 10px 0;
-        }}
-        ul {{
-            margin-left: 20px;
-        }}
-        li {{
-            margin: 5px 0;
-        }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 15px 0;
-        }}
-        th, td {{
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }}
-        th {{
-            background: #f5f5f5;
-        }}
-        .chart-container {{
-            text-align: center;
-            margin: 20px 0;
-        }}
-        .recommendations {{
-            background: #e8f0fe;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px 0;
-        }}
-        .recommendation-item {{
-            margin: 10px 0;
-            padding: 10px;
-            background: white;
-            border-radius: 3px;
-        }}
-        .footer {{
-            text-align: center;
-            color: #999;
-            margin-top: 40px;
-            font-size: 12px;
-        }}
-    </style>
-</head>
-<body>
-    <h1>大学生职业规划报告</h1>
-
-    <div class="summary">
-        <h3>报告摘要</h3>
-        <p>{summary}</p>
-    </div>
-
-    {chapters_html}
-
-    <div class="recommendations">
-        <h3>推荐建议</h3>
-        {recommendations_html}
-    </div>
-
-    {radar_chart}
-
-    <div class="footer">
-        <p>报告生成时间：{report.created_at.strftime("%Y-%m-%d %H:%M:%S") if report.created_at else "未知"}</p>
-        <p>版本：{report.version}</p>
-    </div>
-</body>
-</html>"""
-
-    return html
-
-
-def _generate_radar_chart_data(content: dict[str, Any]) -> str:
-    """生成雷达图 HTML（使用 Chart.js）。"""
-    chapters = content.get("chapters", [])
-
-    # 从第三章（匹配评估）提取评分数据
-    matching_chapter = None
-    for chapter in chapters:
-        if chapter.get("chapter_id") == 3:
-            matching_chapter = chapter
-            break
-
-    if not matching_chapter:
-        return ""
-
-    # 尝试从章节内容提取评分
-    radar_data = {
-        "labels": ["基础要求", "技能匹配", "职业素养", "发展潜力"],
-        "values": [0, 0, 0, 0],
-    }
-
-    # 这里可以进一步从章节内容解析实际评分
-    # 目前返回空的雷达图容器
-
-    return f"""
-    <div class="chart-container">
-        <h3>能力雷达图</h3>
-        <canvas id="radarChart" width="400" height="400"></canvas>
-        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-        <script>
-            const ctx = document.getElementById('radarChart');
-            new Chart(ctx, {{
-                type: 'radar',
-                data: {{
-                    labels: {json.dumps(radar_data['labels'])},
-                    datasets: [{{
-                        label: '能力评估',
-                        data: {json.dumps(radar_data['values'])},
-                        backgroundColor: 'rgba(26, 115, 232, 0.2)',
-                        borderColor: 'rgba(26, 115, 232, 1)',
-                        borderWidth: 2
-                    }}]
-                }},
-                options: {{
-                    scales: {{
-                        r: {{
-                            min: 0,
-                            max: 100
-                        }}
-                    }}
-                }}
-            }});
-        </script>
-    </div>
-    """
-
-
-def _build_export_html(report: CareerReport, content: dict[str, Any]) -> str:
-    """Build safe HTML content for PDF and HTML export."""
-    chapters = content.get("chapters", [])
-    summary = report.summary or ""
-    generated_at = (
-        report.created_at.strftime("%Y-%m-%d %H:%M:%S")
-        if report.created_at
-        else "Unknown"
-    )
-
-    chapter_blocks: list[str] = []
-    for chapter in chapters:
-        section_blocks: list[str] = []
-        for section in chapter.get("sections", []):
-            key_points = section.get("key_points", [])
-            points_html = ""
-            if key_points:
-                points_html = "<ul>" + "".join(f"<li>{_escape_html(point)}</li>" for point in key_points) + "</ul>"
-
-            section_blocks.append(
-                f"""
-                <div class="section">
-                    <h3>{_escape_html(section.get("title", ""))}</h3>
-                    <p>{_escape_html(section.get("content", ""))}</p>
-                    {points_html}
-                </div>
-                """
-            )
-
-        table_blocks: list[str] = []
-        for table in chapter.get("tables", []):
-            header_cells = "".join(f"<th>{_escape_html(header)}</th>" for header in table.get("headers", []))
-            body_rows = "".join(
-                "<tr>" + "".join(f"<td>{_escape_html(cell)}</td>" for cell in row) + "</tr>"
-                for row in table.get("rows", [])
-            )
-            table_blocks.append(
-                f"""
-                <div class="table-container">
-                    <h4>{_escape_html(table.get("title", ""))}</h4>
-                    <table>
-                        <thead><tr>{header_cells}</tr></thead>
-                        <tbody>{body_rows}</tbody>
-                    </table>
-                </div>
-                """
-            )
-
-        chapter_blocks.append(
-            f"""
-            <div class="chapter">
-                <h2>{_escape_html(chapter.get("title", ""))}</h2>
-                {''.join(section_blocks)}
-                {''.join(table_blocks)}
-            </div>
-            """
+async def merge_and_save(student_id: UUID, report_data: dict[str, Any], db: AsyncSession) -> CareerReport:
+    content_json = normalize_report_content(dict(report_data.get("content_json") or {}))
+    summary = _clean_paragraph(str(report_data.get("summary") or content_json.get("summary") or ""))
+    recommendations = list(report_data.get("recommendations") or [])
+    existing = (
+        await db.execute(
+            select(CareerReport)
+            .where(CareerReport.student_id == student_id)
+            .order_by(desc(CareerReport.updated_at), desc(CareerReport.created_at))
+            .limit(1)
         )
-
-    recommendations_html = "".join(
-        f'<div class="recommendation-item"><strong>{_escape_html(rec.get("title", ""))}</strong>: {_escape_html(rec.get("content", ""))}</div>'
-        for rec in (report.recommendations or [])
-    )
-
-    chart_html = _build_export_chart_html(content)
-
-    return f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>职业规划报告</title>
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }}
-        h1 {{
-            color: #1a73e8;
-            text-align: center;
-            border-bottom: 2px solid #1a73e8;
-            padding-bottom: 10px;
-        }}
-        h2 {{
-            color: #333;
-            margin-top: 30px;
-            border-left: 4px solid #1a73e8;
-            padding-left: 10px;
-        }}
-        h3 {{
-            color: #555;
-            margin-top: 20px;
-        }}
-        h4 {{
-            color: #666;
-            margin-top: 15px;
-        }}
-        .summary {{
-            background: #f5f5f5;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 5px;
-        }}
-        .chapter {{
-            margin-bottom: 40px;
-        }}
-        .section {{
-            margin-bottom: 15px;
-        }}
-        .section p {{
-            text-indent: 2em;
-            margin: 10px 0;
-        }}
-        ul {{
-            margin-left: 20px;
-        }}
-        li {{
-            margin: 5px 0;
-        }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin: 15px 0;
-        }}
-        th, td {{
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-            vertical-align: top;
-        }}
-        th {{
-            background: #f5f5f5;
-        }}
-        .chart-container {{
-            margin: 20px 0;
-            padding: 16px;
-            background: #fafafa;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-        }}
-        .chart-row {{
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin: 10px 0;
-        }}
-        .chart-label {{
-            width: 120px;
-            flex-shrink: 0;
-            font-weight: 600;
-        }}
-        .chart-bar {{
-            flex: 1;
-            height: 10px;
-            background: #e5e7eb;
-            border-radius: 999px;
-            overflow: hidden;
-        }}
-        .chart-fill {{
-            height: 100%;
-            background: linear-gradient(90deg, #60a5fa, #2563eb);
-        }}
-        .chart-value {{
-            width: 48px;
-            text-align: right;
-            color: #4b5563;
-            font-size: 12px;
-        }}
-        .recommendations {{
-            background: #e8f0fe;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px 0;
-        }}
-        .recommendation-item {{
-            margin: 10px 0;
-            padding: 10px;
-            background: white;
-            border-radius: 3px;
-        }}
-        .footer {{
-            text-align: center;
-            color: #999;
-            margin-top: 40px;
-            font-size: 12px;
-        }}
-    </style>
-</head>
-<body>
-    <h1>大学生职业规划报告</h1>
-
-    <div class="summary">
-        <h3>报告摘要</h3>
-        <p>{summary}</p>
-    </div>
-
-    {''.join(chapter_blocks)}
-
-    <div class="recommendations">
-        <h3>推荐建议</h3>
-        {recommendations_html}
-    </div>
-
-    {chart_html}
-
-    <div class="footer">
-        <p>报告生成时间：{generated_at}</p>
-        <p>版本：{report.version}</p>
-    </div>
-</body>
-</html>"""
-
-
-def _normalize_dimension_score(value: Any) -> int:
-    """Normalize a dimension score to a 0-100 integer."""
-
-    try:
-        score = float(value or 0)
-    except (TypeError, ValueError):
-        return 0
-
-    if score <= 1:
-        score *= 100
-    return max(0, min(100, round(score)))
-
-
-def _build_export_chart_html(content: dict[str, Any]) -> str:
-    """Render a simple static score block for exported reports."""
-    matching_results = content.get("matching_results")
-    if not isinstance(matching_results, list):
-        metadata = content.get("metadata") or {}
-        matching_results = metadata.get("matching_results")
-
-    if not isinstance(matching_results, list) or not matching_results:
-        return ""
-
-    top_match = matching_results[0] or {}
-    scores_json = top_match.get("scores_json") or {}
-    chart_data = [
-        ("基础要求", 0),
-        ("技能匹配", 0),
-        ("职业素养", 0),
-        ("发展潜力", 0),
-    ]
-
-    chart_data = [
-        ("基础要求", _normalize_dimension_score((scores_json.get("basic") or {}).get("score"))),
-        ("技能匹配", _normalize_dimension_score((scores_json.get("skill") or {}).get("score"))),
-        ("职业素养", _normalize_dimension_score((scores_json.get("competency") or {}).get("score"))),
-        ("发展潜力", _normalize_dimension_score((scores_json.get("potential") or {}).get("score"))),
-    ]
-
-    rows_html = "".join(
-        f"""
-        <div class="chart-row">
-            <div class="chart-label">{label}</div>
-            <div class="chart-bar"><div class="chart-fill" style="width: {value}%"></div></div>
-            <div class="chart-value">{value}</div>
-        </div>
-        """
-        for label, value in chart_data
-    )
-
-    return f"""
-    <div class="chart-container">
-        <h3>能力概览</h3>
-        {rows_html}
-    </div>
-    """
-
-
-async def generate_full_report(
-    student_id: UUID,
-    db: AsyncSession,
-    target_job_ids: list[UUID] | None = None,
-) -> CareerReport:
-    """完整报告生成流程.
-
-    整合所有服务生成完整职业规划报告。
-
-    Args:
-        student_id: 学生 ID
-        db: 数据库会话
-        target_job_ids: 目标岗位 ID 列表（可选）
-
-    Returns:
-        生成的 CareerReport 对象
-    """
-    from app.models.student import StudentProfile
-    from app.services.matching import match_student_job
-
-    # 1. 优先复用已有画像，避免报告链路重复触发整套画像重算
-    existing_profile = (
-        await db.execute(select(StudentProfile).where(StudentProfile.student_id == student_id))
     ).scalars().first()
-    if existing_profile and existing_profile.profile_json:
-        student_profile = existing_profile.profile_json
-    else:
-        from app.services.student_profile import generate_student_profile
-
-        profile_result = await generate_student_profile(student_id, db)
-        student_profile = profile_result["profile"].profile_json
-
-    # 2. 获取匹配结果
-    if target_job_ids:
-        matching_results = []
-        for job_id in target_job_ids:
-            try:
-                match_result = await match_student_job(
-                    db,
-                    student_id,
-                    job_id,
-                    mode="deep",
-                )
-                matching_results.append({
-                    "job_id": str(job_id),
-                    "total_score": match_result.total_score,
-                    "scores_json": match_result.scores_json,
-                    "gaps_json": match_result.gaps_json,
-                })
-            except Exception as e:
-                logger.warning("Match failed for job %s: %s", job_id, e)
-    else:
-        # 先复用稳定推荐结果，只对榜首岗位做一次深评兜底
-        match_results = await recommend_jobs(db, student_id, top_k=10)
-        deep_refresh_count = min(1, len(match_results))
-        refreshed_results = []
-        for index, match_result in enumerate(match_results):
-            current_result = match_result
-            if index < deep_refresh_count:
-                try:
-                    current_result = await match_student_job(
-                        db,
-                        student_id,
-                        match_result.job_profile_id,
-                        mode="deep",
-                    )
-                except Exception as e:
-                    logger.warning("Deep match refresh failed for job %s: %s", match_result.job_profile_id, e)
-            refreshed_results.append(current_result)
-
-        refreshed_results.sort(key=lambda item: item.total_score, reverse=True)
-        matching_results = [
-            {
-                "job_id": str(mr.job_profile_id),
-                "total_score": mr.total_score,
-                "scores_json": mr.scores_json,
-                "gaps_json": mr.gaps_json,
-            }
-            for mr in refreshed_results
-        ]
-
-    # 3. 获取职业路径
-    career_path = None
-    if matching_results:
-        top_job = matching_results[0]
-        # 从 scores_json 提取目标岗位信息
-        job_info = top_job.get("scores_json", {}).get("job_info", {})
-        target_role = job_info.get("role", "软件工程师")
-        career_path = await find_path_with_student_profile(
-            db, student_profile, target_role, "expert"
+    if existing is None:
+        report = CareerReport(
+            student_id=student_id,
+            status="completed",
+            version="1.0",
+            content_json=content_json,
+            summary=summary,
+            recommendations=recommendations,
         )
-
-    # 4. 生成报告纲要
-    outline = await generate_outline(student_profile, matching_results, career_path)
-
-    # 5. 逐章节生成
-    chapters = await generate_chapters(
-        outline, student_profile, matching_results, career_path, db
+        db.add(report)
+        await db.flush()
+    else:
+        report = existing
+        report.status = "completed"
+        report.version = _next_version(report.version)
+        report.content_json = content_json
+        report.summary = summary
+        report.recommendations = recommendations
+        report.pdf_path = None
+        report.docx_path = None
+        await db.flush()
+    db.add(
+        ReportVersion(
+            report_id=report.id,
+            version=report.version,
+            content=content_json,
+            change_notes="重新生成报告",
+        )
     )
-
-    # 6. 合并与存储
-    report_data = {
-        "outline": outline,
-        "chapters": chapters,
-        "matching_results": matching_results,
-        "career_path": career_path,
-    }
-
-    report = await merge_and_save(student_id, report_data, db)
-
+    await db.commit()
+    await db.refresh(report)
     return report
 
 
-# 保留原有的接口以兼容
-async def generate_report(
-    student_id: UUID,
-    db: AsyncSession,
-    job_ids: list[UUID] | None = None,
-) -> dict[str, Any]:
-    """Generate career report for a student.
+async def generate_full_report(student_id: UUID, db: AsyncSession, target_job_ids: list[UUID] | None = None) -> CareerReport:
+    _, student_profile = await _load_student_profile(student_id, db)
+    matching_results = await _resolve_matching_results(db, student_id, target_job_ids)
+    career_path = await _resolve_career_path(db, student_profile, matching_results)
+    outline = await generate_outline(student_profile, matching_results, career_path)
+    chapters = await generate_chapters(outline, student_profile, matching_results, career_path, db)
+    content_json, summary, recommendations = _build_report_content(student_profile, matching_results, career_path)
+    content_json["chapters"] = chapters
+    content_json["metadata"]["student_id"] = str(student_id)
+    content_json["metadata"]["target_job_ids"] = [str(item) for item in target_job_ids or []]
+    return await merge_and_save(
+        student_id,
+        {
+            "content_json": content_json,
+            "summary": summary,
+            "recommendations": recommendations,
+            "matching_results": matching_results,
+            "career_path": career_path,
+        },
+        db,
+    )
 
-    Args:
-        student_id: The student ID
-        db: 数据库会话
-        job_ids: Optional list of job IDs to include in report
 
-    Returns:
-        Generated report data
-    """
-    report = await generate_full_report(student_id, db, job_ids)
-    return {
-        "id": str(report.id),
-        "student_id": str(report.student_id),
-        "version": report.version,
-        "summary": report.summary,
-        "status": report.status,
-    }
+async def generate_report(student_id: UUID, db: AsyncSession, job_ids: list[UUID] | None = None) -> dict[str, Any]:
+    return serialize_career_report(await generate_full_report(student_id, db, job_ids))
+
+
+def _build_export_chart_html(content: dict[str, Any]) -> str:
+    normalized = normalize_report_content(content)
+    dimensions = normalized.get("dimensions") or []
+    if not dimensions:
+        matching_results = content.get("matching_results") or []
+        if isinstance(matching_results, list) and matching_results:
+            top_match = matching_results[0] if isinstance(matching_results[0], dict) else {}
+            if isinstance(top_match, dict):
+                dimensions = _extract_dimensions(top_match)
+    if not dimensions:
+        return ""
+    rows = []
+    for item in dimensions:
+        rows.append(
+            f'<div class="chart-row"><div class="chart-label">{_escape_html(item.get("label"))}</div>'
+            f'<div class="chart-bar"><div class="chart-fill" style="width: {item.get("score", 0)}%"></div></div>'
+            f'<div class="chart-value">{item.get("score", 0)}</div></div>'
+        )
+    return '<div class="chart-container"><h3>四维匹配概览</h3>' + "".join(rows) + "</div>"
+
+
+def _build_export_html(report: CareerReport, content_json: dict[str, Any]) -> str:
+    content = normalize_report_content(content_json)
+    cards = []
+    for chapter in content["chapters"]:
+        extra_html = ""
+        if chapter["chapter_id"] == 2:
+            extra_html = _build_export_chart_html(content)
+        elif chapter["chapter_id"] == 3 and isinstance(chapter.get("data"), list):
+            items = []
+            for item in chapter["data"]:
+                items.append(
+                    f'<div class="action-item"><strong>{_escape_html(item.get("priority"))} / {_escape_html(item.get("item"))}</strong>'
+                    f'<div>{_escape_html(item.get("action"))}</div><div class="muted">周期：{_escape_html(item.get("timeline"))}</div></div>'
+                )
+            extra_html = '<div class="action-list">' + "".join(items) + "</div>"
+        elif chapter["chapter_id"] == 4 and isinstance(chapter.get("data"), dict):
+            nodes = []
+            for item in chapter["data"].get("primary_path") or []:
+                nodes.append(
+                    f'<div class="path-node"><div class="muted">{_escape_html(item.get("stage"))}</div>'
+                    f'<div><strong>{_escape_html(item.get("title"))}</strong></div><div>{_escape_html(item.get("condition"))}</div></div>'
+                )
+            alt_titles = [f"<li>{_escape_html(item.get('title'))}</li>" for item in (chapter["data"].get("alt_paths") or [])]
+            extra_html = '<div class="path-list">' + "".join(nodes) + "</div>" + (f"<ul>{''.join(alt_titles)}</ul>" if alt_titles else "")
+        cards.append(
+            f'<section class="card"><div class="card-head"><h2>{_escape_html(chapter["title"])}</h2><span class="badge">已生成</span></div>'
+            f'<p>{_escape_html(chapter.get("text"))}</p>{extra_html}</section>'
+        )
+    rec_html = "".join(
+        f'<div class="recommendation"><strong>{_escape_html(item.get("title"))}</strong><span>{_escape_html(item.get("content"))}</span></div>'
+        for item in (report.recommendations or [])
+    )
+    title = content.get("title") or DEFAULT_REPORT_TITLE
+    summary = report.summary or content.get("summary") or ""
+    generated_at = report.created_at.strftime("%Y-%m-%d %H:%M:%S") if report.created_at else datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>{_escape_html(title)}</title>
+<style>
+body{{font-family:"Microsoft YaHei","PingFang SC",sans-serif;background:#f4f6fb;color:#111827;margin:0;padding:32px}}
+.container{{max-width:860px;margin:0 auto}} .hero,.card,.panel{{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:24px;margin-bottom:18px;box-shadow:0 10px 30px rgba(15,23,42,.06)}}
+.hero{{background:linear-gradient(135deg,#4f46e5,#2563eb);color:#fff}} .hero h1{{margin:0 0 10px}} .hero p{{margin:0;line-height:1.8}}
+.card-head{{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}} .card-head h2{{margin:0;font-size:22px}}
+.badge{{background:#dcfce7;color:#166534;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700}} p{{line-height:1.9;white-space:pre-wrap}}
+.chart-container,.action-item,.path-node,.recommendation{{background:#f8fafc;border-radius:16px;padding:14px 16px;margin-top:12px}} .muted{{color:#6b7280;font-size:12px}}
+.chart-row{{display:flex;align-items:center;gap:12px;margin:10px 0}} .chart-label{{width:72px;font-weight:700}} .chart-bar{{flex:1;height:10px;background:#e5e7eb;border-radius:999px;overflow:hidden}} .chart-fill{{height:100%;background:linear-gradient(90deg,#60a5fa,#2563eb)}} .chart-value{{width:40px;text-align:right}}
+.recommendation{{display:grid;gap:6px}} .footer{{text-align:center;color:#6b7280;font-size:12px;margin-top:18px}}
+</style></head><body><div class="container"><section class="hero"><h1>{_escape_html(title)}</h1><p>{_escape_html(summary)}</p></section>{''.join(cards)}<section class="panel"><h3>推荐建议</h3>{rec_html or '<div class="recommendation">当前暂无额外建议。</div>'}</section><div class="footer"><div>生成时间：{_escape_html(generated_at)}</div><div>版本：{_escape_html(report.version or '1.0')}</div></div></div></body></html>"""
+
+
+async def export_to_pdf(report_id: UUID, db: AsyncSession) -> str:
+    report = await db.get(CareerReport, report_id)
+    if report is None:
+        raise ValueError(f"Report {report_id} not found")
+    html_content = _build_export_html(report, report.content_json or {})
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    html_path = EXPORT_DIR / f"career_report_{report.student_id}_{timestamp}.html"
+    pdf_path = EXPORT_DIR / f"career_report_{report.student_id}_{timestamp}.pdf"
+    html_path.write_text(html_content, encoding="utf-8")
+    script = """
+import asyncio
+import sys
+from pathlib import Path
+from playwright.async_api import async_playwright
+
+async def main():
+    html_path = Path(sys.argv[1]).resolve()
+    pdf_path = Path(sys.argv[2]).resolve()
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        page = await browser.new_page()
+        await page.goto(html_path.as_uri(), wait_until='networkidle')
+        await page.pdf(path=str(pdf_path), format='A4', print_background=True, margin={'top': '18mm', 'right': '14mm', 'bottom': '18mm', 'left': '14mm'})
+        await browser.close()
+
+asyncio.run(main())
+"""
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [sys.executable, "-c", script, str(html_path), str(pdf_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError((result.stderr or result.stdout or "").strip())
+    except Exception as exc:  # pragma: no cover
+        logger.error("PDF export failed for report %s: %s", report_id, exc)
+        raise RuntimeError(f"PDF 导出失败: {exc}") from exc
+    report.pdf_path = str(pdf_path)
+    await db.commit()
+    return str(pdf_path)
+
+
+async def _export_to_html(report_id: UUID, db: AsyncSession) -> str:
+    report = await db.get(CareerReport, report_id)
+    if report is None:
+        raise ValueError(f"Report {report_id} not found")
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    html_path = EXPORT_DIR / f"career_report_{report.student_id}_{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}.html"
+    html_path.write_text(_build_export_html(report, report.content_json or {}), encoding="utf-8")
+    return str(html_path)
 
 
 async def export_to_docx(report_id: UUID, db: AsyncSession) -> str:
-    """Export report to DOCX format.
-
-    Args:
-        report_id: The report ID
-        db: 数据库会话
-
-    Returns:
-        Path to exported DOCX file
-    """
-    # 尝试导入 python-docx
-    try:
-        from docx import Document
-    except ImportError:
-        logger.warning("python-docx not installed")
-        return await _export_to_html(report_id, db)
-
-    # 加载报告
     report = await db.get(CareerReport, report_id)
-    if not report:
+    if report is None:
         raise ValueError(f"Report {report_id} not found")
-
-    content = report.content_json or {}
-
-    # 创建 Word 文档
-    doc = Document()
-    doc.add_heading("大学生职业规划报告", 0)
-
-    # 添加摘要
+    from docx import Document
+    content = normalize_report_content(report.content_json or {})
+    document = Document()
+    document.add_heading(content.get("title") or DEFAULT_REPORT_TITLE, 0)
     if report.summary:
-        doc.add_heading("报告摘要", 1)
-        doc.add_paragraph(report.summary)
-
-    # 添加章节
-    chapters = content.get("chapters", [])
-    for chapter in chapters:
-        title = chapter.get("title", "")
-        doc.add_heading(title, 1)
-
-        for section in chapter.get("sections", []):
-            section_title = section.get("title", "")
-            section_content = section.get("content", "")
-
-            doc.add_heading(section_title, 2)
-            doc.add_paragraph(section_content)
-
-            # 添加要点
-            for point in section.get("key_points", []):
-                doc.add_paragraph(point, style="List Bullet")
-
-        # 添加表格
-        for table in chapter.get("tables", []):
-            table_title = table.get("title", "")
-            headers = table.get("headers", [])
-            rows = table.get("rows", [])
-
-            doc.add_heading(table_title, 2)
-            t = doc.add_table(rows=len(rows) + 1, cols=len(headers))
-            t.style = "Light Grid Accent 1"
-
-            # 表头
-            for i, header in enumerate(headers):
-                t.rows[0].cells[i].text = header
-
-            # 数据行
-            for i, row in enumerate(rows):
-                for j, cell in enumerate(row):
-                    t.rows[i + 1].cells[j].text = str(cell)
-
-    # 添加推荐建议
+        document.add_heading("报告摘要", level=1)
+        document.add_paragraph(report.summary)
+    for chapter in content["chapters"]:
+        document.add_heading(chapter["title"], level=1)
+        if chapter.get("text"):
+            document.add_paragraph(chapter["text"])
+        if chapter["chapter_id"] == 3 and isinstance(chapter.get("data"), list):
+            for item in chapter["data"]:
+                document.add_paragraph(f"{item.get('priority')} - {item.get('item')}: {item.get('action')}", style="List Bullet")
     if report.recommendations:
-        doc.add_heading("推荐建议", 1)
-        for rec in report.recommendations:
-            doc.add_paragraph(f"{rec.get('title', '')}: {rec.get('content', '')}", style="List Bullet")
-
-    # 保存
-    os.makedirs(PDF_OUTPUT_DIR, exist_ok=True)
-    filename = f"career_report_{report.student_id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.docx"
-    docx_path = os.path.join(PDF_OUTPUT_DIR, filename)
-
-    doc.save(docx_path)
-
-    # 更新报告路径
-    report.docx_path = docx_path
+        document.add_heading("推荐建议", level=1)
+        for item in report.recommendations:
+            document.add_paragraph(f"{item.get('title')}: {item.get('content')}", style="List Bullet")
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    docx_path = EXPORT_DIR / f"career_report_{report.student_id}_{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}.docx"
+    document.save(str(docx_path))
+    report.docx_path = str(docx_path)
     await db.commit()
+    return str(docx_path)
 
-    return docx_path
 
-
-async def create_report_version(
-    report_id: UUID,
-    version: str,
-    db: AsyncSession,
-    change_notes: str | None = None,
-) -> dict[str, Any]:
-    """Create a new version of a report.
-
-    Args:
-        report_id: The report ID
-        version: Version string
-        db: 数据库会话
-        change_notes: Notes about changes
-
-    Returns:
-        Created version data
-    """
-    report = await db.get(CareerReport, report_id)
-    if not report:
-        raise ValueError(f"Report {report_id} not found")
-
-    # 创建新版本
-    report_version = ReportVersion(
-        report_id=report.id,
-        version=version,
-        content=report.content_json,
-        change_notes=change_notes,
-    )
-    db.add(report_version)
-
-    await db.commit()
-
+def _build_report_polish_context(content: dict[str, Any], report: CareerReport) -> dict[str, Any]:
     return {
-        "id": str(report_version.id),
-        "report_id": str(report_version.report_id),
-        "version": report_version.version,
-        "created_at": report_version.created_at.isoformat(),
+        "title": content.get("title") or DEFAULT_REPORT_TITLE,
+        "summary": content.get("summary") or report.summary or "",
+        "target_job": content.get("target_job") or {},
+        "dimensions": content.get("dimensions") or [],
+        "actions": content.get("actions") or [],
+        "paths": content.get("paths") or {},
+        "chapters": [
+            {
+                "chapter_id": chapter.get("chapter_id"),
+                "title": chapter.get("title"),
+                "text": chapter.get("text") or "",
+            }
+            for chapter in (content.get("chapters") or [])
+        ],
     }
+
+
+async def _ai_polish_report_content(content: dict[str, Any], report: CareerReport) -> tuple[dict[str, Any], list[str]]:
+    context = _build_report_polish_context(content, report)
+    prompt = REPORT_POLISH_USER_TEMPLATE.format(
+        report_context=json.dumps(context, ensure_ascii=False, indent=2)
+    )
+    result = await llm.generate_json(
+        prompt=prompt,
+        system_prompt=REPORT_POLISH_SYSTEM_PROMPT,
+        temperature=0.4,
+        max_retries=2,
+        timeout=25,
+    )
+
+    polished_summary = _clean_paragraph(_safe_text(result.get("summary")))
+    raw_chapters = result.get("chapters")
+    if not isinstance(raw_chapters, list):
+        raise ValueError("AI 润色结果缺少 chapters 数组")
+
+    current_chapters = {chapter["chapter_id"]: dict(chapter) for chapter in content.get("chapters") or []}
+    changes: list[str] = []
+    polished_chapters: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+
+    for item in raw_chapters:
+        if not isinstance(item, dict):
+            continue
+        chapter_id = int(item.get("chapter_id") or 0)
+        original = current_chapters.get(chapter_id)
+        if original is None:
+            continue
+        polished_text = _clean_paragraph(_safe_text(item.get("text")))
+        if not polished_text:
+            raise ValueError(f"AI 润色结果缺少第 {chapter_id} 章正文")
+        if polished_text != (original.get("text") or ""):
+            changes.append(f"AI 改写了《{original['title']}》正文")
+        original["text"] = polished_text
+        polished_chapters.append(original)
+        seen_ids.add(chapter_id)
+
+    missing_ids = sorted(set(current_chapters) - seen_ids)
+    if missing_ids:
+        raise ValueError(f"AI 润色结果缺少章节: {', '.join(str(item) for item in missing_ids)}")
+
+    polished_chapters.sort(key=lambda item: item["chapter_id"])
+    updated_content = dict(content)
+    if polished_summary and polished_summary != (content.get("summary") or ""):
+        changes.insert(0, "AI 改写了报告摘要")
+    updated_content["summary"] = polished_summary or content.get("summary") or ""
+    updated_content["chapters"] = polished_chapters
+    updated_content["metadata"] = {
+        **dict(content.get("metadata") or {}),
+        "last_polished_at": datetime.now(UTC).isoformat(),
+        "last_polish_mode": "ai",
+    }
+    return updated_content, changes
+
+
+async def polish_report(report_id: UUID, db: AsyncSession) -> dict[str, Any]:
+    report = await db.get(CareerReport, report_id)
+    if report is None:
+        return {"polished": False, "error": "Report not found"}
+    content = normalize_report_content(report.content_json or {})
+    if not any((chapter.get("text") or "").strip() for chapter in content.get("chapters") or []):
+        return {"polished": False, "error": "报告正文为空，请先生成报告"}
+
+    updated_content, changes = await _ai_polish_report_content(content, report)
+    if not changes:
+        return {"polished": True, "changes": [], "version": report.version or "1.0"}
+
+    report.content_json = updated_content
+    report.summary = updated_content.get("summary") or report.summary
+    report.version = _next_version(report.version)
+    db.add(
+        ReportVersion(
+            report_id=report.id,
+            version=report.version,
+            content=updated_content,
+            change_notes="AI 增强润色报告文案",
+        )
+    )
+    await db.commit()
+    return {"polished": True, "changes": changes, "version": report.version}
+
+
+async def check_completeness(report_id: UUID, db: AsyncSession) -> dict[str, Any]:
+    report = await db.get(CareerReport, report_id)
+    if report is None:
+        raise ValueError("Report not found")
+    content = normalize_report_content(report.content_json or {})
+    missing = []
+    if not content.get("summary"):
+        missing.append("报告摘要")
+    if not content.get("dimensions"):
+        missing.append("四维匹配结果")
+    if not content.get("actions"):
+        missing.append("行动计划")
+    if not (content.get("paths") or {}).get("primary_path"):
+        missing.append("职业路径规划")
+    for chapter in REPORT_CHAPTERS:
+        current = next((item for item in content["chapters"] if item["chapter_id"] == chapter["chapter_id"]), None)
+        if current is None or not current.get("text"):
+            missing.append(chapter["title"])
+    suggestions = []
+    if "四维匹配结果" in missing:
+        suggestions.append("先确保学生画像和岗位匹配结果已生成，再重新生成报告。")
+    if "行动计划" in missing:
+        suggestions.append("补充至少 3 条可执行行动项，并给出时间周期。")
+    if "职业路径规划" in missing:
+        suggestions.append("补充主路径和横向备选岗位，便于后续导出与复盘。")
+    if not suggestions and missing:
+        suggestions.append("重新生成一次报告以补齐缺失内容。")
+    return {"complete": not missing, "missing_items": missing, "suggestions": suggestions, "chapter_count": len(content["chapters"])}
+
+
+async def create_report_version(report_id: UUID, version: str, db: AsyncSession, change_notes: str | None = None) -> dict[str, Any]:
+    report = await db.get(CareerReport, report_id)
+    if report is None:
+        raise ValueError(f"Report {report_id} not found")
+    report_version = ReportVersion(report_id=report.id, version=version, content=normalize_report_content(report.content_json or {}), change_notes=change_notes)
+    db.add(report_version)
+    await db.commit()
+    return {"id": str(report_version.id), "report_id": str(report_version.report_id), "version": report_version.version, "created_at": report_version.created_at.isoformat() if report_version.created_at else None}

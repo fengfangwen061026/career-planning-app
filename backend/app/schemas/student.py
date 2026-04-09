@@ -134,6 +134,7 @@ class ResumeUploadResponse(BaseModel):
 class ProfileGenerateRequest(BaseModel):
     """Request to generate student profile from a resume."""
     resume_id: UUID
+    parsed_data: dict[str, Any] | None = None
 
 
 class StudentProfileBatchRequest(BaseModel):

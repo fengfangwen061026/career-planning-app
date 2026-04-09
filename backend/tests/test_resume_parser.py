@@ -1,9 +1,12 @@
 """Tests for resume parser service - unit tests for text extraction and normalization."""
 
+import asyncio
 import pytest
 
+from app.services import resume_parser
 from app.services.resume_parser import (
     compute_completeness_score,
+    enrich_parsed_resume_payload,
     generate_missing_suggestions,
     normalize_parsed_skills,
 )
@@ -202,3 +205,82 @@ class TestMissingSuggestions:
         }
         suggestions = generate_missing_suggestions(data)
         assert any("量化成果" in s for s in suggestions)
+
+
+@pytest.mark.asyncio
+async def test_parse_resume_text_uses_rule_fallback_when_llm_times_out(monkeypatch):
+    async def slow_timeout(**_kwargs):
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(resume_parser.llm, "generate_json", slow_timeout)
+
+    sample_text = """
+张三
+学校：武汉大学
+研究方向：计算机科学与技术
+学历：本科
+自我评价
+学习能力强，沟通能力好。
+2024-01~2024-03 校园二手交易平台
+负责前后端开发，使用 React、FastAPI、PostgreSQL。
+AI工具使用：熟练使用ChatGPT、Gemini等工具
+"""
+
+    result = await resume_parser.resume_parser_service.parse_resume_text(sample_text)
+
+    assert result.education
+    assert result.education[0].school == "武汉大学"
+    assert result.education[0].major == "计算机科学与技术"
+    assert result.education[0].degree == "本科"
+    assert result.projects
+    assert len(result.skills) >= 3
+    assert resume_parser.is_fallback_result(result)
+
+
+@pytest.mark.asyncio
+async def test_resume_parser_uses_structured_model_settings(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_generate_json(**kwargs):
+        captured.update(kwargs)
+        return {
+            "education": [],
+            "experience": [],
+            "projects": [],
+            "skills": [{"name": "Python", "category": "编程语言", "proficiency": "熟练"}],
+            "certificates": [],
+            "awards": [],
+            "self_intro": None,
+        }
+
+    monkeypatch.setattr(resume_parser.settings, "resume_parse_llm_model", "step-2-mini")
+    monkeypatch.setattr(resume_parser.llm, "generate_json", fake_generate_json)
+
+    result = await resume_parser.resume_parser_service._llm_parse_resume_text(
+        "张三\n技能：Python\n学校：武汉大学\n专业：计算机科学与技术"
+    )
+
+    assert result.skills
+    assert captured["model"] == "step-2-mini"
+    assert captured["response_format"] == {"type": "json_object"}
+
+
+def test_enrich_parsed_resume_payload_includes_basic_info():
+    payload = enrich_parsed_resume_payload(
+        {
+            "raw_text": "张三\n电话：13800138000\n邮箱：zhangsan@example.com\n地址：北京",
+            "education": [],
+            "experience": [],
+            "projects": [],
+            "skills": [],
+            "certificates": [],
+            "awards": [],
+            "missing_fields": [],
+            "parse_confidence": 0.5,
+        },
+        "张三\n电话：13800138000\n邮箱：zhangsan@example.com\n地址：北京",
+    )
+
+    assert payload["basic_info"]["name"] == "张三"
+    assert payload["basic_info"]["phone"] == "13800138000"
+    assert payload["basic_info"]["email"] == "zhangsan@example.com"

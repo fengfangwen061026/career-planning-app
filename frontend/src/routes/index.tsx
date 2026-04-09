@@ -9,7 +9,6 @@ import ResumeUpload from './ResumeUpload';
 import StudentProfile from './StudentProfile';
 import Matching from './Matching';
 import Report from './Report';
-import ResumeUploadPage from '../pages/ResumeUpload';
 
 const router = createBrowserRouter([
   {
@@ -42,7 +41,7 @@ const router = createBrowserRouter([
       },
       {
         path: 'resume-upload',
-        element: <ResumeUploadPage />,
+        element: <Navigate to="/resume" replace />,
       },
       {
         path: 'students',

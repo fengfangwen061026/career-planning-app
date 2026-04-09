@@ -93,6 +93,33 @@ interface ParseMeta {
   retrying?: boolean;
 }
 
+interface PreviewFormValues {
+  name?: string;
+  phone?: string;
+  email?: string;
+  location?: string;
+  education?: Array<{
+    school?: string;
+    degree?: string;
+    major?: string;
+    duration?: string;
+    gpa?: number;
+  }>;
+  projects?: Array<{
+    name?: string;
+    description?: string;
+    duration?: string;
+    skills?: string[];
+  }>;
+  experience?: Array<{
+    company?: string;
+    position?: string;
+    duration?: string;
+    description?: string;
+  }>;
+  skills?: string[];
+}
+
 interface ResumeUploadDebugState {
   events: Array<Record<string, unknown>>;
   parseMeta: ParseMeta | null;
@@ -160,6 +187,105 @@ function extractContactFromRawText(rawText: string): ParsedResumeData['contact']
     email,
     phone,
     location,
+  };
+}
+
+function splitEducationDuration(duration?: string): { start_year?: number; end_year?: number } {
+  if (!duration) {
+    return {};
+  }
+  const years = duration.match(/\d{4}/g) || [];
+  return {
+    start_year: years[0] ? Number(years[0]) : undefined,
+    end_year: years[1] ? Number(years[1]) : undefined,
+  };
+}
+
+function splitRangeDuration(duration?: string): { start_date?: string; end_date?: string } {
+  if (!duration) {
+    return {};
+  }
+  const normalized = duration.replace(/[～~]/g, '-').replace(/\s+/g, '');
+  const parts = normalized.split('-').filter(Boolean);
+  if (parts.length >= 2) {
+    return {
+      start_date: parts[0],
+      end_date: parts[1],
+    };
+  }
+  return {};
+}
+
+function buildParsedPayloadOverride(
+  existingParsedData: Record<string, unknown> | undefined,
+  values: PreviewFormValues,
+): Record<string, unknown> {
+  const base = { ...(existingParsedData || {}) };
+  const existingSkills = new Map(
+    (((existingParsedData?.skills as Array<Record<string, unknown>>) || [])).map((skill) => [
+      String(skill.name || ''),
+      skill,
+    ]),
+  );
+
+  const skills = (values.skills || [])
+    .map((name) => name?.trim())
+    .filter(Boolean)
+    .map((name) => {
+      const existing = existingSkills.get(name as string) || {};
+      return {
+        name,
+        category: existing.category || '其他',
+        proficiency: existing.proficiency || '掌握',
+        evidence: existing.evidence,
+      };
+    });
+
+  const education = (values.education || [])
+    .map((item) => {
+      const years = splitEducationDuration(item.duration);
+      return {
+        school: item.school?.trim(),
+        degree: item.degree?.trim(),
+        major: item.major?.trim(),
+        gpa: item.gpa,
+        ...years,
+      };
+    })
+    .filter((item) => item.school || item.degree || item.major);
+
+  const projects = (values.projects || [])
+    .map((item) => ({
+      name: item.name?.trim(),
+      description: item.description?.trim(),
+      tech_stack: (item.skills || []).map((skill) => skill.trim()).filter(Boolean),
+      duration: item.duration?.trim(),
+    }))
+    .filter((item) => item.name || item.description || item.tech_stack.length > 0);
+
+  const experience = (values.experience || [])
+    .map((item) => ({
+      company: item.company?.trim(),
+      role: item.position?.trim(),
+      description: item.description?.trim(),
+      is_internship: true,
+      ...splitRangeDuration(item.duration),
+    }))
+    .filter((item) => item.company || item.role || item.description);
+
+  return {
+    ...base,
+    basic_info: {
+      ...((base.basic_info as Record<string, unknown> | undefined) || {}),
+      name: values.name?.trim(),
+      email: values.email?.trim(),
+      phone: values.phone?.trim(),
+      location: values.location?.trim(),
+    },
+    education,
+    projects,
+    experience,
+    skills,
   };
 }
 
@@ -274,7 +400,10 @@ export default function ResumeUpload() {
       email: parsedData.contact?.email,
       location: parsedData.contact?.location,
       education: parsedData.education,
-      projects: parsedData.projects,
+      projects: parsedData.projects?.map((project) => ({
+        ...project,
+        skills: project.tech_stack || [],
+      })),
       experience: parsedData.experience,
       skills: parsedData.skills?.map((skill) => skill.name) || [],
     });
@@ -352,8 +481,15 @@ export default function ResumeUpload() {
   ) => {
     const parsedRecord = responseData.parsed_data as Record<string, unknown> | undefined;
     const rawText = (parsedRecord?.raw_text as string) || '';
-    const extractedName = extractNameFromRawText(rawText);
-    const extractedContact = extractContactFromRawText(rawText);
+    const backendBasicInfo = (parsedRecord?.basic_info as Record<string, unknown>) || {};
+    const rawContact = extractContactFromRawText(rawText);
+    const extractedName = (backendBasicInfo.name as string | undefined) || extractNameFromRawText(rawText);
+    const extractedContact = {
+      ...rawContact,
+      phone: (backendBasicInfo.phone as string | undefined) || rawContact?.phone,
+      email: (backendBasicInfo.email as string | undefined) || rawContact?.email,
+      location: (backendBasicInfo.location as string | undefined) || rawContact?.location,
+    };
 
     const backendEducation = (parsedRecord?.education as Array<Record<string, unknown>>) || [];
     const transformedEducation = backendEducation.map((edu) => ({
@@ -368,8 +504,10 @@ export default function ResumeUpload() {
     const transformedProjects = backendProjects.map((proj) => ({
       name: proj.name as string,
       description: proj.description as string | undefined,
-      skills: proj.tech_stack as string[] | undefined,
-      duration: undefined,
+      tech_stack: proj.tech_stack as string[] | undefined,
+      duration: proj.duration as string | undefined,
+      role: proj.role as string | undefined,
+      outcome: proj.outcome as string | undefined,
     }));
 
     const backendExperience = (parsedRecord?.experience as Array<Record<string, unknown>>) || [];
@@ -562,9 +700,14 @@ export default function ResumeUpload() {
     if (!selectedStudent || !parsedData || !resumeResponse?.resume?.id) return;
 
     try {
-      await profileForm.validateFields();
+      const values = await profileForm.validateFields();
+      const parsedPayload = buildParsedPayloadOverride(
+        resumeResponse.parsed_data as Record<string, unknown> | undefined,
+        values as PreviewFormValues,
+      );
       await studentApi.generateProfile(selectedStudent, {
         resume_id: resumeResponse.resume.id,
+        parsed_data: parsedPayload,
       });
       message.success('学生画像创建成功');
       setProfileCreated(true);

@@ -35,6 +35,53 @@ export interface CareerReportResponse extends CareerReportBase {
   updated_at: string;
 }
 
+export interface ReportDimension {
+  key: string;
+  label: string;
+  score: number;
+  reason: string;
+}
+
+export interface ReportActionItem {
+  priority: string;
+  item: string;
+  gap_desc: string;
+  score_impact: number;
+  action: string;
+  timeline: string;
+}
+
+export interface ReportPathNode {
+  stage: string;
+  title: string;
+  condition: string;
+  is_current?: boolean;
+}
+
+export interface ReportPaths {
+  primary_path: ReportPathNode[];
+  alt_paths: { title: string; skill_overlap?: number }[];
+}
+
+export interface ReportChapter {
+  chapter_id: number;
+  title: string;
+  text: string;
+  data?: unknown;
+  status?: string;
+}
+
+export interface ReportContent {
+  title: string;
+  summary: string;
+  target_job: Record<string, unknown>;
+  dimensions: ReportDimension[];
+  actions: ReportActionItem[];
+  paths: ReportPaths;
+  chapters: ReportChapter[];
+  metadata?: Record<string, unknown>;
+}
+
 export interface ReportVersionBase {
   version: string;
   content: Record<string, unknown>;

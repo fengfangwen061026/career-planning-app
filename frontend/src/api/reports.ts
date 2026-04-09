@@ -47,13 +47,12 @@ export const reportsApi = {
   getReportVersions: (reportId: string) =>
     client.get<ReportVersionResponse[]>(`/reports/${reportId}/versions`),
 
-  // Parse resume
-  parseResume: (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    return client.post<{ parsed_data: Record<string, unknown> }>('/reports/parse-resume', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+  buildGenerateReportStreamUrl: (studentId: string, jobProfileId?: string) => {
+    const params = new URLSearchParams({ student_id: studentId });
+    if (jobProfileId) {
+      params.set('job_profile_id', jobProfileId);
+    }
+    return `/api/reports/generate/stream?${params.toString()}`;
   },
 
   // Polish report with AI
