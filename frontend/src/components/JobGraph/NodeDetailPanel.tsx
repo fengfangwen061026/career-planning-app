@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { Spin } from "antd";
-import { ArrowRight, FileSearch, MapPin, Wallet, X, Shuffle } from "lucide-react";
+import { ArrowRight, FileSearch, MapPin, Wallet, X, Shuffle, TrendingUp } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { graphApi, TransitionItem } from "../../api/graph";
+import { graphApi } from "../../api/graph";
 import { jobsApi } from "../../api/jobs";
 import type { JobProfileResponse } from "../../types/job";
-import type { JobNode, JobStats } from "./types";
+import type { JobNode, JobStats, RoleRelation } from "./types";
 import styles from "./JobGraph.module.css";
 
 interface NodeDetailPanelProps {
   node: JobNode;
+  transitions: RoleRelation[];
+  verticals: RoleRelation[];
   onClose: () => void;
 }
 
@@ -17,8 +19,6 @@ interface DetailState {
   loading: boolean;
   profile: JobProfileResponse | null;
   stats: JobStats | null;
-  transitions: TransitionItem[];
-  transitionsLoading: boolean;
 }
 
 interface SkillItem {
@@ -45,6 +45,7 @@ const PROFILE_LABELS: Record<string, string> = {
   preferred: "优先条件",
   certifications: "证书要求",
   technical_skills: "技术技能",
+  soft_competencies: "软技能要求",
   soft_skills: "软技能",
   development_potential: "发展潜力",
   growth_indicators: "成长方向",
@@ -67,14 +68,17 @@ const PROFILE_LABELS: Record<string, string> = {
   top_skills: "核心技能",
 };
 
-export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
+export function NodeDetailPanel({
+  node,
+  transitions,
+  verticals,
+  onClose,
+}: NodeDetailPanelProps) {
   const navigate = useNavigate();
   const [state, setState] = useState<DetailState>({
     loading: true,
     profile: null,
     stats: null,
-    transitions: [],
-    transitionsLoading: false,
   });
 
   const accentColor = node.color ?? "#4F46E5";
@@ -87,8 +91,6 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
         loading: true,
         profile: null,
         stats: null,
-        transitions: [],
-        transitionsLoading: false,
       });
 
       try {
@@ -104,35 +106,7 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
             loading: false,
             profile,
             stats: statsResponse.data,
-            transitions: [],
-            transitionsLoading: true,
           });
-
-          // Fetch transitions using the job_profile_id
-          if (profile?.id) {
-            try {
-              const transitionsResponse = await graphApi.getTransitions(profile.id);
-              if (active) {
-                setState((prev) => ({
-                  ...prev,
-                  transitions: transitionsResponse.data.transitions ?? [],
-                  transitionsLoading: false,
-                }));
-              }
-            } catch {
-              if (active) {
-                setState((prev) => ({
-                  ...prev,
-                  transitions: [],
-                  transitionsLoading: false,
-                }));
-              }
-            }
-          } else {
-            if (active) {
-              setState((prev) => ({ ...prev, transitionsLoading: false }));
-            }
-          }
         }
       } catch (error) {
         console.error("Failed to fetch job detail:", error);
@@ -141,8 +115,6 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
             loading: false,
             profile: null,
             stats: null,
-            transitions: [],
-            transitionsLoading: false,
           });
         }
       }
@@ -164,10 +136,28 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
     return state.stats?.top_skills ?? [];
   }, [state.profile, state.stats]);
 
-  const jdCount = state.stats?.jd_count ?? node.jd_count ?? 0;
+  const jdCount = state.stats?.jd_count ?? node.job_count ?? 0;
   const salaryText = formatSalaryRange(
     state.stats?.salary_min ?? null,
     state.stats?.salary_max ?? null
+  );
+
+  const horizontalRelations = useMemo(
+    () =>
+      transitions
+        .slice()
+        .sort((left, right) => right.edge.weight - left.edge.weight)
+        .slice(0, 4),
+    [transitions]
+  );
+
+  const verticalRelations = useMemo(
+    () =>
+      verticals
+        .slice()
+        .sort((left, right) => right.edge.weight - left.edge.weight)
+        .slice(0, 3),
+    [verticals]
   );
 
   return (
@@ -186,8 +176,8 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
               color: accentColor,
             }}
           >
-            <span>{node.icon ?? "📋"}</span>
-            <span>{node.category}</span>
+            <span className={styles.communityDot} style={{ backgroundColor: accentColor }} />
+            <span>{`关系簇 ${node.community_id.replace("community:", "").padStart(2, "0")}`}</span>
           </div>
         </div>
 
@@ -280,7 +270,6 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
         </div>
       </section>
 
-      {/* 换岗路径 section */}
       <section className={styles.detailSection}>
         <div className={styles.sectionHeading}>
           <span
@@ -288,42 +277,53 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
             style={{ backgroundColor: "#10B981" }}
           />
           <span className={styles.sectionTitle}>横向换岗路径</span>
-          <span className={styles.sectionBadge}>技能重叠度 &gt; 30%</span>
+          <span className={styles.sectionBadge}>实线表示强关联换岗</span>
         </div>
 
         <div className={styles.sectionBody}>
-          {state.transitionsLoading ? (
-            <div className={styles.loadingWrapper}>
-              <Spin size="small" />
-            </div>
-          ) : state.transitions.length > 0 ? (
+          {horizontalRelations.length > 0 ? (
             <div className={styles.transitionList}>
-              {state.transitions.map((t) => (
-                <div key={t.target_id} className={styles.transitionItem}>
+              {horizontalRelations.map((relation) => (
+                <div key={relation.edge.id} className={styles.transitionItem}>
                   <div className={styles.transitionHeader}>
                     <Shuffle size={14} className={styles.transitionIcon} />
-                    <span className={styles.transitionTarget}>{t.target_name}</span>
+                    <span className={styles.transitionTarget}>{relation.node.label}</span>
                     <span className={styles.transitionOverlap}>
-                      {Math.round(t.overlap * 100)}% 重叠
+                      {Math.round(relation.edge.weight * 100)}% 关联
                     </span>
                   </div>
-                  <div className={styles.transitionAdvice}>{t.advice}</div>
-                  {t.gap_skills && t.gap_skills.length > 0 && (
+                  <div className={styles.transitionAdvice}>
+                    {relation.edge.reasons[0] ?? "岗位能力谱相邻，可作为横向换岗备选"}
+                  </div>
+                  {relation.edge.gap_skills.length > 0 && (
                     <div className={styles.transitionGap}>
                       <span className={styles.gapLabel}>需补充：</span>
-                      {t.gap_skills.slice(0, 5).map((skill) => (
-                        <span key={skill} className={styles.gapSkill}>{skill}</span>
+                      {relation.edge.gap_skills.slice(0, 5).map((skill) => (
+                        <span key={skill} className={styles.gapSkill}>
+                          {skill}
+                        </span>
                       ))}
                     </div>
                   )}
-                  {t.shared_skills && t.shared_skills.length > 0 && (
+                  {relation.edge.shared_skills.length > 0 && (
                     <div className={styles.transitionShared}>
                       <span className={styles.sharedLabel}>可迁移：</span>
-                      {t.shared_skills.slice(0, 4).map((skill) => (
-                        <span key={skill} className={styles.sharedSkill}>{skill}</span>
+                      {relation.edge.shared_skills.slice(0, 4).map((skill) => (
+                        <span key={skill} className={styles.sharedSkill}>
+                          {skill}
+                        </span>
                       ))}
                     </div>
                   )}
+                  {relation.edge.reasons.length > 1 ? (
+                    <div className={styles.transitionReasonList}>
+                      {relation.edge.reasons.slice(1).map((reason) => (
+                        <span key={reason} className={styles.transitionReason}>
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -331,6 +331,58 @@ export function NodeDetailPanel({ node, onClose }: NodeDetailPanelProps) {
             <div className={styles.emptyState}>
               <Shuffle size={36} color="#D1D5DB" strokeWidth={1.6} />
               <p className={styles.emptyText}>暂无换岗路径数据</p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className={styles.detailSection}>
+        <div className={styles.sectionHeading}>
+          <span
+            className={styles.sectionBar}
+            style={{ backgroundColor: "#7C6DC8" }}
+          />
+          <span className={styles.sectionTitle}>晋升方向</span>
+          <span
+            className={styles.sectionBadge}
+            style={{ background: "rgba(124, 109, 200, 0.12)", color: "#7C6DC8" }}
+          >
+            虚线表示成长递进
+          </span>
+        </div>
+
+        <div className={styles.sectionBody}>
+          {verticalRelations.length > 0 ? (
+            <div className={styles.transitionList}>
+              {verticalRelations.map((relation) => (
+                <div key={relation.edge.id} className={styles.transitionItem}>
+                  <div className={styles.transitionHeader}>
+                    <TrendingUp size={14} className={styles.transitionIcon} />
+                    <span className={styles.transitionTarget}>{relation.node.label}</span>
+                    <span className={styles.transitionOverlap}>
+                      {Math.round(relation.edge.weight * 100)}% 递进
+                    </span>
+                  </div>
+                  <div className={styles.transitionAdvice}>
+                    {relation.edge.reasons[0] ?? "适合作为同社区内的成长方向"}
+                  </div>
+                  {relation.edge.shared_skills.length > 0 ? (
+                    <div className={styles.transitionShared}>
+                      <span className={styles.sharedLabel}>延续能力：</span>
+                      {relation.edge.shared_skills.slice(0, 4).map((skill) => (
+                        <span key={skill} className={styles.sharedSkill}>
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.emptyState}>
+              <TrendingUp size={36} color="#D1D5DB" strokeWidth={1.6} />
+              <p className={styles.emptyText}>当前社区暂无清晰晋升方向</p>
             </div>
           )}
         </div>
@@ -384,7 +436,7 @@ function renderProfileValue(value: unknown, fieldKey?: string): JSX.Element {
     return renderTechnicalSkills(normalizedValue);
   }
 
-  if (isSoftSkillList(normalizedValue) || fieldKey === "soft_skills") {
+  if (isSoftSkillList(normalizedValue) || fieldKey === "soft_skills" || fieldKey === "soft_competencies") {
     return renderSoftSkills(normalizedValue);
   }
 
@@ -555,6 +607,28 @@ function isPrimitiveValue(value: unknown): boolean {
 
 function normalizeSkillList(value: unknown): SkillItem[] {
   const normalized = normalizeJsonValue(value);
+  if (
+    normalized &&
+    typeof normalized === "object" &&
+    !Array.isArray(normalized) &&
+    Object.values(normalized as Record<string, unknown>).every(
+      (item) => item && typeof item === "object" && !Array.isArray(item)
+    )
+  ) {
+    return Object.entries(normalized as Record<string, Record<string, unknown>>).map(
+      ([key, item]) => ({
+        name: formatKey(key),
+        importance:
+          typeof item.importance === "string"
+            ? item.importance
+            : typeof item.value === "number"
+              ? `${item.value}/5`
+              : undefined,
+        evidence: typeof item.evidence === "string" ? item.evidence : undefined,
+      })
+    );
+  }
+
   if (!Array.isArray(normalized)) {
     return [];
   }
@@ -563,16 +637,28 @@ function normalizeSkillList(value: unknown): SkillItem[] {
     .map((item) => normalizeJsonValue(item))
     .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
     .map((item) => ({
-      name: typeof item.name === "string" ? item.name : "未命名技能",
+      name:
+        typeof item.name === "string"
+          ? item.name
+          : typeof item.skill_name === "string"
+            ? item.skill_name
+            : "未命名技能",
       category: typeof item.category === "string" ? item.category : undefined,
       importance: typeof item.importance === "string" ? item.importance : undefined,
       frequency_pct:
         typeof item.frequency_pct === "number"
           ? item.frequency_pct
-          : typeof item.frequency_pct === "string"
-            ? Number(item.frequency_pct.replace("%", ""))
+          : typeof item.weight === "number"
+            ? Math.round(item.weight * 100)
+            : typeof item.frequency_pct === "string"
+              ? Number(item.frequency_pct.replace("%", ""))
             : undefined,
-      evidence: typeof item.evidence === "string" ? item.evidence : undefined,
+      evidence:
+        typeof item.evidence === "string"
+          ? item.evidence
+          : typeof item.proficiency_evidence === "string"
+            ? item.proficiency_evidence
+            : undefined,
     }));
 }
 

@@ -1,36 +1,33 @@
 export const graphStyles = {
   fontFamily:
-    "-apple-system, 'PingFang SC', 'SF Pro Display', 'Helvetica Neue', sans-serif",
+    '"IBM Plex Sans", "PingFang SC", "Segoe UI", sans-serif',
   pageBackground:
-    "linear-gradient(135deg, #F8F9FF 0%, #F0F4FF 50%, #F8FFF8 100%)",
-  primary: "#4F46E5",
-  gray900: "#0A0A0A",
-  gray700: "#374151",
-  gray500: "#6B7280",
-  gray300: "#D1D5DB",
-  gray200: "#E5E7EB",
+    "radial-gradient(circle at top, #F8FBFF 0%, #F2F6FF 44%, #FFF7F1 100%)",
 
-  rootNodeRadius: 34,
-  categoryCardWidth: 126,
-  categoryCardHeight: 74,
-  jobNodeRadius: 16,
-  selectedJobScale: 1.08,
+  gray900: "#172033",
+  gray700: "#43506A",
+  gray500: "#73809A",
+  gray300: "#D2DAE6",
 
-  rootFontSize: 13,
-  categoryFontSize: 12,
-  categoryMetaFontSize: 10,
-  jobFontSize: 9,
-  iconFontSize: 14,
-  badgeFontSize: 7,
-
-  lineWidth: 1,
-  interactionDuration: 180,
-  layoutDuration: 400,
-  fadedOpacity: 0.15,
-
-  enterDelay: {
-    root: 0,
-    categories: 80,
-    jobs: 140,
+  nodeWidths: {
+    small: 168,
+    medium: 186,
+    large: 206,
   },
+  nodeHeights: {
+    small: 78,
+    medium: 84,
+    large: 92,
+  },
+  nodeRadius: 20,
+  nodeAccentHeight: 8,
+  nodeTitleSize: 14,
+  nodeMetaSize: 10,
+  nodeSummarySize: 11,
+
+  edgeLabelSize: 10,
+  transitionEdgeStrong: "#2454CF",
+  transitionEdgeMedium: "#6592EE",
+  transitionEdgeWeak: "#A2BDF7",
+  verticalEdgeColor: "#7E879A",
 } as const;

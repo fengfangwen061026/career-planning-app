@@ -1,51 +1,46 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import * as d3 from "d3";
-import type { GraphNode, GraphEdge, JobNode } from "./types";
-import {
-  buildTree,
-  createTreeLayout,
-  radialPoint,
-  truncateLabel,
-  type TreeNode,
-} from "./graphLayout";
+import type { GraphCommunity, GraphEdge, JobNode } from "./types";
 import { graphStyles } from "./graphStyles";
 
 interface UseD3GraphOptions {
-  nodes: GraphNode[];
+  nodes: JobNode[];
   edges: GraphEdge[];
+  communities: GraphCommunity[];
   width: number;
   height: number;
   searchQuery: string;
-  expandedCategory: string | null;
   selectedJobId?: string;
   onJobSelect?: (job: JobNode | null) => void;
-  onCategoryClick: (category: string) => void;
 }
 
-type PointNode = d3.HierarchyPointNode<TreeNode>;
-type PointLink = d3.HierarchyPointLink<TreeNode>;
+interface SimNode extends d3.SimulationNodeDatum, JobNode {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+}
+
+interface SimEdge extends d3.SimulationLinkDatum<SimNode>, Omit<GraphEdge, "source" | "target"> {
+  source: SimNode;
+  target: SimNode;
+}
 
 export function useD3Graph({
   nodes,
   edges,
+  communities,
   width,
   height,
   searchQuery,
-  expandedCategory,
   selectedJobId,
   onJobSelect,
-  onCategoryClick,
 }: UseD3GraphOptions) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const render = useCallback(() => {
+  useEffect(() => {
     if (!svgRef.current || !containerRef.current || nodes.length === 0) {
-      return;
-    }
-
-    const treeData = buildTree(nodes, edges);
-    if (!treeData) {
       return;
     }
 
@@ -53,410 +48,474 @@ export function useD3Graph({
     svg.selectAll("*").remove();
     svg.style("font-family", graphStyles.fontFamily);
 
-    const hasVisibleJobs = nodes.some((node) => node.type === "job");
-    const radius = Math.min(width, height) * (hasVisibleJobs ? 0.44 : 0.34);
-    const centerX = width / 2;
-    const centerY = height / 2 + 24;
-    const root = createTreeLayout(treeData, radius);
-    const searchLower = searchQuery.trim().toLowerCase();
-
-    const zoomLayer = svg.append("g");
+    const root = svg.append("g");
+    const communityLayer = root.append("g").attr("class", "community-layer");
+    const edgeLayer = root.append("g").attr("class", "edge-layer");
+    const nodeLayer = root.append("g").attr("class", "node-layer");
 
     const zoom = d3
       .zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.45, 2.6])
+      .scaleExtent([0.5, 2.5])
       .on("zoom", (event) => {
-        zoomLayer.attr("transform", event.transform.toString());
+        root.attr("transform", event.transform.toString());
       });
-
-    const resetZoom = () => {
-      svg.transition().duration(260).call(zoom.transform, d3.zoomIdentity);
-    };
 
     svg.call(zoom);
     svg.on("dblclick.zoom", null);
-    svg.on("dblclick.reset", () => resetZoom());
-    svg.on("click.close-panel", () => onJobSelect?.(null));
+    svg.on("dblclick.reset", () => {
+      svg.transition().duration(260).call(zoom.transform, d3.zoomIdentity);
+    });
+    svg.on("click.clear-selection", () => onJobSelect?.(null));
 
-    const linksGroup = zoomLayer.append("g").attr("class", "links");
-    const nodesGroup = zoomLayer.append("g").attr("class", "nodes");
-
-    const projectedLinkGenerator = d3
-      .linkRadial<PointLink, PointNode>()
-      .angle((datum) => datum.x)
-      .radius((datum) => datum.y);
-
-    const visibleDescendants = root.descendants();
-    const visibleLinks = root.links();
-
-    const matchingJobIds = new Set(
-      searchLower
-        ? nodes
-            .filter(
-              (node) =>
-                node.type === "job" &&
-                node.label.toLowerCase().includes(searchLower)
-            )
-            .map((node) => node.id)
-        : []
-    );
-
-    const matchingCategoryIds = new Set(
-      searchLower
-        ? nodes
-            .filter((node) => node.type === "category")
-            .filter(
-              (node) =>
-                node.label.toLowerCase().includes(searchLower) ||
-                nodes.some(
-                  (job) =>
-                    job.type === "job" &&
-                    job.category === node.label &&
-                    matchingJobIds.has(job.id)
-                )
-            )
-            .map((node) => node.id)
-        : []
-    );
-
-    const getNodePosition = (node: PointNode) => {
-      const [dx, dy] = radialPoint(node.x ?? 0, node.y ?? 0);
+    const communityCenters = computeCommunityCenters(communities, width, height);
+    const simNodes: SimNode[] = nodes.map((node, index) => {
+      const center = communityCenters.get(node.community_id) ?? { x: width / 2, y: height / 2 };
+      const spread = 42 + (index % 5) * 10;
       return {
-        x: centerX + dx,
-        y: centerY + dy,
+        ...node,
+        x: center.x + Math.cos(index * 1.7) * spread,
+        y: center.y + Math.sin(index * 1.2) * spread,
+        vx: 0,
+        vy: 0,
       };
-    };
+    });
 
-    const getBaseScale = (node: PointNode) => {
-      if (node.data.type === "job" && node.data.id === selectedJobId) {
-        return graphStyles.selectedJobScale;
-      }
-      return 1;
-    };
-
-    const transformNode = (node: PointNode, scale = getBaseScale(node)) => {
-      const { x, y } = getNodePosition(node);
-      return `translate(${x},${y}) scale(${scale})`;
-    };
-
-    const nodeOpacity = (node: TreeNode) => {
-      if (!searchLower || node.type === "root") {
-        return 1;
-      }
-      if (node.type === "category") {
-        return matchingCategoryIds.has(node.id) ? 1 : graphStyles.fadedOpacity;
-      }
-      return matchingJobIds.has(node.id) ? 1 : graphStyles.fadedOpacity;
-    };
-
-    const linkOpacity = (link: PointLink) => {
-      if (!searchLower) {
-        return 1;
-      }
-      return matchingJobIds.has(link.target.data.id) ||
-        matchingCategoryIds.has(link.target.data.id)
-        ? 1
-        : 0.12;
-    };
-
-    linksGroup
-      .selectAll<SVGPathElement, PointLink>("path")
-      .data(visibleLinks, (link) => link.target.data.id)
-      .join("path")
-      .attr("class", "link")
-      .attr("fill", "none")
-      .attr("stroke", (link) => `${link.target.data.color ?? graphStyles.primary}33`)
-      .attr("stroke-width", graphStyles.lineWidth)
-      .attr("opacity", 0)
-      .attr("transform", `translate(${centerX},${centerY})`)
-      .attr("d", (link) => projectedLinkGenerator(link) ?? "")
-      .transition()
-      .duration(graphStyles.layoutDuration)
-      .ease(d3.easeCubicOut)
-      .attr("opacity", (link) => linkOpacity(link));
-
-    const nodeGroups = nodesGroup
-      .selectAll<SVGGElement, PointNode>("g.node")
-      .data(visibleDescendants, (node) => node.data.id)
-      .join("g")
-      .attr("class", (node) => `node node-${node.data.type}`)
-      .attr("data-node-id", (node) => node.data.id)
-      .style("cursor", (node) => (node.data.type === "root" ? "default" : "pointer"))
-      .attr("opacity", 0)
-      .attr("transform", (node) => {
-        if (node.data.type === "category") {
-          return transformNode(node, 0.86);
+    const nodeById = new Map(simNodes.map((node) => [node.id, node]));
+    const simEdges: SimEdge[] = edges
+      .map((edge) => {
+        const source = nodeById.get(edge.source);
+        const target = nodeById.get(edge.target);
+        if (!source || !target) {
+          return null;
         }
-        if (node.data.type === "job") {
-          return transformNode(node, 0.88);
-        }
-        return transformNode(node);
+        return { ...edge, source, target };
       })
-      .on("click", function (event, node) {
+      .filter((edge): edge is SimEdge => edge !== null);
+
+    const selectedEdgeIds = new Set(
+      selectedJobId
+        ? simEdges
+            .filter((edge) => edge.source.id === selectedJobId || edge.target.id === selectedJobId)
+            .map((edge) => edge.id)
+        : []
+    );
+    const connectedNodeIds = new Set(
+      selectedJobId
+        ? simEdges.flatMap((edge) =>
+            edge.source.id === selectedJobId || edge.target.id === selectedJobId
+              ? [edge.source.id, edge.target.id]
+              : []
+          )
+        : []
+    );
+    if (selectedJobId) {
+      connectedNodeIds.add(selectedJobId);
+    }
+
+    const searchLower = searchQuery.trim().toLowerCase();
+
+    const communityPaths = communityLayer
+      .selectAll<SVGPathElement, GraphCommunity>("path.community-hull")
+      .data(
+        communities.filter((community) => community.node_ids.some((nodeId) => nodeById.has(nodeId))),
+        (community) => community.community_id
+      )
+      .join("path")
+      .attr("class", "community-hull")
+      .attr("fill", (community) => `${community.color}12`)
+      .attr("stroke", (community) => `${community.color}55`)
+      .attr("stroke-width", 1.2)
+      .attr("stroke-dasharray", "4 6");
+
+    const edgeGroups = edgeLayer
+      .selectAll<SVGGElement, SimEdge>("g.edge")
+      .data(simEdges, (edge) => edge.id)
+      .join("g")
+      .attr("class", (edge) => `edge edge-${edge.edge_type}`);
+
+    const edgePaths = edgeGroups
+      .append("path")
+      .attr("fill", "none")
+      .attr("stroke-linecap", "round")
+      .attr("stroke-width", (edge) => edgeStrokeWidth(edge.weight, edge.edge_type))
+      .attr("stroke", (edge) => edgeStrokeColor(edge))
+      .attr("stroke-dasharray", (edge) => (edge.edge_type === "vertical" ? "8 8" : "0"))
+      .attr("opacity", (edge) =>
+        getEdgeOpacity(edge, selectedEdgeIds, Boolean(searchLower), connectedNodeIds)
+      );
+
+    const edgeLabels = edgeGroups
+      .append("text")
+      .attr("class", "edge-label")
+      .attr("text-anchor", "middle")
+      .attr("font-size", graphStyles.edgeLabelSize)
+      .attr("fill", graphStyles.gray500)
+      .attr("opacity", (edge) => (edge.weight >= 0.62 ? 0.88 : 0))
+      .text((edge) => `${Math.round(edge.weight * 100)}%`);
+
+    const nodeGroups = nodeLayer
+      .selectAll<SVGGElement, SimNode>("g.node")
+      .data(simNodes, (node) => node.id)
+      .join("g")
+      .attr("class", "node")
+      .style("cursor", "pointer")
+      .on("click", (event, node) => {
         event.stopPropagation();
-
-        if (node.data.type === "root") {
-          resetZoom();
-          return;
-        }
-
-        if (node.data.type === "category") {
-          onCategoryClick(node.data.label);
-          return;
-        }
-
-        onJobSelect?.(node.data as JobNode);
+        onJobSelect?.(node);
       });
 
     nodeGroups
-      .filter((node) => node.data.type === "root")
-      .each(function (node) {
-        const group = d3.select(this);
+      .append("rect")
+      .attr("class", "node-card")
+      .attr("x", (node) => -nodeWidth(node) / 2)
+      .attr("y", (node) => -nodeHeight(node) / 2)
+      .attr("rx", graphStyles.nodeRadius)
+      .attr("ry", graphStyles.nodeRadius)
+      .attr("width", (node) => nodeWidth(node))
+      .attr("height", (node) => nodeHeight(node))
+      .attr("fill", "rgba(255,255,255,0.96)")
+      .attr("stroke", (node) => node.community_color)
+      .attr("stroke-width", (node) => (node.id === selectedJobId ? 2.8 : 1.2))
+      .style("filter", (node) =>
+        node.id === selectedJobId
+          ? `drop-shadow(0 18px 30px ${node.community_color}2C)`
+          : "drop-shadow(0 12px 22px rgba(15,23,42,0.10))"
+      )
+      .attr("opacity", (node) => nodeOpacity(node, searchLower, selectedJobId, connectedNodeIds));
 
-        group
-          .append("circle")
-          .attr("r", graphStyles.rootNodeRadius)
-          .attr("fill", "rgba(255,255,255,0.94)")
-          .attr("stroke", "#C7D2FE")
-          .attr("stroke-width", 2)
-          .style("filter", "drop-shadow(0 6px 18px rgba(79,70,229,0.12))");
+    nodeGroups
+      .append("rect")
+      .attr("class", "node-accent")
+      .attr("x", (node) => -nodeWidth(node) / 2)
+      .attr("y", (node) => -nodeHeight(node) / 2)
+      .attr("rx", graphStyles.nodeRadius)
+      .attr("ry", graphStyles.nodeRadius)
+      .attr("width", (node) => nodeWidth(node))
+      .attr("height", graphStyles.nodeAccentHeight)
+      .attr("fill", (node) => node.community_color)
+      .attr("opacity", (node) => nodeOpacity(node, searchLower, selectedJobId, connectedNodeIds));
 
-        group
-          .append("text")
-          .attr("text-anchor", "middle")
-          .attr("dy", "0.35em")
-          .attr("pointer-events", "none")
-          .attr("fill", graphStyles.gray900)
-          .attr("font-size", `${graphStyles.rootFontSize}px`)
-          .attr("font-weight", 600)
-          .attr("letter-spacing", "-0.3px")
-          .text(node.data.label);
+    nodeGroups
+      .append("text")
+      .attr("class", "node-title")
+      .attr("x", (node) => -nodeWidth(node) / 2 + 14)
+      .attr("y", -8)
+      .attr("fill", graphStyles.gray900)
+      .attr("font-size", graphStyles.nodeTitleSize)
+      .attr("font-weight", 700)
+      .attr("opacity", (node) => nodeOpacity(node, searchLower, selectedJobId, connectedNodeIds))
+      .text((node) => truncateText(node.label, nodeWidth(node) > 178 ? 12 : 10));
+
+    nodeGroups
+      .append("text")
+      .attr("class", "node-meta")
+      .attr("x", (node) => -nodeWidth(node) / 2 + 14)
+      .attr("y", 16)
+      .attr("fill", graphStyles.gray500)
+      .attr("font-size", graphStyles.nodeMetaSize)
+      .attr("opacity", (node) => nodeOpacity(node, searchLower, selectedJobId, connectedNodeIds))
+      .text((node) => `${node.job_count} 条JD · ${levelLabel(node.level)}`);
+
+    nodeGroups
+      .append("text")
+      .attr("class", "node-summary")
+      .attr("x", (node) => -nodeWidth(node) / 2 + 14)
+      .attr("y", 34)
+      .attr("fill", graphStyles.gray700)
+      .attr("font-size", graphStyles.nodeSummarySize)
+      .attr("opacity", (node) => nodeOpacity(node, searchLower, selectedJobId, connectedNodeIds))
+      .text((node) => truncateText(node.summary || "岗位画像原型", nodeWidth(node) > 178 ? 16 : 12));
+
+    const simulation = d3
+      .forceSimulation<SimNode>(simNodes)
+      .force("center", d3.forceCenter(width / 2, height / 2))
+      .force("charge", d3.forceManyBody<SimNode>().strength(-220))
+      .force(
+        "collide",
+        d3.forceCollide<SimNode>().radius((node) => Math.max(nodeWidth(node), nodeHeight(node)) * 0.38)
+      )
+      .force(
+        "link",
+        d3
+          .forceLink<SimNode, SimEdge>(simEdges)
+          .id((node) => node.id)
+          .distance((edge) => edgeDistance(edge))
+          .strength((edge) => edgeStrength(edge))
+      )
+      .force(
+        "community-x",
+        d3
+          .forceX<SimNode>((node) => (communityCenters.get(node.community_id)?.x ?? width / 2))
+          .strength(0.12)
+      )
+      .force(
+        "community-y",
+        d3
+          .forceY<SimNode>((node) => (communityCenters.get(node.community_id)?.y ?? height / 2))
+          .strength(0.12)
+      )
+      .velocityDecay(0.42)
+      .alphaDecay(0.032);
+
+    const drag = d3
+      .drag<SVGGElement, SimNode>()
+      .on("start", (event, node) => {
+        if (!event.active) {
+          simulation.alphaTarget(0.18).restart();
+        }
+        node.fx = node.x;
+        node.fy = node.y;
       })
-      .transition()
-      .duration(300)
-      .ease(d3.easeCubicOut)
-      .attr("opacity", 1);
-
-    const categoryNodes = nodeGroups.filter((node) => node.data.type === "category");
-
-    categoryNodes.each(function (node) {
-      const group = d3.select(this);
-      const color = node.data.color ?? graphStyles.primary;
-      const isExpanded = expandedCategory === node.data.label && !searchLower;
-
-      group
-        .append("rect")
-        .attr("x", -graphStyles.categoryCardWidth / 2)
-        .attr("y", -graphStyles.categoryCardHeight / 2)
-        .attr("width", graphStyles.categoryCardWidth)
-        .attr("height", graphStyles.categoryCardHeight)
-        .attr("rx", 22)
-        .attr("fill", isExpanded ? `${color}24` : `${color}16`)
-        .attr("stroke", isExpanded ? color : `${color}88`)
-        .attr("stroke-width", isExpanded ? 2.5 : 1.5)
-        .style("filter", `drop-shadow(0 8px 18px ${color}20)`);
-
-      group
-        .append("text")
-        .attr("x", 0)
-        .attr("y", -14)
-        .attr("text-anchor", "middle")
-        .attr("pointer-events", "none")
-        .attr("font-size", `${graphStyles.iconFontSize}px`)
-        .text(node.data.icon ?? "");
-
-      group
-        .append("text")
-        .attr("x", 0)
-        .attr("y", 6)
-        .attr("text-anchor", "middle")
-        .attr("pointer-events", "none")
-        .attr("fill", graphStyles.gray900)
-        .attr("font-size", `${graphStyles.categoryFontSize}px`)
-        .attr("font-weight", 600)
-        .text(node.data.label);
-
-      group
-        .append("text")
-        .attr("x", 0)
-        .attr("y", 24)
-        .attr("text-anchor", "middle")
-        .attr("pointer-events", "none")
-        .attr("fill", graphStyles.gray500)
-        .attr("font-size", `${graphStyles.categoryMetaFontSize}px`)
-        .text(`${node.data.jd_total ?? 0}条 · ${node.data.job_count ?? 0}岗位`);
-
-      group
-        .append("text")
-        .attr("x", graphStyles.categoryCardWidth / 2 - 16)
-        .attr("y", -graphStyles.categoryCardHeight / 2 + 18)
-        .attr("text-anchor", "middle")
-        .attr("pointer-events", "none")
-        .attr("fill", color)
-        .attr("font-size", "12px")
-        .attr("font-weight", 700)
-        .text(isExpanded ? "⌃" : "⌄");
-    });
-
-    categoryNodes
-      .transition()
-      .duration(graphStyles.layoutDuration)
-      .delay((_, index) => graphStyles.enterDelay.categories + index * 40)
-      .ease(d3.easeCubicOut)
-      .attr("opacity", (node) => nodeOpacity(node.data))
-      .attr("transform", (node) => transformNode(node));
-
-    categoryNodes
-      .on("mouseenter", function (_, node) {
-        d3.select(this)
-          .transition()
-          .duration(graphStyles.interactionDuration)
-          .attr("transform", transformNode(node, 1.03));
+      .on("drag", (event, node) => {
+        node.fx = event.x;
+        node.fy = event.y;
       })
-      .on("mouseleave", function (_, node) {
-        d3.select(this)
-          .transition()
-          .duration(graphStyles.interactionDuration)
-          .attr("transform", transformNode(node));
+      .on("end", (event, node) => {
+        if (!event.active) {
+          simulation.alphaTarget(0);
+        }
+        node.fx = null;
+        node.fy = null;
       });
 
-    const jobNodes = nodeGroups.filter((node) => node.data.type === "job");
+    nodeGroups.call(drag);
 
-    jobNodes.each(function (node) {
-      const group = d3.select(this);
-      const color = node.data.color ?? graphStyles.primary;
-      const selected = node.data.id === selectedJobId;
+    simulation.on("tick", () => {
+      nodeGroups.attr("transform", (node) => `translate(${node.x},${node.y})`);
 
-      const pill = group.append("g").attr("class", "job-pill");
+      edgePaths.attr("d", (edge) => edgePath(edge));
 
-      pill
-        .append("rect")
-        .attr("rx", 11)
-        .attr("ry", 11)
-        .attr("fill", "rgba(255,255,255,0.92)")
-        .attr("stroke", selected ? color : `${color}80`)
-        .attr("stroke-width", selected ? 2 : 1)
-        .style(
-          "filter",
-          selected
-            ? `drop-shadow(0 0 10px ${color}70)`
-            : "drop-shadow(0 6px 14px rgba(15,23,42,0.06))"
-        );
+      edgeLabels
+        .attr("x", (edge) => edgeLabelX(edge))
+        .attr("y", (edge) => edgeLabelY(edge));
 
-      pill
-        .append("circle")
-        .attr("r", 4)
-        .attr("cx", -18)
-        .attr("cy", 0)
-        .attr("fill", color);
-
-      const label = pill
-        .append("text")
-        .attr("x", -8)
-        .attr("y", 4)
-        .attr("text-anchor", "start")
-        .attr("pointer-events", "none")
-        .attr("fill", graphStyles.gray700)
-        .attr("font-size", "11px")
-        .attr("font-weight", 500)
-        .text(truncateLabel(node.data.label, 10));
-
-      const labelNode = label.node();
-      if (labelNode) {
-        const bbox = labelNode.getBBox();
-        pill
-          .select("rect")
-          .attr("x", bbox.x - 10)
-          .attr("y", bbox.y - 5)
-          .attr("width", bbox.width + 28)
-          .attr("height", bbox.height + 10);
-      }
-
-      const jdCount = node.data.jd_count ?? 0;
-      if (jdCount > 0) {
-        group
-          .append("circle")
-          .attr("cx", 10)
-          .attr("cy", -10)
-          .attr("r", 8)
-          .attr("fill", color);
-
-        group
-          .append("text")
-          .attr("x", 10)
-          .attr("y", -10)
-          .attr("dy", "0.35em")
-          .attr("text-anchor", "middle")
-          .attr("pointer-events", "none")
-          .attr("fill", "#fff")
-          .attr("font-size", `${graphStyles.badgeFontSize}px`)
-          .attr("font-weight", 700)
-          .text(jdCount > 99 ? "99+" : jdCount.toString());
-      }
+      communityPaths.attr("d", (community) =>
+        buildCommunityPath(
+          community.node_ids
+            .map((nodeId) => nodeById.get(nodeId))
+            .filter((node): node is SimNode => node !== undefined)
+        )
+      );
     });
 
-    jobNodes
-      .transition()
-      .duration(graphStyles.layoutDuration)
-      .delay((_, index) => graphStyles.enterDelay.jobs + index * 16)
-      .ease(d3.easeCubicOut)
-      .attr("opacity", (node) => nodeOpacity(node.data))
-      .attr("transform", (node) => transformNode(node));
+    return () => {
+      simulation.stop();
+    };
+  }, [communities, edges, height, nodes, onJobSelect, searchQuery, selectedJobId, width]);
 
-    jobNodes
-      .on("mouseenter", function (_, node) {
-        if (node.data.id === selectedJobId) {
-          return;
-        }
+  return { svgRef, containerRef };
+}
 
-        d3.select(this)
-          .transition()
-          .duration(graphStyles.interactionDuration)
-          .attr("transform", transformNode(node, 1.12));
+function computeCommunityCenters(
+  communities: GraphCommunity[],
+  width: number,
+  height: number
+): Map<string, { x: number; y: number }> {
+  const radius = Math.min(width, height) * 0.27;
+  const centerX = width / 2;
+  const centerY = height / 2 + 12;
+  const total = Math.max(communities.length, 1);
+  const centers = new Map<string, { x: number; y: number }>();
 
-        d3.select(this)
-          .select("rect")
-          .transition()
-          .duration(graphStyles.interactionDuration)
-          .attr("fill", "rgba(255,255,255,0.98)");
-      })
-      .on("mouseleave", function (_, node) {
-        if (node.data.id === selectedJobId) {
-          return;
-        }
+  communities.forEach((community, index) => {
+    const angle = (Math.PI * 2 * index) / total - Math.PI / 2;
+    centers.set(community.community_id, {
+      x: centerX + Math.cos(angle) * radius,
+      y: centerY + Math.sin(angle) * radius,
+    });
+  });
 
-        d3.select(this)
-          .transition()
-          .duration(graphStyles.interactionDuration)
-          .attr("transform", transformNode(node));
+  return centers;
+}
 
-        d3.select(this)
-          .select("rect")
-          .transition()
-          .duration(graphStyles.interactionDuration)
-          .attr("fill", "rgba(255,255,255,0.92)");
-      });
+function nodeWidth(node: JobNode): number {
+  if (node.job_count >= 800) {
+    return graphStyles.nodeWidths.large;
+  }
+  if (node.job_count >= 250) {
+    return graphStyles.nodeWidths.medium;
+  }
+  return graphStyles.nodeWidths.small;
+}
 
-    svg.call(zoom.transform, d3.zoomIdentity);
-  }, [
-    nodes,
-    edges,
-    width,
-    height,
-    searchQuery,
-    expandedCategory,
-    selectedJobId,
-    onJobSelect,
-    onCategoryClick,
-  ]);
+function nodeHeight(node: JobNode): number {
+  if (node.job_count >= 800) {
+    return graphStyles.nodeHeights.large;
+  }
+  if (node.job_count >= 250) {
+    return graphStyles.nodeHeights.medium;
+  }
+  return graphStyles.nodeHeights.small;
+}
 
-  useEffect(() => {
-    render();
-  }, [render]);
+function edgeDistance(edge: Pick<GraphEdge, "edge_type" | "weight">): number {
+  return edge.edge_type === "vertical"
+    ? 90 + (1 - edge.weight) * 30
+    : 130 + (1 - edge.weight) * 90;
+}
 
-  const resize = useCallback(() => {
-    render();
-  }, [render]);
+function edgeStrength(edge: Pick<GraphEdge, "edge_type" | "weight">): number {
+  return edge.edge_type === "vertical" ? 0.20 + edge.weight * 0.18 : 0.10 + edge.weight * 0.22;
+}
 
-  return { svgRef, containerRef, resize };
+function edgeStrokeWidth(weight: number, edgeType: GraphEdge["edge_type"]): number {
+  if (edgeType === "vertical") {
+    return weight >= 0.65 ? 2.2 : 1.6;
+  }
+  if (weight >= 0.72) {
+    return 3.2;
+  }
+  if (weight >= 0.48) {
+    return 2.4;
+  }
+  return 1.6;
+}
+
+function edgeStrokeColor(edge: Pick<GraphEdge, "edge_type" | "weight">): string {
+  if (edge.edge_type === "vertical") {
+    return graphStyles.verticalEdgeColor;
+  }
+  if (edge.weight >= 0.72) {
+    return graphStyles.transitionEdgeStrong;
+  }
+  if (edge.weight >= 0.48) {
+    return graphStyles.transitionEdgeMedium;
+  }
+  return graphStyles.transitionEdgeWeak;
+}
+
+function edgePath(edge: SimEdge): string {
+  const sourceX = edge.source.x;
+  const sourceY = edge.source.y;
+  const targetX = edge.target.x;
+  const targetY = edge.target.y;
+
+  if (edge.edge_type === "vertical") {
+    const dx = targetX - sourceX;
+    const dy = targetY - sourceY;
+    const distance = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+    const offset = Math.min(22, distance * 0.18);
+    const cx = (sourceX + targetX) / 2 - (dy / distance) * offset;
+    const cy = (sourceY + targetY) / 2 + (dx / distance) * offset;
+    return `M ${sourceX},${sourceY} Q ${cx},${cy} ${targetX},${targetY}`;
+  }
+
+  return `M ${sourceX},${sourceY} L ${targetX},${targetY}`;
+}
+
+function edgeLabelX(edge: SimEdge): number {
+  if (edge.edge_type === "vertical") {
+    return (edge.source.x + edge.target.x) / 2;
+  }
+  return (edge.source.x + edge.target.x) / 2;
+}
+
+function edgeLabelY(edge: SimEdge): number {
+  if (edge.edge_type === "vertical") {
+    return (edge.source.y + edge.target.y) / 2 - 8;
+  }
+  return (edge.source.y + edge.target.y) / 2 - 10;
+}
+
+function buildCommunityPath(nodes: SimNode[]): string {
+  if (nodes.length === 0) {
+    return "";
+  }
+  if (nodes.length === 1) {
+    const node = nodes[0];
+    return roundedRectPath(node.x - 70, node.y - 52, 140, 104, 26);
+  }
+  if (nodes.length === 2) {
+    const minX = Math.min(nodes[0].x, nodes[1].x) - 88;
+    const minY = Math.min(nodes[0].y, nodes[1].y) - 64;
+    const width = Math.abs(nodes[0].x - nodes[1].x) + 176;
+    const height = Math.abs(nodes[0].y - nodes[1].y) + 128;
+    return roundedRectPath(minX, minY, width, height, 36);
+  }
+
+  const points = nodes.flatMap((node) => {
+    const rx = nodeWidth(node) / 2 + 28;
+    const ry = nodeHeight(node) / 2 + 24;
+    return [
+      [node.x - rx, node.y - ry],
+      [node.x + rx, node.y - ry],
+      [node.x + rx, node.y + ry],
+      [node.x - rx, node.y + ry],
+    ];
+  }) as [number, number][];
+
+  const hull = d3.polygonHull(points);
+  return hull ? `M${hull.join("L")}Z` : "";
+}
+
+function roundedRectPath(x: number, y: number, width: number, height: number, radius: number): string {
+  return [
+    `M${x + radius},${y}`,
+    `H${x + width - radius}`,
+    `Q${x + width},${y} ${x + width},${y + radius}`,
+    `V${y + height - radius}`,
+    `Q${x + width},${y + height} ${x + width - radius},${y + height}`,
+    `H${x + radius}`,
+    `Q${x},${y + height} ${x},${y + height - radius}`,
+    `V${y + radius}`,
+    `Q${x},${y} ${x + radius},${y}`,
+    "Z",
+  ].join(" ");
+}
+
+function truncateText(value: string, limit: number): string {
+  if (value.length <= limit) {
+    return value;
+  }
+  return `${value.slice(0, limit)}…`;
+}
+
+function nodeOpacity(
+  node: JobNode,
+  searchLower: string,
+  selectedJobId: string | undefined,
+  connectedNodeIds: Set<string>
+): number {
+  const matchesSearch =
+    !searchLower ||
+    node.label.toLowerCase().includes(searchLower) ||
+    node.summary.toLowerCase().includes(searchLower) ||
+    node.skills.some((skill) => skill.toLowerCase().includes(searchLower));
+
+  if (selectedJobId && selectedJobId !== node.id && !connectedNodeIds.has(node.id)) {
+    return matchesSearch ? 0.34 : 0.12;
+  }
+  return matchesSearch ? 1 : 0.18;
+}
+
+function getEdgeOpacity(
+  edge: SimEdge,
+  selectedEdgeIds: Set<string>,
+  hasSearch: boolean,
+  connectedNodeIds: Set<string>
+): number {
+  if (selectedEdgeIds.size > 0) {
+    return selectedEdgeIds.has(edge.id) ? 1 : 0.12;
+  }
+  if (hasSearch) {
+    return connectedNodeIds.size > 0 ? 0.35 : 0.58;
+  }
+  return edge.edge_type === "vertical" ? 0.68 : 0.82;
+}
+
+function levelLabel(level: string): string {
+  switch (level) {
+    case "entry":
+      return "入门";
+    case "growing":
+      return "成长";
+    case "mature":
+      return "成熟";
+    case "expert":
+      return "进阶";
+    case "stable":
+      return "稳定";
+    default:
+      return "探索";
+  }
 }

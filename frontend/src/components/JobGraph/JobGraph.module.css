@@ -94,14 +94,14 @@
   color: #9ca3af;
 }
 
-.categoryChips {
+.communityChips {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
 }
 
 .chip {
-  padding: 4px 12px;
+  padding: 4px 10px;
   border-radius: 999px;
   border: 1px solid #e5e7eb;
   background: rgba(255, 255, 255, 0.7);
@@ -109,6 +109,9 @@
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   transition:
     background-color 150ms ease,
     border-color 150ms ease,
@@ -123,6 +126,22 @@
 
 .chipActive {
   border-color: currentColor;
+}
+
+.communityDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.communityMeta {
+  min-width: 16px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .rebuildBtn {
@@ -170,6 +189,38 @@
 .statsStripHidden {
   opacity: 0;
   pointer-events: none;
+}
+
+.legendStrip {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 16px 2px;
+  color: #7a869d;
+  font-size: 12px;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legendLine {
+  width: 24px;
+  height: 0;
+  border-top-width: 3px;
+  border-top-style: solid;
+  border-radius: 999px;
+}
+
+.legendLineTransition {
+  border-top-color: #2454cf;
+}
+
+.legendLineVertical {
+  border-top-color: #7e879a;
+  border-top-style: dashed;
 }
 
 .graphCanvas {
@@ -515,6 +566,21 @@
 .sharedSkill {
   background: rgba(16, 185, 129, 0.08);
   color: #10B981;
+}
+
+.transitionReasonList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.transitionReason {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(67, 80, 106, 0.08);
+  color: #5f6e88;
+  font-size: 10px;
 }
 
 .profileAction {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { graphApi } from "../../api/graph";
-import type { GraphTotals, JobGraphData, GraphNode } from "./types";
+import type { JobGraphData } from "./types";
 
 interface UseGraphDataResult {
   data: JobGraphData | null;
@@ -21,14 +21,7 @@ export function useGraphData(): UseGraphDataResult {
 
     try {
       const response = await graphApi.getMindmap();
-      const nodes = response.data.nodes as GraphNode[];
-      const graphData: JobGraphData = {
-        nodes,
-        edges: response.data.edges,
-        totals: response.data.totals ?? deriveTotals(nodes),
-        generated_at: response.data.generated_at,
-      };
-      setData(graphData);
+      setData(response.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "获取图谱数据失败");
     } finally {
@@ -54,31 +47,4 @@ export function useGraphData(): UseGraphDataResult {
   }, [fetchData]);
 
   return { data, loading, error, refetch: fetchData, rebuild };
-}
-
-function deriveTotals(nodes: GraphNode[]): GraphTotals {
-  const categoryNodes = nodes.filter((node) => node.type === "category");
-  const jobNodes = nodes.filter((node) => node.type === "job");
-
-  const categoryJdTotal = categoryNodes.reduce((sum, node) => {
-    return sum + (typeof node.jd_total === "number" ? node.jd_total : 0);
-  }, 0);
-
-  if (categoryJdTotal > 0) {
-    return {
-      role_count: jobNodes.length,
-      jd_count: categoryJdTotal,
-      category_count: categoryNodes.length,
-    };
-  }
-
-  const jobJdTotal = jobNodes.reduce((sum, node) => {
-    return sum + (typeof node.jd_count === "number" ? node.jd_count : 0);
-  }, 0);
-
-  return {
-    role_count: jobNodes.length,
-    jd_count: jobJdTotal,
-    category_count: categoryNodes.length,
-  };
 }

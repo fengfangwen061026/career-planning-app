@@ -1,5 +1,6 @@
 import client from "./client";
 import type { RawGraphResponse } from "../types/graph";
+import type { GraphCommunity, GraphEdge, GraphMeta, GraphTotals, JobNode } from "../components/JobGraph/types";
 
 export interface GraphNode {
   id: string;
@@ -10,7 +11,7 @@ export interface GraphNode {
   metadata?: Record<string, unknown>;
 }
 
-export interface GraphEdge {
+export interface GraphApiEdge {
   id: string;
   source: string;
   target: string;
@@ -24,7 +25,7 @@ export const graphApi = {
     client.get<GraphNode[]>("/graph/nodes", { params }),
 
   getEdges: (params?: { edge_type?: string; skip?: number; limit?: number }) =>
-    client.get<GraphEdge[]>("/graph/edges", { params }),
+    client.get<GraphApiEdge[]>("/graph/edges", { params }),
 
   getNodeDetail: (nodeId: string) =>
     client.get<GraphNode>(`/graph/nodes/${nodeId}`),
@@ -46,21 +47,11 @@ export const graphApi = {
 
   getMindmap: () =>
     client.get<{
-      nodes: Array<{
-        id: string;
-        label: string;
-        type: string;
-        role_id?: string;
-        color?: string;
-        icon?: string;
-        category?: string;
-        count?: number;
-        jd_count?: number;
-        jd_total?: number;
-        job_count?: number;
-      }>;
-      edges: Array<{ source: string; target: string }>;
-      totals: { role_count: number; jd_count: number; category_count: number };
+      nodes: JobNode[];
+      edges: GraphEdge[];
+      communities: GraphCommunity[];
+      totals: GraphTotals;
+      meta: GraphMeta;
       generated_at: string;
     }>("/graph/mindmap"),
 
