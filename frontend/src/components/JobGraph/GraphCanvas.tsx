@@ -67,7 +67,11 @@ export function GraphCanvas({
   });
 
   return (
-    <div ref={containerRef} id="graph-container" className={styles.graphCanvas}>
+    <div
+      ref={containerRef}
+      id="graph-container"
+      className={`${styles.graphCanvas} ${styles.graphWrapper}`}
+    >
       <svg
         ref={svgRef}
         width={dimensions.width}

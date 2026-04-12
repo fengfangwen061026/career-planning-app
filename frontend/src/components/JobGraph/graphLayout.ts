@@ -129,24 +129,24 @@ export function createLayeredSimulation(
 ): d3.Simulation<LayoutNode, LayoutEdge> {
   return d3
     .forceSimulation<LayoutNode>(nodes)
-    .force("center", d3.forceCenter(width / 2, height / 2).strength(0.04))
-    .force("charge", d3.forceManyBody<LayoutNode>().strength((node) => (node.heat >= 400 ? -260 : -180)))
+    .force("center", d3.forceCenter(width / 2, height / 2).strength(0.03))
+    .force("charge", d3.forceManyBody<LayoutNode>().strength(-220))
     .force(
       "collide",
-      d3.forceCollide<LayoutNode>().radius((node) => (node.heat >= 250 ? 78 : 68)).strength(0.95)
+      d3.forceCollide<LayoutNode>().radius(90).strength(0.92)
     )
     .force(
       "link",
       d3
         .forceLink<LayoutNode, LayoutEdge>(edges)
         .id((node) => node.id)
-        .distance((edge) => (edge.edge_type === "vertical" ? 110 : 145))
-        .strength((edge) => (edge.edge_type === "vertical" ? 0.28 : 0.16))
+        .distance((edge) => (edge.edge_type === "vertical" ? 130 : 160))
+        .strength((edge) => (edge.edge_type === "vertical" ? 0.25 : 0.14))
     )
-    .force("x", d3.forceX<LayoutNode>((node) => node.anchorX).strength(0.38))
-    .force("y", d3.forceY<LayoutNode>((node) => node.anchorY).strength(0.52))
-    .alphaDecay(0.032)
-    .velocityDecay(0.4);
+    .force("x", d3.forceX<LayoutNode>((node) => node.anchorX).strength(0.35))
+    .force("y", d3.forceY<LayoutNode>((node) => node.anchorY).strength(0.55))
+    .alphaDecay(0.028)
+    .velocityDecay(0.42);
 }
 
 export function buildTree(_nodes: GraphNode[], _edges: GraphEdge[]): TreeNode | null {

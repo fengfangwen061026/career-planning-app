@@ -215,11 +215,11 @@
 }
 
 .legendLineTransition {
-  border-top-color: #2454cf;
+  border-top-color: #3B6FE8;
 }
 
 .legendLineVertical {
-  border-top-color: #7e879a;
+  border-top-color: #94A3B8;
   border-top-style: dashed;
 }
 
@@ -882,4 +882,25 @@
   .controlsBar {
     max-width: 100%;
   }
+}
+
+/* 层级背景带 */
+.band-bg {
+  pointer-events: none;
+}
+
+/* 胶囊节点平滑过渡 */
+.node .node-pill {
+  transition: fill 0.15s ease, stroke-width 0.15s ease;
+}
+
+/* 换岗边高亮时加粗 */
+.edge-transition path:hover {
+  stroke-width: 3.5 !important;
+  opacity: 1 !important;
+}
+
+/* 图谱容器背景 */
+.graphWrapper {
+  background: radial-gradient(ellipse at 30% 20%, #EEF4FF 0%, #F8FAFF 50%, #F0FFF8 100%);
 }

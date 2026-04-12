@@ -115,6 +115,159 @@ async def test_generate_outline_tolerates_provider_latency_above_two_seconds(mon
     assert result["chapters"][0]["chapter_id"] == 1
 
 
+@pytest.mark.asyncio
+async def test_generate_chapters_uses_llm_and_extracts_structured_data(monkeypatch) -> None:
+    student_profile = {
+        "basic_info": {
+            "name": "张明远",
+            "school": "华东理工大学",
+            "major": "软件工程",
+        },
+        "competitiveness_score": 76,
+        "skills": ["Python", "SQL", "数据分析", "可视化", "机器学习"],
+        "experience": {
+            "projects": [{"project_name": "用户流失预测平台"}],
+            "work": [{"company": "某科技公司", "title": "数据分析实习生"}],
+        },
+    }
+    matching_results = [
+        {
+            "job_profile_id": str(uuid4()),
+            "total_score": 0.78,
+            "scores_json": {
+                "job_info": {"role": "数据分析师", "title": "数据分析师"},
+                "basic": {"score": 85},
+                "skill": {"score": 81},
+                "competency": {"score": 74},
+                "potential": {"score": 69},
+                "match_reasons": ["有数据分析项目经历", "SQL 能力较匹配"],
+            },
+            "gaps_json": [
+                {
+                    "gap_item": "必备技能: Tableau",
+                    "current_level": "基础薄弱",
+                    "required_level": "可独立完成报表",
+                    "priority": "high",
+                    "suggestion": "通过官方文档和实战项目补齐 Tableau 看板能力",
+                }
+            ],
+        }
+    ]
+    seen_prompts: list[str] = []
+
+    async def fake_generate(*, prompt, system_prompt, max_tokens, **kwargs):
+        del max_tokens, kwargs
+        seen_prompts.append(prompt)
+        assert system_prompt == report.REPORT_SYSTEM_PROMPT
+        if "目标岗位分析" in prompt:
+            return """该岗位强调数据处理、业务理解与结果表达的结合，你当前具备较好的切入基础，但仍需补齐部分工具化输出能力。
+
+```json
+{
+  "overall_score": 78,
+  "dimensions": {
+    "basic": {"score": 85, "reason": "专业背景与岗位方向较贴近"},
+    "skills": {"score": 81, "reason": "SQL 与分析项目支撑度较高"},
+    "competency": {"score": 74, "reason": "结果表达仍有强化空间"},
+    "potential": {"score": 69, "reason": "具备继续成长的学习曲线"}
+  }
+}
+```"""
+        if "差距与行动计划" in prompt:
+            return """当前主要差距集中在报表工具与分析结果交付层面，若先补齐核心工具能力，综合匹配分还有较明确的上升空间。
+
+```json
+{
+  "short_term": [
+    {
+      "priority": "必须补齐",
+      "item": "Tableau 看板搭建",
+      "gap_desc": "缺少完整仪表盘交付经验",
+      "score_impact": -10,
+      "action": "通过 Tableau 官方文档和一个业务分析实战项目完成 1 套作品",
+      "timeline": "3周内",
+      "resources": ["Tableau 官方学习路径", "Kaggle 商业分析项目"]
+    }
+  ],
+  "medium_term": [
+    {
+      "priority": "建议提升",
+      "item": "业务汇报表达",
+      "gap_desc": "分析结论的业务化表达仍需强化",
+      "score_impact": 4,
+      "action": "每月复盘 1 次项目结论输出并沉淀汇报模板",
+      "timeline": "6个月内",
+      "resources": ["STAR 复盘模板"]
+    }
+  ]
+}
+```"""
+        if "评估周期" in prompt:
+            return """建议按月检查技能补齐进展，在第 3 个月和第 6 个月分别做一次量化复盘，确保能力提升能反映到新的匹配结果中。
+
+```json
+{
+  "review_checkpoints": [
+    {"month": 1, "goal": "完成 Tableau 入门", "kpi": "完成 1 套可展示仪表盘", "action": "提交作品集链接"},
+    {"month": 3, "goal": "综合分提升至 83 分", "kpi": "重新运行匹配后达到 83 分", "action": "更新简历并重跑匹配"},
+    {"month": 6, "goal": "完成中期表达提升", "kpi": "完成 2 次业务分析汇报", "action": "补充项目汇报材料"}
+  ]
+}
+```"""
+        return "这是 LLM 生成的章节正文。"
+
+    monkeypatch.setattr(report.llm, "generate", fake_generate)
+
+    chapters = await report.generate_chapters({}, student_profile, matching_results, None, SimpleNamespace())
+
+    assert len(chapters) == 5
+    assert len(seen_prompts) == 5
+    assert chapters[0]["text"] == "这是 LLM 生成的章节正文。"
+    assert chapters[1]["data"]["overall_score"] == 78
+    assert chapters[1]["data"]["dimensions"][0]["key"] == "basic"
+    assert chapters[1]["data"]["dimensions"][0]["score"] == 85
+    assert chapters[2]["data"]["short_term"][0]["item"] == "Tableau 看板搭建"
+    assert chapters[4]["data"]["review_checkpoints"][1]["month"] == 3
+
+
+@pytest.mark.asyncio
+async def test_generate_chapters_falls_back_to_template_for_failed_chapter(monkeypatch) -> None:
+    student_profile = {
+        "basic_info": {"name": "李婷", "school": "上海大学", "major": "市场营销"},
+        "skills": ["内容策划", "数据分析"],
+    }
+    matching_results = [
+        {
+            "job_profile_id": str(uuid4()),
+            "total_score": 0.66,
+            "scores_json": {
+                "job_info": {"role": "运营专员", "title": "运营专员"},
+                "basic": {"score": 72},
+                "skill": {"score": 68},
+                "competency": {"score": 61},
+                "potential": {"score": 63},
+            },
+            "gaps_json": [],
+        }
+    ]
+
+    async def fake_generate(*, prompt, **kwargs):
+        del kwargs
+        if "目标岗位分析" in prompt:
+            raise RuntimeError("LLM unavailable")
+        return "这是成功生成的正文。"
+
+    monkeypatch.setattr(report.llm, "generate", fake_generate)
+
+    template_chapters = report._build_report_content(student_profile, matching_results, None)[0]["chapters"]
+    chapters = await report.generate_chapters({}, student_profile, matching_results, None, SimpleNamespace())
+
+    assert chapters[0]["text"] == "这是成功生成的正文。"
+    assert chapters[1]["text"] == template_chapters[1]["text"]
+    assert chapters[1]["data"] == template_chapters[1]["data"]
+    assert chapters[2]["text"] == "这是成功生成的正文。"
+
+
 def test_build_export_chart_html_uses_matching_result_scores() -> None:
     html = report._build_export_chart_html({
         "matching_results": [

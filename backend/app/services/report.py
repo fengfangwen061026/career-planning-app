@@ -6,6 +6,7 @@ import asyncio
 import html
 import json
 import logging
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -22,6 +23,12 @@ from app.models.student import Student, StudentProfile
 from app.prompts.report_generation import (
     REPORT_POLISH_SYSTEM_PROMPT,
     REPORT_POLISH_USER_TEMPLATE,
+    REPORT_SYSTEM_PROMPT,
+    CHAPTER_1_PROMPT,
+    CHAPTER_2_PROMPT,
+    CHAPTER_3_PROMPT,
+    CHAPTER_4_PROMPT,
+    CHAPTER_5_PROMPT,
 )
 from app.services.graph import find_path_with_student_profile
 from app.services.matching import match_student_job, recommend_jobs
@@ -493,6 +500,25 @@ def _extract_internships(profile_json: dict[str, Any], limit: int = 3) -> list[s
             result.append(_join_non_empty([company, title], " / "))
     return result[:limit]
 
+def _extract_certificates(profile_json: dict[str, Any], limit: int = 3) -> list[str]:
+    result = []
+    seen: set[str] = set()
+    sources = list(profile_json.get("certificates") or [])
+    sources.extend(profile_json.get("certificate_names") or [])
+    for item in sources:
+        if isinstance(item, dict):
+            name = item.get("name") or item.get("title") or item.get("certificate")
+        else:
+            name = item
+        cleaned = _safe_text(name)
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        result.append(cleaned)
+        if len(result) >= limit:
+            break
+    return result
+
 
 def _extract_job_info(match_result: dict[str, Any]) -> dict[str, Any]:
     scores_json = dict(match_result.get("scores_json") or {})
@@ -823,8 +849,113 @@ async def generate_outline(
     matching_results: list[dict[str, Any]],
     career_path: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    del student_profile, matching_results, career_path
-    return {"title": DEFAULT_REPORT_TITLE, "chapters": REPORT_CHAPTERS, "generated_by": "template"}
+    """生成报告大纲（目前使用模板大纲，后续可扩展为 LLM 生成）"""
+    return {
+        "title": DEFAULT_REPORT_TITLE,
+        "chapters": REPORT_CHAPTERS,
+        "generated_by": "template",
+    }
+
+
+def _extract_llm_text_and_data(raw_text: str) -> tuple[str, Any | None]:
+    text = str(raw_text or "").strip()
+    json_data: Any | None = None
+    json_match = re.search(r"```json\s*([\s\S]*?)```", text, flags=re.IGNORECASE)
+    if json_match:
+        try:
+            json_data = json.loads(json_match.group(1).strip())
+            text = f"{text[:json_match.start()].strip()} {text[json_match.end():].strip()}".strip()
+        except json.JSONDecodeError as exc:
+            logger.warning("Failed to parse report chapter JSON block: %s", exc)
+    return (_clean_paragraph(text) if text else ""), json_data
+
+
+def _normalize_llm_dimensions(
+    payload: Any,
+    fallback_dimensions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        normalized: list[dict[str, Any]] = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            key = _safe_text(item.get("key"), "unknown")
+            normalized.append(
+                {
+                    "key": key,
+                    "label": _safe_text(item.get("label"), key),
+                    "score": _normalize_score(item.get("score")),
+                    "reason": _safe_text(item.get("reason"), "可继续补强这一维度的证据表达。"),
+                }
+            )
+        return normalized or fallback_dimensions
+
+    if not isinstance(payload, dict):
+        return fallback_dimensions
+
+    fallback_by_key = {
+        _safe_text(item.get("key")): item
+        for item in fallback_dimensions
+        if isinstance(item, dict)
+    }
+    normalized = []
+    for key, label in DIMENSION_META:
+        current = payload.get(key)
+        if key == "skill" and current is None:
+            current = payload.get("skills")
+        fallback = fallback_by_key.get(key) or {}
+        current_dict = current if isinstance(current, dict) else {}
+        normalized.append(
+            {
+                "key": key,
+                "label": label,
+                "score": _normalize_score(
+                    current_dict.get("score")
+                    if current_dict
+                    else fallback.get("score")
+                ),
+                "reason": _safe_text(
+                    current_dict.get("reason")
+                    if current_dict
+                    else fallback.get("reason"),
+                    _safe_text(fallback.get("reason"), "可继续补强这一维度的证据表达。"),
+                ),
+            }
+        )
+    return normalized
+
+
+def _normalize_llm_chapter_data(
+    chapter_id: int,
+    json_data: Any,
+    fallback_data: Any,
+    fallback_dimensions: list[dict[str, Any]],
+    actions: list[dict[str, Any]],
+    baseline_score: int,
+    target_role: str,
+) -> Any:
+    if json_data is None:
+        return fallback_data
+
+    if chapter_id == 2 and isinstance(json_data, dict):
+        return {
+            "overall_score": _normalize_score(json_data.get("overall_score") or baseline_score),
+            "dimensions": _normalize_llm_dimensions(
+                json_data.get("dimensions"),
+                fallback_dimensions,
+            ),
+        }
+
+    if chapter_id == 3:
+        return _group_action_items(_normalize_action_items(json_data))
+
+    if chapter_id == 4 and isinstance(json_data, dict):
+        return _normalize_paths(json_data, target_role, actions)
+
+    if chapter_id == 5:
+        return _normalize_review_checkpoints(json_data, actions, baseline_score)
+
+    return fallback_data
 
 
 async def generate_chapters(
@@ -834,9 +965,181 @@ async def generate_chapters(
     career_path: dict[str, Any] | None,
     db: AsyncSession,
 ) -> list[dict[str, Any]]:
+    """逐章调用 LLM 生成报告正文，失败时回退到模板内容。"""
     del outline, db
+
     content_json, _, _ = _build_report_content(student_profile, matching_results, career_path)
-    return list(content_json["chapters"])
+    template_chapters: list[dict[str, Any]] = list(content_json.get("chapters") or [])
+    template_dimensions = list(content_json.get("dimensions") or [])
+    actions = _normalize_action_items(content_json.get("actions") or [])
+
+    basic_info = student_profile.get("basic_info") or {}
+    name = _safe_text(basic_info.get("name"), "同学")
+    school_major = _join_non_empty(
+        [
+            _safe_text(basic_info.get("school")),
+            _safe_text(basic_info.get("major")),
+        ]
+    )
+    overall_score = _normalize_score(
+        student_profile.get("competitiveness_score")
+        or student_profile.get("overall_score")
+    )
+    percentile = max(1, min(99, 100 - overall_score))
+
+    top_skills = ", ".join(_extract_skills(student_profile, limit=5)) or "暂无技能数据"
+    internships_text = "；".join(_extract_internships(student_profile, limit=2)) or "暂无实习经历"
+    projects_text = "；".join(_extract_projects(student_profile, limit=2)) or "暂无项目经历"
+    certs_text = ", ".join(_extract_certificates(student_profile, limit=3)) or "暂无"
+
+    soft_skills_raw = student_profile.get("soft_competencies") or {}
+    soft_skills_parts = []
+    if isinstance(soft_skills_raw, dict):
+        for label, payload in soft_skills_raw.items():
+            if isinstance(payload, dict):
+                score = payload.get("value") or payload.get("score") or 0
+                if score:
+                    soft_skills_parts.append(f"{label}({score}/5)")
+    soft_skills_text = "、".join(soft_skills_parts[:4]) or "暂无软素养数据"
+
+    top_match = matching_results[0] if matching_results else {}
+    job_info = _extract_job_info(top_match)
+    target_job_name = job_info.get("role_name") or "目标岗位"
+    overall_match_score = _normalize_score(
+        top_match.get("total_score") or job_info.get("match_score")
+    )
+
+    scores_json = dict(top_match.get("scores_json") or {})
+    basic_score = _normalize_score((scores_json.get("basic") or {}).get("score"))
+    skills_score = _normalize_score((scores_json.get("skill") or {}).get("score"))
+    competency_score = _normalize_score((scores_json.get("competency") or {}).get("score"))
+    potential_score = _normalize_score((scores_json.get("potential") or {}).get("score"))
+
+    gaps_json = list(top_match.get("gaps_json") or [])
+    main_gaps_text = "；".join(
+        g.get("gap_item") or g.get("item") or ""
+        for g in gaps_json[:4]
+        if isinstance(g, dict)
+    ) or "暂无差距数据"
+    match_highlights = "；".join(
+        r for r in (scores_json.get("match_reasons") or [])[:3]
+        if isinstance(r, str)
+    ) or "综合能力较为均衡"
+
+    gap_list_text = "\n".join(
+        f"- {g.get('gap_item', '')}: {g.get('suggestion', g.get('gap_desc', ''))}"
+        for g in gaps_json[:6]
+        if isinstance(g, dict)
+    ) or "暂无具体差距"
+    student_skills_text = top_skills
+
+    paths_data = content_json.get("paths") or {}
+    related_jobs_text = "、".join(
+        _safe_text(p.get("title") or p.get("role_name"))
+        for p in (paths_data.get("alt_paths") or [])[:3]
+        if isinstance(p, dict) and _safe_text(p.get("title") or p.get("role_name"))
+    ) or "同类相关岗位"
+    student_summary = f"{name}，{school_major or '专业背景待补充'}，竞争力评分 {overall_score}/100"
+
+    actions_template = _group_action_items(actions).get("short_term") or []
+    action_summary = "；".join(
+        a.get("item") or "" for a in actions_template[:3] if isinstance(a, dict)
+    ) or main_gaps_text
+
+    chapter_prompts = [
+        CHAPTER_1_PROMPT.format(
+            name=name,
+            school=school_major or "学校与专业待补充",
+            overall_score=overall_score,
+            percentile=percentile,
+            top_skills=top_skills,
+            internships=internships_text,
+            projects=projects_text,
+            certificates=certs_text,
+            soft_skills=soft_skills_text,
+            target_job_name=target_job_name,
+        ),
+        CHAPTER_2_PROMPT.format(
+            target_job_name=target_job_name,
+            overall_score=overall_match_score,
+            basic_score=basic_score,
+            skills_score=skills_score,
+            competency_score=competency_score,
+            potential_score=potential_score,
+            match_highlights=match_highlights,
+            main_gaps=main_gaps_text,
+        ),
+        CHAPTER_3_PROMPT.format(
+            gap_list=gap_list_text,
+            student_skills=student_skills_text,
+        ),
+        CHAPTER_4_PROMPT.format(
+            student_summary=student_summary,
+            target_job_name=target_job_name,
+            related_jobs=related_jobs_text,
+            student_skills=student_skills_text,
+        ),
+        CHAPTER_5_PROMPT.format(
+            action_summary=action_summary,
+            main_gaps=main_gaps_text,
+        ),
+    ]
+
+    final_chapters: list[dict[str, Any]] = []
+
+    for i, prompt_text in enumerate(chapter_prompts):
+        chapter_id = i + 1
+        template_ch = next(
+            (
+                ch
+                for ch in template_chapters
+                if ch.get("chapter_id") == chapter_id
+            ),
+            template_chapters[i] if i < len(template_chapters) else {},
+        )
+
+        try:
+            llm_text = await llm.generate(
+                prompt=prompt_text,
+                system_prompt=REPORT_SYSTEM_PROMPT,
+                temperature=0.4,
+                max_tokens=800,
+                disable_reasoning=True,
+                max_retries=1,
+                timeout=12,
+            )
+            llm_text, json_data = _extract_llm_text_and_data(llm_text)
+            chapter_data = _normalize_llm_chapter_data(
+                chapter_id=chapter_id,
+                json_data=json_data,
+                fallback_data=template_ch.get("data"),
+                fallback_dimensions=template_dimensions,
+                actions=actions,
+                baseline_score=overall_match_score,
+                target_role=target_job_name,
+            )
+
+            final_chapters.append(
+                {
+                    **template_ch,
+                    "chapter_id": chapter_id,
+                    "title": _chapter_title(chapter_id),
+                    "text": llm_text or template_ch.get("text") or "",
+                    "data": chapter_data,
+                    "status": "done",
+                }
+            )
+            logger.info(
+                "Report chapter %d generated by LLM (%d chars)",
+                chapter_id,
+                len(llm_text),
+            )
+
+        except Exception as exc:
+            logger.warning("LLM chapter %d failed, using template: %s", chapter_id, exc)
+            final_chapters.append(template_ch)
+
+    return final_chapters
 
 
 def _next_version(version: str | None) -> str:

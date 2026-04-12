@@ -157,11 +157,11 @@ export function JobGraph() {
           <div className={styles.legendStrip}>
             <span className={styles.legendItem}>
               <span className={`${styles.legendLine} ${styles.legendLineTransition}`} />
-              横向换岗
+              实线 = 横向换岗（蓝色）
             </span>
             <span className={styles.legendItem}>
               <span className={`${styles.legendLine} ${styles.legendLineVertical}`} />
-              晋升方向
+              虚线 = 晋升方向（灰色）
             </span>
             <span className={styles.legendItem}>节点颜色 = 关系社区</span>
           </div>
