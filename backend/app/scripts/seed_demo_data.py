@@ -33,6 +33,8 @@ from app.models.graph import GraphEdge
 
 DEMO_ID = UUID("00000000-0000-0000-0000-000000009001")
 DEMO_EMAIL = "demo@career.ai"
+DEMO_ID_2 = UUID("00000000-0000-0000-0000-000000009002")
+DEMO_EMAIL_2 = "liyutong@demo.career.ai"
 
 DEMO_PROFILE_JSON = {
     "basic_info": {
@@ -143,6 +145,69 @@ DEMO_PROFILE_JSON = {
     ],
 }
 
+DEMO_PROFILE_JSON_2 = {
+    "basic_info": {
+        "name": "李雨桐",
+        "education": "本科",
+        "major": "数据科学与大数据技术",
+        "school": "华中科技大学",
+        "graduation_year": 2025,
+        "gpa": 3.8,
+        "target_role": "数据分析师",
+        "city": "上海",
+    },
+    "skills": [
+        {"name": "Python", "level": "熟练"},
+        {"name": "SQL", "level": "熟练"},
+        {"name": "Tableau", "level": "熟练"},
+        {"name": "Excel", "level": "熟练"},
+        {"name": "R语言", "level": "了解"},
+        {"name": "机器学习", "level": "了解"},
+        {"name": "Power BI", "level": "了解"},
+    ],
+    "education": [
+        {
+            "school": "华中科技大学",
+            "degree": "本科",
+            "major": "数据科学与大数据技术",
+            "graduation_year": 2025,
+            "gpa": 3.8,
+        }
+    ],
+    "projects": [
+        {
+            "name": "电商用户行为分析平台",
+            "role": "数据分析负责人",
+            "description": "基于 Python + Tableau 的用户行为分析看板，分析 10万+ 用户购买路径，帮助运营团队提升转化率 15%",
+            "tech_stack": ["Python", "Pandas", "Tableau", "MySQL"],
+            "start_date": "2024-03",
+            "end_date": "2024-06",
+        },
+    ],
+    "internships": [
+        {
+            "company": "某电商平台",
+            "role": "数据分析实习生",
+            "duration": "4个月",
+            "description": "负责 A/B 测试数据分析，撰写日/周数据报告，SQL 日均查询 200+ 次",
+        }
+    ],
+    "soft_competencies": {
+        "communication": {"value": 4, "evidence": "撰写数据分析报告，向非技术团队汇报结论"},
+        "learning_ability": {"value": 5, "evidence": "自学 R 语言和机器学习并应用于毕设"},
+        "stress_tolerance": {"value": 4, "evidence": "同时处理多个数据需求，按时交付"},
+        "innovation": {"value": 3, "evidence": "提出新的用户分群指标，被采纳"},
+    },
+    "certifications": ["CET-6", "计算机二级"],
+    "awards": ["国家励志奖学金 2023", "数学建模竞赛省级二等奖 2023"],
+    "competitiveness_score": 78,
+    "completeness_score": 88,
+    "missing_suggestions": [
+        "建议补充大数据平台（Spark/Hive）经验",
+        "可考取数据分析相关证书（如 Google Data Analytics）",
+    ],
+}
+
 
 async def seed_student(db: AsyncSession, force: bool) -> None:
     student = await db.get(Student, DEMO_ID)
@@ -171,6 +236,33 @@ async def seed_student_profile(db: AsyncSession, force: bool) -> None:
         print("[SKIP] Demo 画像已存在（--force 可覆盖）")
 
 
+async def seed_student_2(db: AsyncSession) -> None:
+    student = await db.get(Student, DEMO_ID_2)
+    if not student:
+        student = Student(id=DEMO_ID_2, email=DEMO_EMAIL_2, name="李雨桐")
+        db.add(student)
+        await db.commit()
+        print("[OK] Demo 学生2（李雨桐）已创建")
+    else:
+        print("[SKIP] Demo 学生2（李雨桐）已存在")
+
+
+async def seed_student_profile_2(db: AsyncSession, force: bool) -> None:
+    stmt = select(StudentProfile).where(StudentProfile.student_id == DEMO_ID_2)
+    profile = (await db.execute(stmt)).scalar_one_or_none()
+    if not profile:
+        profile = StudentProfile(student_id=DEMO_ID_2, profile_json=DEMO_PROFILE_JSON_2)
+        db.add(profile)
+        await db.commit()
+        print("[OK] Demo 画像2（李雨桐）已写入")
+    elif force:
+        profile.profile_json = DEMO_PROFILE_JSON_2
+        await db.commit()
+        print("[OK] Demo 画像2（李雨桐）已覆盖更新")
+    else:
+        print("[SKIP] Demo 画像2（李雨桐）已存在（--force 可覆盖）")
+
+
 async def seed_matching(db: AsyncSession) -> None:
     from app.services.matching import match_student_job
 
@@ -187,6 +279,24 @@ async def seed_matching(db: AsyncSession) -> None:
             print(f"[OK] 匹配完成: {role_name}")
         except Exception as e:
             print(f"[WARN] 匹配失败 {jp.id}: {e}")
+
+
+async def seed_matching_for_student_2(db: AsyncSession) -> None:
+    from app.services.matching import match_student_job
+
+    jp_stmt = select(JobProfile).limit(3)
+    job_profiles = (await db.execute(jp_stmt)).scalars().all()
+    if not job_profiles:
+        print("[WARN] 无岗位画像，跳过李雨桐匹配计算")
+        return
+
+    for jp in job_profiles:
+        try:
+            await match_student_job(db=db, student_id=DEMO_ID_2, job_profile_id=jp.id)
+            role_name = jp.profile_json.get("role_name", str(jp.id)) if jp.profile_json else str(jp.id)
+            print(f"[OK] 李雨桐匹配完成: {role_name}")
+        except Exception as e:
+            print(f"[WARN] 李雨桐匹配失败 {jp.id}: {e}")
 
 
 async def seed_report(db: AsyncSession) -> None:
@@ -255,6 +365,14 @@ async def seed_graph(db: AsyncSession, force: bool) -> None:
         else:
             print("  当前无换岗路径，图谱可能未构建或岗位画像缺少技能字段")
 
+    try:
+        from app.services.graph_service import build_and_cache_graph
+
+        await build_and_cache_graph(db)
+        print("[OK] Mindmap 缓存已重建")
+    except Exception as e:
+        print(f"[WARN] Mindmap 缓存重建失败: {e}")
+
 
 async def main(force: bool, skip_report: bool, skip_graph: bool) -> None:
     print("=== Demo 数据初始化开始 ===\n")
@@ -262,7 +380,10 @@ async def main(force: bool, skip_report: bool, skip_graph: bool) -> None:
     async with async_session_factory() as db:
         await seed_student(db, force)
         await seed_student_profile(db, force)
+        await seed_student_2(db)
+        await seed_student_profile_2(db, force)
         await seed_matching(db)
+        await seed_matching_for_student_2(db)
 
         if not skip_report:
             await seed_report(db)
@@ -277,6 +398,8 @@ async def main(force: bool, skip_report: bool, skip_graph: bool) -> None:
     print("\n=== Demo 数据初始化完成 ===")
     print(f"\nDemo 学生 ID: {DEMO_ID}")
     print(f"Demo 学生邮箱: {DEMO_EMAIL}")
+    print(f"Demo 学生2 ID: {DEMO_ID_2}")
+    print(f"Demo 学生2邮箱: {DEMO_EMAIL_2}")
     print("在移动端 OnboardingFlow 中使用此邮箱即可体验完整演示流程")
 
 

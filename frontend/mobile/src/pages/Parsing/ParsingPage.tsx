@@ -1,12 +1,14 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { session } from '../../store/session'
+
 const STEPS = [
-  { label: '读取简历文件', duration: 1200 },
-  { label: '识别教育经历', duration: 1500 },
-  { label: '抽取技能 & 项目', duration: 2000 },
-  { label: '识别证书 & 荣誉', duration: 1800 },
-  { label: '生成学生画像', duration: 2000 },
+  { label: '读取简历文件' },
+  { label: '识别教育经历' },
+  { label: '抽取技能 & 项目' },
+  { label: '识别证书 & 荣誉' },
+  { label: '生成学生画像' },
 ]
 
 export default function ParsingPage() {
@@ -15,25 +17,69 @@ export default function ParsingPage() {
   const [activeIdx, setActiveIdx] = useState(0)
 
   useEffect(() => {
-    let idx = 0
-    const run = () => {
-      if (idx >= STEPS.length) {
-        setTimeout(() => navigate('/profile'), 600)
+    const studentId = session.getStudentId()
+    let step = 0
+    let pollCount = 0
+    let cancelled = false
+    let pollTimeout: number | undefined
+
+    const interval = window.setInterval(() => {
+      step += 1
+      setActiveIdx(Math.min(step, STEPS.length - 1))
+      setDoneCount(Math.min(step, STEPS.length))
+      if (step >= STEPS.length) {
+        window.clearInterval(interval)
+      }
+    }, 1500)
+
+    const poll = async () => {
+      if (cancelled) {
         return
       }
-      setActiveIdx(idx)
-      setTimeout(() => {
-        setDoneCount(idx + 1)
-        idx++
-        run()
-      }, STEPS[idx].duration)
+
+      if (!studentId) {
+        navigate('/profile')
+        return
+      }
+
+      try {
+        const res = await fetch(`/api/students/${studentId}/profile`)
+        if (res.ok) {
+          session.setHasProfile(true)
+          window.clearInterval(interval)
+          setDoneCount(STEPS.length)
+          setActiveIdx(STEPS.length - 1)
+          window.setTimeout(() => navigate('/profile'), 600)
+          return
+        }
+      } catch {
+        // continue polling
+      }
+
+      pollCount += 1
+      if (pollCount < 20) {
+        pollTimeout = window.setTimeout(() => {
+          void poll()
+        }, 1500)
+      } else {
+        navigate('/profile')
+      }
     }
-    run()
+
+    pollTimeout = window.setTimeout(() => {
+      void poll()
+    }, 2000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(interval)
+      if (pollTimeout) {
+        window.clearTimeout(pollTimeout)
+      }
+    }
   }, [navigate])
 
-  const totalMs = STEPS.reduce((s, x) => s + x.duration, 0)
-  const doneMs = STEPS.slice(0, doneCount).reduce((s, x) => s + x.duration, 0)
-  const progress = doneMs / totalMs
+  const progress = doneCount / STEPS.length
   const circumference = 2 * Math.PI * 26
   const strokeDashoffset = circumference * (1 - progress)
 
@@ -43,10 +89,9 @@ export default function ParsingPage() {
       alignItems: 'center', justifyContent: 'center',
       padding: '20px 16px', textAlign: 'center', background: 'white',
     }}>
-      {/* 环形进度圈 */}
       <div style={{ position: 'relative', width: 64, height: 64, marginBottom: 16 }}>
         <svg width="64" height="64" viewBox="0 0 64 64">
-          <circle cx="32" cy="32" r="26" fill="none" stroke="#E5E7EB" strokeWidth="5"/>
+          <circle cx="32" cy="32" r="26" fill="none" stroke="#E5E7EB" strokeWidth="5" />
           <circle
             cx="32" cy="32" r="26" fill="none" stroke="#4F46E5" strokeWidth="5"
             strokeDasharray={`${circumference}`}
@@ -58,8 +103,8 @@ export default function ParsingPage() {
         </svg>
         <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)' }}>
           <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-            <rect x="3" y="2" width="16" height="18" rx="3" fill="#EEF2FF" stroke="#4F46E5" strokeWidth="1.5"/>
-            <path d="M7 8h8M7 11h6M7 14h4" stroke="#4F46E5" strokeWidth="1.2" strokeLinecap="round"/>
+            <rect x="3" y="2" width="16" height="18" rx="3" fill="#EEF2FF" stroke="#4F46E5" strokeWidth="1.5" />
+            <path d="M7 8h8M7 11h6M7 14h4" stroke="#4F46E5" strokeWidth="1.2" strokeLinecap="round" />
           </svg>
         </div>
       </div>
@@ -80,8 +125,8 @@ export default function ParsingPage() {
             return (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#D1FAE5', borderRadius: 8 }}>
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <circle cx="7" cy="7" r="7" fill="#10B981"/>
-                  <path d="M4 7l2 2 4-4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <circle cx="7" cy="7" r="7" fill="#10B981" />
+                  <path d="M4 7l2 2 4-4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
                 <span style={{ fontSize: 10, fontWeight: 600, color: '#065F46' }}>{step.label}</span>
               </div>
@@ -91,8 +136,8 @@ export default function ParsingPage() {
             return (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#EEF2FF', borderRadius: 8, border: '0.5px solid rgba(79,70,229,0.2)' }}>
                 <svg width="14" height="14" viewBox="0 0 14 14">
-                  <circle cx="7" cy="7" r="7" fill="#EEF2FF" stroke="#4F46E5" strokeWidth="1.5"/>
-                  <circle cx="7" cy="7" r="3" fill="#4F46E5" style={{ animation: 'pulse 1s infinite' }}/>
+                  <circle cx="7" cy="7" r="7" fill="#EEF2FF" stroke="#4F46E5" strokeWidth="1.5" />
+                  <circle cx="7" cy="7" r="3" fill="#4F46E5" style={{ animation: 'pulse 1s infinite' }} />
                 </svg>
                 <span style={{ fontSize: 10, fontWeight: 700, color: '#4F46E5' }}>{step.label}…</span>
               </div>
@@ -105,7 +150,7 @@ export default function ParsingPage() {
               opacity: opacities[pendingIdx] ?? 0.15,
             }}>
               <svg width="14" height="14" viewBox="0 0 14 14">
-                <circle cx="7" cy="7" r="7" fill="#F3F4F6" stroke="#D1D5DB" strokeWidth="1.5"/>
+                <circle cx="7" cy="7" r="7" fill="#F3F4F6" stroke="#D1D5DB" strokeWidth="1.5" />
               </svg>
               <span style={{ fontSize: 10, color: '#9CA3AF' }}>{step.label}</span>
             </div>

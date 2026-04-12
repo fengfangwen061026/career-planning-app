@@ -1,5 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+
+import { session } from '../../store/session'
 
 interface Message {
   role: 'ai' | 'user'
@@ -7,87 +9,213 @@ interface Message {
   options?: string[]
 }
 
-const INIT_MESSAGES: Message[] = [
+interface CompletionQuestion {
+  question_id: string
+  title: string
+  prompt: string
+  placeholder?: string
+  options: string[]
+}
+
+interface CompletionSessionResponse {
+  questions?: CompletionQuestion[]
+}
+
+interface CompletionApplyResponse {
+  applied_updates?: string[]
+  profile?: {
+    completeness_score?: number
+    profile_json?: Record<string, unknown>
+  }
+}
+
+const FALLBACK_QUESTIONS: CompletionQuestion[] = [
   {
-    role: 'ai',
-    text: '你好！我注意到你的"校园二手交易平台"项目缺少量化成果。能告诉我这个项目的注册用户大概有多少吗？',
-    options: ['100人以下', '100–500人', '500人以上', '我不记得了'],
+    question_id: 'project_outcome',
+    title: '量化成果',
+    prompt: '能告诉我你在项目中取得了哪些具体成果吗？比如用户量、性能提升等量化指标。',
+    options: ['100人以下', '100-500人', '500人以上', '没有统计过'],
+  },
+  {
+    question_id: 'teamwork',
+    title: '协作经历',
+    prompt: '在项目或实习中，你通常承担什么角色？有没有跨团队协作的经历？',
+    options: ['独立完成', '2-3人协作', '跨团队协作', '正在补充'],
+  },
+  {
+    question_id: 'learning',
+    title: '学习能力',
+    prompt: '最近半年你主动学习过什么技能？有没有把它真正用到项目中？',
+    options: ['学过但没实践', '做过课程项目', '已经用于真实项目', '还没有系统学习'],
   },
 ]
 
+function normalizePercent(value: unknown): number {
+  const num = Number(value || 0)
+  if (Number.isNaN(num)) {
+    return 0
+  }
+  return Math.round(num <= 1 ? num * 100 : num)
+}
+
 export default function ChatFillPage() {
   const navigate = useNavigate()
-  const [messages, setMessages] = useState<Message[]>(INIT_MESSAGES)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [questions, setQuestions] = useState<CompletionQuestion[]>([])
+  const [currentQIdx, setCurrentQIdx] = useState(0)
+  const [answers, setAnswers] = useState<Array<{ question_id: string; answer: string }>>([])
   const [input, setInput] = useState('')
-  const [step, setStep] = useState(1)
-  const [totalSteps] = useState(4)
   const [done, setDone] = useState(false)
   const [typing, setTyping] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [applyUpdates, setApplyUpdates] = useState<string[]>([])
+  const [updatedCompleteness, setUpdatedCompleteness] = useState<number | null>(null)
+  const [updatedCompetitiveness, setUpdatedCompetitiveness] = useState<number | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  const activeQuestions = questions.length > 0 ? questions : FALLBACK_QUESTIONS
+  const totalSteps = Math.max(activeQuestions.length, 1)
+  const currentStep = Math.min(currentQIdx + 1, totalSteps)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, typing, done])
 
-  const sendMessage = (text: string) => {
+  useEffect(() => {
+    const studentId = session.getStudentId()
+    if (!studentId) {
+      navigate('/onboarding')
+      return
+    }
+
+    const init = async () => {
+      try {
+        const res = await fetch(`/api/student-app/students/${studentId}/profile-completion/session`, {
+          method: 'POST',
+        })
+        if (!res.ok) {
+          throw new Error('Failed to get questions')
+        }
+        const data = await res.json() as CompletionSessionResponse
+        const qs = data.questions || []
+        setQuestions(qs)
+
+        if (qs.length === 0) {
+          navigate('/profile')
+          return
+        }
+
+        setMessages([{
+          role: 'ai',
+          text: qs[0].prompt,
+          options: qs[0].options,
+        }])
+      } catch {
+        setMessages([{
+          role: 'ai',
+          text: FALLBACK_QUESTIONS[0].prompt,
+          options: FALLBACK_QUESTIONS[0].options,
+        }])
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    void init()
+  }, [navigate])
+
+  const sendMessage = async (text: string) => {
+    const question = activeQuestions[currentQIdx]
+    const newAnswers = [
+      ...answers,
+      {
+        question_id: question?.question_id || `q_${currentQIdx}`,
+        answer: text,
+      },
+    ]
+
+    setAnswers(newAnswers)
     setMessages(prev => [...prev, { role: 'user', text }])
     setInput('')
     setTyping(true)
 
-    setTimeout(() => {
+    const nextIdx = currentQIdx + 1
+    window.setTimeout(async () => {
       setTyping(false)
-      if (step < totalSteps) {
-        const nextStep = step + 1
-        setStep(nextStep)
-        if (nextStep === totalSteps) {
-          setMessages(prev => [...prev, {
-            role: 'ai',
-            text: '很好！我还想了解一下接口性能优化的效果，响应时间大约降低了多少？',
-            options: ['20%以下', '20–40%', '40%以上', '没有测量过'],
-          }])
-        } else {
-          setMessages(prev => [...prev, {
-            role: 'ai',
-            text: '明白了！另外，日活跃用户峰值大约是多少？',
-            options: ['50人以下', '50–100人', '100人以上'],
-          }])
-        }
-      } else {
-        setDone(true)
+      if (nextIdx < activeQuestions.length) {
+        setCurrentQIdx(nextIdx)
+        setMessages(prev => [...prev, {
+          role: 'ai',
+          text: activeQuestions[nextIdx].prompt,
+          options: activeQuestions[nextIdx].options,
+        }])
+        return
       }
+
+      const studentId = session.getStudentId()
+      if (studentId) {
+        try {
+          const res = await fetch(`/api/student-app/students/${studentId}/profile-completion/apply`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ answers: newAnswers }),
+          })
+          if (res.ok) {
+            const data = await res.json() as CompletionApplyResponse
+            session.setHasProfile(true)
+            setApplyUpdates((data.applied_updates || []).slice(0, 4))
+            setUpdatedCompleteness(normalizePercent(data.profile?.completeness_score))
+            setUpdatedCompetitiveness(
+              normalizePercent((data.profile?.profile_json || {}).competitiveness_score)
+            )
+          }
+        } catch {
+          // keep fallback confirmation view
+        }
+      }
+      setDone(true)
     }, 1200)
   }
 
   return (
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: 'white' }}>
-      {/* 顶部导航 */}
       <div style={{ padding: '10px 12px', background: 'white', borderBottom: '0.5px solid #E5E7EB', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
         <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#4F46E5', marginRight: -2, flexShrink: 0 }} />
         <div style={{ fontSize: 9, color: '#4F46E5', fontWeight: 600, cursor: 'pointer' }} onClick={() => navigate('/profile')}>← 返回画像</div>
         <div style={{ flex: 1, textAlign: 'center' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#0A0A0A' }}>补充项目量化成果</div>
-          <div style={{ fontSize: 8, color: '#9CA3AF' }}>缺失项 1/3</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#0A0A0A' }}>补全画像信息</div>
+          <div style={{ fontSize: 8, color: '#9CA3AF' }}>
+            {loading ? '正在获取问题…' : `缺失项 ${currentStep}/${totalSteps}`}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} style={{ width: i === 0 ? 16 : 6, height: 4, borderRadius: 2, background: i === 0 ? '#4F46E5' : '#E5E7EB' }} />
+          {Array.from({ length: Math.min(totalSteps, 4) }).map((_, i) => (
+            <div key={i} style={{ width: i < currentStep ? 16 : 6, height: 4, borderRadius: 2, background: i < currentStep ? '#4F46E5' : '#E5E7EB' }} />
           ))}
         </div>
       </div>
 
-      {/* 子进度条 */}
       <div style={{ padding: '6px 10px', background: 'white', borderBottom: '0.5px solid #E5E7EB' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
           <span style={{ fontSize: 8, color: '#6B7280' }}>本次补全进度</span>
-          <span style={{ fontSize: 8, fontWeight: 700, color: '#4F46E5' }}>问题 {step}/{totalSteps}</span>
+          <span style={{ fontSize: 8, fontWeight: 700, color: '#4F46E5' }}>
+            {loading ? '准备中' : `问题 ${currentStep}/${totalSteps}`}
+          </span>
         </div>
         <div style={{ height: 3, background: '#F3F4F6', borderRadius: 2, overflow: 'hidden' }}>
-          <div style={{ width: `${(step / totalSteps) * 100}%`, height: '100%', background: '#4F46E5', borderRadius: 2, transition: 'width 0.3s' }} />
+          <div style={{ width: `${(currentStep / totalSteps) * 100}%`, height: '100%', background: '#4F46E5', borderRadius: 2, transition: 'width 0.3s' }} />
         </div>
       </div>
 
-      {/* 消息流 */}
       <div style={{ flex: 1, overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 8, background: '#F9FAFB' }}>
+        {loading && (
+          <div style={{ alignSelf: 'flex-start', maxWidth: '80%' }}>
+            <div style={{ padding: '8px 10px', background: 'white', border: '0.5px solid #E5E7EB', borderRadius: '4px 12px 12px 12px', fontSize: 10, color: '#6B7280' }}>
+              正在获取你的缺失问题…
+            </div>
+          </div>
+        )}
+
         {messages.map((msg, i) => (
           <div key={i}>
             <div style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
@@ -108,7 +236,7 @@ export default function ChatFillPage() {
                 {msg.options.map(opt => (
                   <button
                     key={opt}
-                    onClick={() => sendMessage(opt)}
+                    onClick={() => { void sendMessage(opt) }}
                     style={{
                       padding: '5px 10px', border: '1px solid #4F46E5', borderRadius: 20,
                       fontSize: 9, fontWeight: 600, color: '#4F46E5', background: '#EEF2FF',
@@ -139,32 +267,24 @@ export default function ChatFillPage() {
 
         {done && (
           <div>
-            {/* AI 生成描述 */}
             <div style={{ background: 'white', border: '1px solid #4F46E5', borderRadius: 8, padding: 10, margin: '2px 0' }}>
-              <div style={{ fontSize: 8, fontWeight: 700, color: '#4F46E5', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>✦ AI 生成描述</div>
+              <div style={{ fontSize: 8, fontWeight: 700, color: '#4F46E5', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>AI 写入结果</div>
               <div style={{ fontSize: 9, color: '#374151', lineHeight: 1.8 }}>
-                开发校园二手交易平台（React + FastAPI），累计注册用户 <strong style={{ color: '#1D4ED8' }}>300+</strong>，日活峰值 <strong style={{ color: '#1D4ED8' }}>80人</strong>；通过接口缓存优化，响应时间降低 <strong style={{ color: '#1D4ED8' }}>40%</strong>；独立完成前后端全栈开发与上线部署。
+                {applyUpdates.length > 0 ? applyUpdates.join('；') : '补充回答已提交，系统会在画像页展示最新结果。'}
               </div>
             </div>
-            {/* 效果预测 */}
             <div style={{ background: '#D1FAE5', border: '0.5px solid rgba(16,185,129,0.2)', borderRadius: 8, padding: '8px 10px', marginTop: 6 }}>
-              <div style={{ fontSize: 8, fontWeight: 700, color: '#065F46', marginBottom: 4 }}>补全后效果预测</div>
+              <div style={{ fontSize: 8, fontWeight: 700, color: '#065F46', marginBottom: 4 }}>更新后状态</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ fontSize: 9, color: '#065F46' }}>完整度</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 10, color: '#D97706', fontWeight: 700 }}>78%</span>
-                  <span style={{ fontSize: 9, color: '#065F46' }}>→</span>
-                  <span style={{ fontSize: 11, color: '#065F46', fontWeight: 800 }}>86%</span>
-                  <span style={{ fontSize: 9, color: '#10B981' }}>+8%</span>
+                <div style={{ fontSize: 11, color: '#065F46', fontWeight: 800 }}>
+                  {updatedCompleteness !== null ? `${updatedCompleteness}%` : '已提交'}
                 </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 3 }}>
                 <div style={{ fontSize: 9, color: '#065F46' }}>竞争力评分</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 10, color: '#D97706', fontWeight: 700 }}>82</span>
-                  <span style={{ fontSize: 9, color: '#065F46' }}>→</span>
-                  <span style={{ fontSize: 11, color: '#065F46', fontWeight: 800 }}>88</span>
-                  <span style={{ fontSize: 9, color: '#10B981' }}>+6</span>
+                <div style={{ fontSize: 11, color: '#065F46', fontWeight: 800 }}>
+                  {updatedCompetitiveness !== null ? updatedCompetitiveness : '待刷新'}
                 </div>
               </div>
             </div>
@@ -173,20 +293,19 @@ export default function ChatFillPage() {
         <div ref={bottomRef} />
       </div>
 
-      {/* 底部 */}
       {done ? (
         <div style={{ padding: '8px 10px', background: 'white', borderTop: '0.5px solid #E5E7EB', display: 'flex', gap: 6 }}>
           <button
             onClick={() => navigate('/profile')}
             style={{ flex: 1, padding: 8, border: '0.5px solid #D1D5DB', background: 'transparent', borderRadius: 8, fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
           >
-            稍后再说
+            返回画像
           </button>
           <button
             onClick={() => navigate('/profile')}
             style={{ flex: 1, padding: 8, background: '#4F46E5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
           >
-            写入画像 ✓
+            完成 ✓
           </button>
         </div>
       ) : (
@@ -194,19 +313,21 @@ export default function ChatFillPage() {
           <input
             value={input}
             onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && input.trim() && sendMessage(input.trim())}
-            placeholder="输入你的回答…"
+            onKeyDown={e => e.key === 'Enter' && input.trim() && void sendMessage(input.trim())}
+            placeholder={activeQuestions[currentQIdx]?.placeholder || '输入你的回答…'}
+            disabled={loading}
             style={{
               flex: 1, height: 30, border: '0.5px solid #D1D5DB', borderRadius: 15,
               padding: '0 10px', fontSize: 10, background: '#F9FAFB', outline: 'none', fontFamily: 'inherit',
             }}
           />
           <button
-            onClick={() => input.trim() && sendMessage(input.trim())}
-            style={{ width: 28, height: 28, borderRadius: '50%', background: '#4F46E5', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+            onClick={() => input.trim() && void sendMessage(input.trim())}
+            disabled={loading || !input.trim()}
+            style={{ width: 28, height: 28, borderRadius: '50%', background: '#4F46E5', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, opacity: loading || !input.trim() ? 0.45 : 1 }}
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M1 6h10M6 1l5 5-5 5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M1 6h10M6 1l5 5-5 5" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
         </div>

@@ -134,6 +134,22 @@ def _build_gap_action(item_name: str, suggestion: str) -> str:
     return "建议围绕该短板补充一段可验证的项目、课程或实习经历，并同步更新简历表达。"
 
 
+def _build_action_resources(item_name: str) -> list[str]:
+    if item_name == GAP_ITEM_LABELS["major_relevance"]:
+        return ["补充对口课程/项目案例", "准备一段能说明转岗理由的自我介绍"]
+    if item_name.startswith("必备技能："):
+        skill_name = item_name.split("：", 1)[-1]
+        return [f"{skill_name} 官方文档", f"{skill_name} 实战项目模板"]
+    if item_name.startswith("加分技能："):
+        skill_name = item_name.split("：", 1)[-1]
+        return [f"{skill_name} 入门课程", f"{skill_name} 进阶案例拆解"]
+    if item_name.startswith("职业素养："):
+        return ["STAR 法则复盘模板", "项目复盘记录"]
+    if item_name.startswith("发展潜力："):
+        return ["作品集整理清单", "比赛/开源项目计划表"]
+    return ["岗位 JD 复盘", "项目成果量化模板"]
+
+
 def _score_band_text(score: int) -> str:
     if score >= 80:
         return "具备较强切入基础"
@@ -143,8 +159,17 @@ def _score_band_text(score: int) -> str:
 
 
 def _normalize_action_items(items: Any) -> list[dict[str, Any]]:
+    if isinstance(items, dict):
+        raw_items = []
+        for group_name, default_priority in (("short_term", "必须补齐"), ("medium_term", "建议提升")):
+            for item in items.get(group_name) or []:
+                if isinstance(item, dict):
+                    raw_items.append({"priority": default_priority, **item})
+    else:
+        raw_items = list(items or [])
+
     normalized = []
-    for item in items or []:
+    for item in raw_items:
         if not isinstance(item, dict):
             continue
         item_name = _normalize_gap_item(item.get("item") or item.get("gap_item"))
@@ -153,17 +178,131 @@ def _normalize_action_items(items: Any) -> list[dict[str, Any]]:
         gap_desc = _safe_text(item.get("gap_desc"))
         if item_name == GAP_ITEM_LABELS["major_relevance"] or not gap_desc:
             gap_desc = _build_gap_description(item_name, current_level, required_level)
+        priority = _safe_text(item.get("priority"), "持续巩固")
+        score_impact = int(item.get("score_impact") or 0)
+        if score_impact == 0:
+            if priority == "必须补齐":
+                score_impact = -12
+            elif priority == "建议提升":
+                score_impact = -6
+            else:
+                score_impact = -3
+        timeline = _safe_text(item.get("timeline"))
+        if not timeline:
+            if priority == "必须补齐":
+                timeline = "3周内"
+            elif priority == "建议提升":
+                timeline = "3个月内"
+            else:
+                timeline = "1个季度内"
+        resources = [
+            _safe_text(resource)
+            for resource in (item.get("resources") or [])
+            if _safe_text(resource)
+        ] or _build_action_resources(item_name)
         normalized.append(
             {
-                "priority": _safe_text(item.get("priority"), "持续巩固"),
+                "priority": priority,
                 "item": item_name,
                 "gap_desc": gap_desc,
-                "score_impact": int(item.get("score_impact") or 0),
+                "score_impact": score_impact,
                 "action": _build_gap_action(item_name, _safe_text(item.get("action") or item.get("suggestion"))),
-                "timeline": _safe_text(item.get("timeline"), "持续推进"),
+                "timeline": timeline,
+                "resources": resources[:2],
             }
         )
     return normalized
+
+
+def _group_action_items(items: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped = {"short_term": [], "medium_term": []}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        score_impact = abs(int(item.get("score_impact") or 0))
+        priority = _safe_text(item.get("priority"))
+        target_group = "short_term" if priority == "必须补齐" or score_impact >= 8 else "medium_term"
+        grouped[target_group].append(
+            {
+                "priority": _safe_text(item.get("priority"), "建议提升"),
+                "item": _safe_text(item.get("item"), "能力差距"),
+                "gap_desc": _safe_text(item.get("gap_desc")),
+                "score_impact": int(item.get("score_impact") or 0),
+                "action": _safe_text(item.get("action")),
+                "timeline": _safe_text(item.get("timeline")),
+                "resources": [
+                    _safe_text(resource)
+                    for resource in (item.get("resources") or [])
+                    if _safe_text(resource)
+                ][:2],
+            }
+        )
+
+    grouped["short_term"] = grouped["short_term"][:4]
+    grouped["medium_term"] = grouped["medium_term"][:4]
+    return grouped
+
+
+def _build_review_checkpoints(actions: list[dict[str, Any]], baseline_score: int) -> dict[str, list[dict[str, Any]]]:
+    first_action = actions[0] if actions else {
+        "item": "核心岗位技能",
+        "action": "补齐目标岗位的核心技能，并形成 1 个可展示成果。",
+    }
+    medium_action = next(
+        (item for item in actions if _safe_text(item.get("priority")) != "必须补齐"),
+        actions[1] if len(actions) > 1 else first_action,
+    )
+    month_three_target = min(98, max(baseline_score + 5, baseline_score))
+    month_six_target = min(100, max(baseline_score + 10, month_three_target + 3))
+    return {
+        "review_checkpoints": [
+            {
+                "month": 1,
+                "goal": f"完成{_safe_text(first_action.get('item'), '核心技能')}的首轮补齐",
+                "kpi": f"产出1个与{_safe_text(first_action.get('item'), '目标岗位技能')}相关的练习或项目成果",
+                "action": _safe_text(first_action.get("action"), "完成一轮专项补齐，并整理可展示证据"),
+            },
+            {
+                "month": 3,
+                "goal": f"综合分提升至{month_three_target}分",
+                "kpi": f"重新运行匹配系统，综合分达到{month_three_target}分",
+                "action": "更新简历并重新上传，验证差距项是否显著减少",
+            },
+            {
+                "month": 6,
+                "goal": f"完成{_safe_text(medium_action.get('item'), '中期能力')}等中期目标",
+                "kpi": f"完成2个岗位相关作品或获得1段相关实习/项目经历，综合分接近{month_six_target}分",
+                "action": _safe_text(medium_action.get("action"), "把中期目标转化为真实经历，并重新生成完整报告"),
+            },
+        ]
+    }
+
+
+def _normalize_review_checkpoints(
+    checkpoints: Any,
+    actions: list[dict[str, Any]],
+    baseline_score: int,
+) -> dict[str, list[dict[str, Any]]]:
+    if isinstance(checkpoints, dict) and isinstance(checkpoints.get("review_checkpoints"), list):
+        normalized = []
+        for item in checkpoints.get("review_checkpoints") or []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                month = int(item.get("month") or 0)
+            except (TypeError, ValueError):
+                month = 0
+            normalized.append(
+                {
+                    "month": month,
+                    "goal": _safe_text(item.get("goal"), "完成阶段性目标"),
+                    "kpi": _safe_text(item.get("kpi"), "完成可验证成果并更新匹配结果"),
+                    "action": _safe_text(item.get("action"), "更新简历并重新复盘"),
+                }
+            )
+        if normalized:
+            return {"review_checkpoints": normalized[:3]}
+    return _build_review_checkpoints(actions, baseline_score)
 
 
 def _normalize_paths(paths: Any, target_role: str, actions: list[dict[str, Any]]) -> dict[str, Any]:
@@ -253,23 +392,46 @@ def normalize_report_content(content_json: dict[str, Any] | None) -> dict[str, A
             )
     chapters.sort(key=lambda item: item["chapter_id"])
     target_job = dict(content.get("target_job") or {})
-    actions = _normalize_action_items(content.get("actions") or [])
+    baseline_score = _normalize_score(
+        target_job.get("match_score") or target_job.get("overall_score")
+    )
+    actions = _normalize_action_items(content.get("actions") or content.get("action_groups") or [])
+    action_groups = _group_action_items(actions)
+    review_checkpoints = _normalize_review_checkpoints(
+        content.get("review_checkpoints"),
+        actions,
+        baseline_score,
+    )
     target_role = _safe_text(
         target_job.get("role_name") or target_job.get("role") or target_job.get("title")
     )
     paths = _normalize_paths(content.get("paths"), target_role, actions)
     for chapter in chapters:
         if chapter["chapter_id"] == 3:
-            chapter["data"] = actions
+            chapter_data = chapter.get("data")
+            if isinstance(chapter_data, dict) and (
+                isinstance(chapter_data.get("short_term"), list)
+                or isinstance(chapter_data.get("medium_term"), list)
+            ):
+                chapter["data"] = _group_action_items(_normalize_action_items(chapter_data))
+            elif isinstance(chapter_data, list):
+                chapter["data"] = _group_action_items(_normalize_action_items(chapter_data))
+            else:
+                chapter["data"] = action_groups
         elif chapter["chapter_id"] == 4:
             chapter["data"] = paths
+        elif chapter["chapter_id"] == 5:
+            chapter_data = chapter.get("data")
+            chapter["data"] = _normalize_review_checkpoints(chapter_data, actions, baseline_score)
     return {
         "title": content.get("title") or DEFAULT_REPORT_TITLE,
         "summary": _clean_paragraph(str(content.get("summary") or "")) if content.get("summary") else "",
         "target_job": target_job,
         "dimensions": list(content.get("dimensions") or []),
         "actions": actions,
+        "action_groups": action_groups,
         "paths": paths,
+        "review_checkpoints": review_checkpoints,
         "chapters": chapters,
         "metadata": dict(content.get("metadata") or {}),
     }
@@ -382,15 +544,15 @@ def _build_actions(match_result: dict[str, Any]) -> list[dict[str, Any]]:
         if raw_priority == "high":
             priority = "必须补齐"
             score_impact = -12
-            timeline = "2-4周"
+            timeline = "3周内"
         elif raw_priority == "medium":
             priority = "建议提升"
             score_impact = -6
-            timeline = "1-2个月"
+            timeline = "3个月内"
         else:
             priority = "持续巩固"
             score_impact = -3
-            timeline = "持续推进"
+            timeline = "6个月内"
         actions.append(
             {
                 "priority": priority,
@@ -399,6 +561,7 @@ def _build_actions(match_result: dict[str, Any]) -> list[dict[str, Any]]:
                 "score_impact": score_impact,
                 "action": _build_gap_action(item_name, _safe_text(item.get("suggestion"))),
                 "timeline": timeline,
+                "resources": _build_action_resources(item_name),
             }
         )
     if actions:
@@ -410,7 +573,8 @@ def _build_actions(match_result: dict[str, Any]) -> list[dict[str, Any]]:
             "gap_desc": "当前缺少明确阻塞项，但需要更强的求职证据",
             "score_impact": -3,
             "action": "补充项目量化成果、技术选型理由和个人贡献，持续优化简历表达。",
-            "timeline": "持续推进",
+            "timeline": "6个月内",
+            "resources": ["项目量化成果模板", "简历 STAR 表达清单"],
         }
     ]
 
@@ -535,6 +699,8 @@ def _build_report_content(
     job_info = _extract_job_info(top_match)
     dimensions = _extract_dimensions(top_match)
     actions = _build_actions(top_match)
+    action_groups = _group_action_items(actions)
+    review_checkpoints = _build_review_checkpoints(actions, job_info["match_score"])
     related_jobs = [
         {
             "role_name": _extract_job_info(item)["role_name"],
@@ -565,9 +731,13 @@ def _build_report_content(
         f"{f'短板则集中在“{weakest_dimension['label']}”维度，需要优先补强。' if weakest_dimension else ''}"
     )
     must_fix = len([item for item in actions if item["priority"] == "必须补齐"])
+    recoverable_score = min(
+        100,
+        job_info["match_score"] + sum(abs(min(0, int(item.get("score_impact") or 0))) for item in actions[:3]),
+    )
     chapter_three = _clean_paragraph(
         f"围绕“{job_info['role_name']}”的进入门槛，当前共识别出 {len(actions)} 项关键动作，其中必须补齐 {must_fix} 项。"
-        f"优先级越高的事项越应尽快转化为项目、实习或简历中的可验证证据。"
+        f"优先级越高的事项越应尽快转化为项目、实习或简历中的可验证证据，若核心短板补齐，综合分预计可提升到 {recoverable_score} 分左右。"
     )
     chapter_four = _clean_paragraph(
         f"推荐以“{job_info['role_name']}”作为当前主路径，先进入准备期，再向初级岗位和进阶岗位逐步推进。"
@@ -575,16 +745,16 @@ def _build_report_content(
     )
     checkpoints = "、".join(item["item"] for item in actions[:3]) or "核心技能与项目表达"
     chapter_five = _clean_paragraph(
-        f"建议以 3 个月为一个复盘周期，重点检查 {checkpoints} 是否已经形成可验证成果。"
-        f"完成阶段动作后，重新上传最新简历并复跑匹配与报告，可以直观看到提升幅度。"
+        f"建议至少每 3 个月做一次结构化复盘，重点检查 {checkpoints} 是否已经形成可展示成果，并同步观察简历表达是否更贴近岗位要求。"
+        f"在第 6 个月节点重新上传最新简历并复跑匹配与报告，可以直观看到分数与路径建议的变化。"
     )
     summary = _build_summary(student_profile, job_info, actions)
     chapters = [
         {"chapter_id": 1, "title": _chapter_title(1), "text": chapter_one, "data": None, "status": "done"},
         {"chapter_id": 2, "title": _chapter_title(2), "text": chapter_two, "data": {"overall_score": job_info["match_score"], "dimensions": dimensions}, "status": "done"},
-        {"chapter_id": 3, "title": _chapter_title(3), "text": chapter_three, "data": actions, "status": "done"},
+        {"chapter_id": 3, "title": _chapter_title(3), "text": chapter_three, "data": action_groups, "status": "done"},
         {"chapter_id": 4, "title": _chapter_title(4), "text": chapter_four, "data": paths, "status": "done"},
-        {"chapter_id": 5, "title": _chapter_title(5), "text": chapter_five, "data": None, "status": "done"},
+        {"chapter_id": 5, "title": _chapter_title(5), "text": chapter_five, "data": review_checkpoints, "status": "done"},
     ]
     recommendations = _build_recommendations(job_info, dimensions, actions)
     content_json = {
@@ -593,7 +763,9 @@ def _build_report_content(
         "target_job": job_info,
         "dimensions": dimensions,
         "actions": actions,
+        "action_groups": action_groups,
         "paths": paths,
+        "review_checkpoints": review_checkpoints,
         "chapters": chapters,
         "metadata": {"generated_at": datetime.now(UTC).isoformat(), "template_version": REPORT_TEMPLATE_VERSION},
     }
@@ -775,14 +947,22 @@ def _build_export_html(report: CareerReport, content_json: dict[str, Any]) -> st
         extra_html = ""
         if chapter["chapter_id"] == 2:
             extra_html = _build_export_chart_html(content)
-        elif chapter["chapter_id"] == 3 and isinstance(chapter.get("data"), list):
-            items = []
-            for item in chapter["data"]:
-                items.append(
-                    f'<div class="action-item"><strong>{_escape_html(item.get("priority"))} / {_escape_html(item.get("item"))}</strong>'
-                    f'<div>{_escape_html(item.get("action"))}</div><div class="muted">周期：{_escape_html(item.get("timeline"))}</div></div>'
-                )
-            extra_html = '<div class="action-list">' + "".join(items) + "</div>"
+        elif chapter["chapter_id"] == 3 and isinstance(chapter.get("data"), dict):
+            groups = []
+            for title, key in (("短期 0-6 月", "short_term"), ("中期 6-18 月", "medium_term")):
+                items = []
+                for item in chapter["data"].get(key) or []:
+                    resources = " / ".join(_escape_html(resource) for resource in (item.get("resources") or []))
+                    items.append(
+                        f'<div class="action-item"><strong>{_escape_html(item.get("priority"))} / {_escape_html(item.get("item"))}</strong>'
+                        f'<div>{_escape_html(item.get("gap_desc"))}</div>'
+                        f'<div>{_escape_html(item.get("action"))}</div>'
+                        f'<div class="muted">周期：{_escape_html(item.get("timeline"))}'
+                        f'{f" · 资源：{resources}" if resources else ""}</div></div>'
+                    )
+                if items:
+                    groups.append(f'<div class="action-group-title">{title}</div>' + "".join(items))
+            extra_html = '<div class="action-list">' + "".join(groups) + "</div>"
         elif chapter["chapter_id"] == 4 and isinstance(chapter.get("data"), dict):
             nodes = []
             for item in chapter["data"].get("primary_path") or []:
@@ -792,6 +972,16 @@ def _build_export_html(report: CareerReport, content_json: dict[str, Any]) -> st
                 )
             alt_titles = [f"<li>{_escape_html(item.get('title'))}</li>" for item in (chapter["data"].get("alt_paths") or [])]
             extra_html = '<div class="path-list">' + "".join(nodes) + "</div>" + (f"<ul>{''.join(alt_titles)}</ul>" if alt_titles else "")
+        elif chapter["chapter_id"] == 5 and isinstance(chapter.get("data"), dict):
+            checkpoints = []
+            for item in chapter["data"].get("review_checkpoints") or []:
+                checkpoints.append(
+                    f'<div class="timeline-item"><strong>{_escape_html(item.get("month"))} 月</strong>'
+                    f'<div>{_escape_html(item.get("goal"))}</div>'
+                    f'<div class="muted">KPI：{_escape_html(item.get("kpi"))}</div>'
+                    f'<div class="muted">验证动作：{_escape_html(item.get("action"))}</div></div>'
+                )
+            extra_html = '<div class="timeline-list">' + "".join(checkpoints) + "</div>"
         cards.append(
             f'<section class="card"><div class="card-head"><h2>{_escape_html(chapter["title"])}</h2><span class="badge">已生成</span></div>'
             f'<p>{_escape_html(chapter.get("text"))}</p>{extra_html}</section>'
@@ -811,8 +1001,9 @@ body{{font-family:"Microsoft YaHei","PingFang SC",sans-serif;background:#f4f6fb;
 .hero{{background:linear-gradient(135deg,#4f46e5,#2563eb);color:#fff}} .hero h1{{margin:0 0 10px}} .hero p{{margin:0;line-height:1.8}}
 .card-head{{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}} .card-head h2{{margin:0;font-size:22px}}
 .badge{{background:#dcfce7;color:#166534;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700}} p{{line-height:1.9;white-space:pre-wrap}}
-.chart-container,.action-item,.path-node,.recommendation{{background:#f8fafc;border-radius:16px;padding:14px 16px;margin-top:12px}} .muted{{color:#6b7280;font-size:12px}}
+.chart-container,.action-item,.path-node,.recommendation,.timeline-item{{background:#f8fafc;border-radius:16px;padding:14px 16px;margin-top:12px}} .muted{{color:#6b7280;font-size:12px}}
 .chart-row{{display:flex;align-items:center;gap:12px;margin:10px 0}} .chart-label{{width:72px;font-weight:700}} .chart-bar{{flex:1;height:10px;background:#e5e7eb;border-radius:999px;overflow:hidden}} .chart-fill{{height:100%;background:linear-gradient(90deg,#60a5fa,#2563eb)}} .chart-value{{width:40px;text-align:right}}
+.action-group-title{{margin-top:16px;font-size:14px;font-weight:700;color:#1f2937}} .timeline-list{{display:grid;gap:12px}}
 .recommendation{{display:grid;gap:6px}} .footer{{text-align:center;color:#6b7280;font-size:12px;margin-top:18px}}
 </style></head><body><div class="container"><section class="hero"><h1>{_escape_html(title)}</h1><p>{_escape_html(summary)}</p></section>{''.join(cards)}<section class="panel"><h3>推荐建议</h3>{rec_html or '<div class="recommendation">当前暂无额外建议。</div>'}</section><div class="footer"><div>生成时间：{_escape_html(generated_at)}</div><div>版本：{_escape_html(report.version or '1.0')}</div></div></div></body></html>"""
 
@@ -888,9 +1079,23 @@ async def export_to_docx(report_id: UUID, db: AsyncSession) -> str:
         document.add_heading(chapter["title"], level=1)
         if chapter.get("text"):
             document.add_paragraph(chapter["text"])
-        if chapter["chapter_id"] == 3 and isinstance(chapter.get("data"), list):
-            for item in chapter["data"]:
-                document.add_paragraph(f"{item.get('priority')} - {item.get('item')}: {item.get('action')}", style="List Bullet")
+        if chapter["chapter_id"] == 3 and isinstance(chapter.get("data"), dict):
+            for title, key in (("短期 0-6 月", "short_term"), ("中期 6-18 月", "medium_term")):
+                items = chapter["data"].get(key) or []
+                if not items:
+                    continue
+                document.add_paragraph(title)
+                for item in items:
+                    document.add_paragraph(
+                        f"{item.get('priority')} - {item.get('item')}: {item.get('action')}",
+                        style="List Bullet",
+                    )
+        if chapter["chapter_id"] == 5 and isinstance(chapter.get("data"), dict):
+            for item in chapter["data"].get("review_checkpoints") or []:
+                document.add_paragraph(
+                    f"{item.get('month')}月 - {item.get('goal')} / KPI: {item.get('kpi')}",
+                    style="List Bullet",
+                )
     if report.recommendations:
         document.add_heading("推荐建议", level=1)
         for item in report.recommendations:
@@ -910,6 +1115,7 @@ def _build_report_polish_context(content: dict[str, Any], report: CareerReport) 
         "target_job": content.get("target_job") or {},
         "dimensions": content.get("dimensions") or [],
         "actions": content.get("actions") or [],
+        "review_checkpoints": content.get("review_checkpoints") or {},
         "paths": content.get("paths") or {},
         "chapters": [
             {

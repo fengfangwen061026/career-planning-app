@@ -1,6 +1,13 @@
 import { useEffect, useRef } from "react";
 import * as d3 from "d3";
 import type { GraphCommunity, GraphEdge, JobNode } from "./types";
+import {
+  buildLayeredGraph,
+  createLayeredSimulation,
+  truncateLabel,
+  type LayoutEdge,
+  type LayoutNode,
+} from "./graphLayout";
 import { graphStyles } from "./graphStyles";
 
 interface UseD3GraphOptions {
@@ -12,18 +19,6 @@ interface UseD3GraphOptions {
   searchQuery: string;
   selectedJobId?: string;
   onJobSelect?: (job: JobNode | null) => void;
-}
-
-interface SimNode extends d3.SimulationNodeDatum, JobNode {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-}
-
-interface SimEdge extends d3.SimulationLinkDatum<SimNode>, Omit<GraphEdge, "source" | "target"> {
-  source: SimNode;
-  target: SimNode;
 }
 
 export function useD3Graph({
@@ -40,6 +35,8 @@ export function useD3Graph({
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    void communities;
+
     if (!svgRef.current || !containerRef.current || nodes.length === 0) {
       return;
     }
@@ -49,13 +46,13 @@ export function useD3Graph({
     svg.style("font-family", graphStyles.fontFamily);
 
     const root = svg.append("g");
-    const communityLayer = root.append("g").attr("class", "community-layer");
+    const bandLayer = root.append("g").attr("class", "band-layer");
     const edgeLayer = root.append("g").attr("class", "edge-layer");
     const nodeLayer = root.append("g").attr("class", "node-layer");
 
     const zoom = d3
       .zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.5, 2.5])
+      .scaleExtent([0.45, 2.8])
       .on("zoom", (event) => {
         root.attr("transform", event.transform.toString());
       });
@@ -67,69 +64,70 @@ export function useD3Graph({
     });
     svg.on("click.clear-selection", () => onJobSelect?.(null));
 
-    const communityCenters = computeCommunityCenters(communities, width, height);
-    const simNodes: SimNode[] = nodes.map((node, index) => {
-      const center = communityCenters.get(node.community_id) ?? { x: width / 2, y: height / 2 };
-      const spread = 42 + (index % 5) * 10;
-      return {
-        ...node,
-        x: center.x + Math.cos(index * 1.7) * spread,
-        y: center.y + Math.sin(index * 1.2) * spread,
-        vx: 0,
-        vy: 0,
-      };
-    });
-
-    const nodeById = new Map(simNodes.map((node) => [node.id, node]));
-    const simEdges: SimEdge[] = edges
-      .map((edge) => {
-        const source = nodeById.get(edge.source);
-        const target = nodeById.get(edge.target);
-        if (!source || !target) {
-          return null;
-        }
-        return { ...edge, source, target };
-      })
-      .filter((edge): edge is SimEdge => edge !== null);
+    const { nodes: layoutNodes, edges: layoutEdges, bands } = buildLayeredGraph(
+      nodes,
+      edges,
+      width,
+      height
+    );
+    const nodeById = new Map(layoutNodes.map((node) => [node.id, node]));
 
     const selectedEdgeIds = new Set(
       selectedJobId
-        ? simEdges
-            .filter((edge) => edge.source.id === selectedJobId || edge.target.id === selectedJobId)
+        ? layoutEdges
+            .filter((edge) => {
+              const sourceId = typeof edge.source === "string" ? edge.source : edge.source.id;
+              const targetId = typeof edge.target === "string" ? edge.target : edge.target.id;
+              return sourceId === selectedJobId || targetId === selectedJobId;
+            })
             .map((edge) => edge.id)
         : []
     );
-    const connectedNodeIds = new Set(
-      selectedJobId
-        ? simEdges.flatMap((edge) =>
-            edge.source.id === selectedJobId || edge.target.id === selectedJobId
-              ? [edge.source.id, edge.target.id]
-              : []
-          )
-        : []
-    );
+
+    const connectedNodeIds = new Set<string>();
     if (selectedJobId) {
       connectedNodeIds.add(selectedJobId);
+      layoutEdges.forEach((edge) => {
+        const sourceId = typeof edge.source === "string" ? edge.source : edge.source.id;
+        const targetId = typeof edge.target === "string" ? edge.target : edge.target.id;
+        if (sourceId === selectedJobId || targetId === selectedJobId) {
+          connectedNodeIds.add(sourceId);
+          connectedNodeIds.add(targetId);
+        }
+      });
     }
 
     const searchLower = searchQuery.trim().toLowerCase();
 
-    const communityPaths = communityLayer
-      .selectAll<SVGPathElement, GraphCommunity>("path.community-hull")
-      .data(
-        communities.filter((community) => community.node_ids.some((nodeId) => nodeById.has(nodeId))),
-        (community) => community.community_id
-      )
-      .join("path")
-      .attr("class", "community-hull")
-      .attr("fill", (community) => `${community.color}12`)
-      .attr("stroke", (community) => `${community.color}55`)
-      .attr("stroke-width", 1.2)
-      .attr("stroke-dasharray", "4 6");
+    bandLayer
+      .selectAll("line.band-line")
+      .data(bands)
+      .join("line")
+      .attr("class", "band-line")
+      .attr("x1", 64)
+      .attr("x2", Math.max(64, width - 32))
+      .attr("y1", (band) => band.y)
+      .attr("y2", (band) => band.y)
+      .attr("stroke", graphStyles.gray300)
+      .attr("stroke-width", 1)
+      .attr("stroke-dasharray", "6 8")
+      .attr("opacity", 0.7);
+
+    bandLayer
+      .selectAll("text.band-label")
+      .data(bands)
+      .join("text")
+      .attr("class", "band-label")
+      .attr("x", 18)
+      .attr("y", (band) => band.y - 8)
+      .attr("fill", graphStyles.gray500)
+      .attr("font-size", 11)
+      .attr("font-weight", 700)
+      .text((band) => band.label);
 
     const edgeGroups = edgeLayer
-      .selectAll<SVGGElement, SimEdge>("g.edge")
-      .data(simEdges, (edge) => edge.id)
+      .selectAll<SVGGElement, LayoutEdge>("g.edge")
+      .data(layoutEdges, (edge) => edge.id)
       .join("g")
       .attr("class", (edge) => `edge edge-${edge.edge_type}`);
 
@@ -154,8 +152,8 @@ export function useD3Graph({
       .text((edge) => `${Math.round(edge.weight * 100)}%`);
 
     const nodeGroups = nodeLayer
-      .selectAll<SVGGElement, SimNode>("g.node")
-      .data(simNodes, (node) => node.id)
+      .selectAll<SVGGElement, LayoutNode>("g.node")
+      .data(layoutNodes, (node) => node.id)
       .join("g")
       .attr("class", "node")
       .style("cursor", "pointer")
@@ -204,7 +202,7 @@ export function useD3Graph({
       .attr("font-size", graphStyles.nodeTitleSize)
       .attr("font-weight", 700)
       .attr("opacity", (node) => nodeOpacity(node, searchLower, selectedJobId, connectedNodeIds))
-      .text((node) => truncateText(node.label, nodeWidth(node) > 178 ? 12 : 10));
+      .text((node) => truncateLabel(node.label, nodeWidth(node) > 178 ? 12 : 10));
 
     nodeGroups
       .append("text")
@@ -224,41 +222,12 @@ export function useD3Graph({
       .attr("fill", graphStyles.gray700)
       .attr("font-size", graphStyles.nodeSummarySize)
       .attr("opacity", (node) => nodeOpacity(node, searchLower, selectedJobId, connectedNodeIds))
-      .text((node) => truncateText(node.summary || "岗位画像原型", nodeWidth(node) > 178 ? 16 : 12));
+      .text((node) => truncateLabel(node.summary || "岗位画像原型", nodeWidth(node) > 178 ? 16 : 12));
 
-    const simulation = d3
-      .forceSimulation<SimNode>(simNodes)
-      .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("charge", d3.forceManyBody<SimNode>().strength(-220))
-      .force(
-        "collide",
-        d3.forceCollide<SimNode>().radius((node) => Math.max(nodeWidth(node), nodeHeight(node)) * 0.38)
-      )
-      .force(
-        "link",
-        d3
-          .forceLink<SimNode, SimEdge>(simEdges)
-          .id((node) => node.id)
-          .distance((edge) => edgeDistance(edge))
-          .strength((edge) => edgeStrength(edge))
-      )
-      .force(
-        "community-x",
-        d3
-          .forceX<SimNode>((node) => (communityCenters.get(node.community_id)?.x ?? width / 2))
-          .strength(0.12)
-      )
-      .force(
-        "community-y",
-        d3
-          .forceY<SimNode>((node) => (communityCenters.get(node.community_id)?.y ?? height / 2))
-          .strength(0.12)
-      )
-      .velocityDecay(0.42)
-      .alphaDecay(0.032);
+    const simulation = createLayeredSimulation(layoutNodes, layoutEdges, width, height);
 
     const drag = d3
-      .drag<SVGGElement, SimNode>()
+      .drag<SVGGElement, LayoutNode>()
       .on("start", (event, node) => {
         if (!event.active) {
           simulation.alphaTarget(0.18).restart();
@@ -283,19 +252,11 @@ export function useD3Graph({
     simulation.on("tick", () => {
       nodeGroups.attr("transform", (node) => `translate(${node.x},${node.y})`);
 
-      edgePaths.attr("d", (edge) => edgePath(edge));
+      edgePaths.attr("d", (edge) => edgePath(edge, nodeById));
 
       edgeLabels
-        .attr("x", (edge) => edgeLabelX(edge))
-        .attr("y", (edge) => edgeLabelY(edge));
-
-      communityPaths.attr("d", (community) =>
-        buildCommunityPath(
-          community.node_ids
-            .map((nodeId) => nodeById.get(nodeId))
-            .filter((node): node is SimNode => node !== undefined)
-        )
-      );
+        .attr("x", (edge) => edgeLabelX(edge, nodeById))
+        .attr("y", (edge) => edgeLabelY(edge, nodeById));
     });
 
     return () => {
@@ -304,28 +265,6 @@ export function useD3Graph({
   }, [communities, edges, height, nodes, onJobSelect, searchQuery, selectedJobId, width]);
 
   return { svgRef, containerRef };
-}
-
-function computeCommunityCenters(
-  communities: GraphCommunity[],
-  width: number,
-  height: number
-): Map<string, { x: number; y: number }> {
-  const radius = Math.min(width, height) * 0.27;
-  const centerX = width / 2;
-  const centerY = height / 2 + 12;
-  const total = Math.max(communities.length, 1);
-  const centers = new Map<string, { x: number; y: number }>();
-
-  communities.forEach((community, index) => {
-    const angle = (Math.PI * 2 * index) / total - Math.PI / 2;
-    centers.set(community.community_id, {
-      x: centerX + Math.cos(angle) * radius,
-      y: centerY + Math.sin(angle) * radius,
-    });
-  });
-
-  return centers;
 }
 
 function nodeWidth(node: JobNode): number {
@@ -346,16 +285,6 @@ function nodeHeight(node: JobNode): number {
     return graphStyles.nodeHeights.medium;
   }
   return graphStyles.nodeHeights.small;
-}
-
-function edgeDistance(edge: Pick<GraphEdge, "edge_type" | "weight">): number {
-  return edge.edge_type === "vertical"
-    ? 90 + (1 - edge.weight) * 30
-    : 130 + (1 - edge.weight) * 90;
-}
-
-function edgeStrength(edge: Pick<GraphEdge, "edge_type" | "weight">): number {
-  return edge.edge_type === "vertical" ? 0.20 + edge.weight * 0.18 : 0.10 + edge.weight * 0.22;
 }
 
 function edgeStrokeWidth(weight: number, edgeType: GraphEdge["edge_type"]): number {
@@ -384,11 +313,23 @@ function edgeStrokeColor(edge: Pick<GraphEdge, "edge_type" | "weight">): string 
   return graphStyles.transitionEdgeWeak;
 }
 
-function edgePath(edge: SimEdge): string {
-  const sourceX = edge.source.x;
-  const sourceY = edge.source.y;
-  const targetX = edge.target.x;
-  const targetY = edge.target.y;
+function resolveNode(
+  value: string | LayoutNode,
+  nodeById: Map<string, LayoutNode>
+): LayoutNode {
+  if (typeof value === "string") {
+    return nodeById.get(value)!;
+  }
+  return value;
+}
+
+function edgePath(edge: LayoutEdge, nodeById: Map<string, LayoutNode>): string {
+  const source = resolveNode(edge.source, nodeById);
+  const target = resolveNode(edge.target, nodeById);
+  const sourceX = source.x;
+  const sourceY = source.y;
+  const targetX = target.x;
+  const targetY = target.y;
 
   if (edge.edge_type === "vertical") {
     const dx = targetX - sourceX;
@@ -403,71 +344,18 @@ function edgePath(edge: SimEdge): string {
   return `M ${sourceX},${sourceY} L ${targetX},${targetY}`;
 }
 
-function edgeLabelX(edge: SimEdge): number {
-  if (edge.edge_type === "vertical") {
-    return (edge.source.x + edge.target.x) / 2;
-  }
-  return (edge.source.x + edge.target.x) / 2;
+function edgeLabelX(edge: LayoutEdge, nodeById: Map<string, LayoutNode>): number {
+  const source = resolveNode(edge.source, nodeById);
+  const target = resolveNode(edge.target, nodeById);
+  return (source.x + target.x) / 2;
 }
 
-function edgeLabelY(edge: SimEdge): number {
-  if (edge.edge_type === "vertical") {
-    return (edge.source.y + edge.target.y) / 2 - 8;
-  }
-  return (edge.source.y + edge.target.y) / 2 - 10;
-}
-
-function buildCommunityPath(nodes: SimNode[]): string {
-  if (nodes.length === 0) {
-    return "";
-  }
-  if (nodes.length === 1) {
-    const node = nodes[0];
-    return roundedRectPath(node.x - 70, node.y - 52, 140, 104, 26);
-  }
-  if (nodes.length === 2) {
-    const minX = Math.min(nodes[0].x, nodes[1].x) - 88;
-    const minY = Math.min(nodes[0].y, nodes[1].y) - 64;
-    const width = Math.abs(nodes[0].x - nodes[1].x) + 176;
-    const height = Math.abs(nodes[0].y - nodes[1].y) + 128;
-    return roundedRectPath(minX, minY, width, height, 36);
-  }
-
-  const points = nodes.flatMap((node) => {
-    const rx = nodeWidth(node) / 2 + 28;
-    const ry = nodeHeight(node) / 2 + 24;
-    return [
-      [node.x - rx, node.y - ry],
-      [node.x + rx, node.y - ry],
-      [node.x + rx, node.y + ry],
-      [node.x - rx, node.y + ry],
-    ];
-  }) as [number, number][];
-
-  const hull = d3.polygonHull(points);
-  return hull ? `M${hull.join("L")}Z` : "";
-}
-
-function roundedRectPath(x: number, y: number, width: number, height: number, radius: number): string {
-  return [
-    `M${x + radius},${y}`,
-    `H${x + width - radius}`,
-    `Q${x + width},${y} ${x + width},${y + radius}`,
-    `V${y + height - radius}`,
-    `Q${x + width},${y + height} ${x + width - radius},${y + height}`,
-    `H${x + radius}`,
-    `Q${x},${y + height} ${x},${y + height - radius}`,
-    `V${y + radius}`,
-    `Q${x},${y} ${x + radius},${y}`,
-    "Z",
-  ].join(" ");
-}
-
-function truncateText(value: string, limit: number): string {
-  if (value.length <= limit) {
-    return value;
-  }
-  return `${value.slice(0, limit)}…`;
+function edgeLabelY(edge: LayoutEdge, nodeById: Map<string, LayoutNode>): number {
+  const source = resolveNode(edge.source, nodeById);
+  const target = resolveNode(edge.target, nodeById);
+  return edge.edge_type === "vertical"
+    ? (source.y + target.y) / 2 - 8
+    : (source.y + target.y) / 2 - 10;
 }
 
 function nodeOpacity(
@@ -489,7 +377,7 @@ function nodeOpacity(
 }
 
 function getEdgeOpacity(
-  edge: SimEdge,
+  edge: LayoutEdge,
   selectedEdgeIds: Set<string>,
   hasSearch: boolean,
   connectedNodeIds: Set<string>
@@ -498,7 +386,9 @@ function getEdgeOpacity(
     return selectedEdgeIds.has(edge.id) ? 1 : 0.12;
   }
   if (hasSearch) {
-    return connectedNodeIds.size > 0 ? 0.35 : 0.58;
+    const sourceId = typeof edge.source === "string" ? edge.source : edge.source.id;
+    const targetId = typeof edge.target === "string" ? edge.target : edge.target.id;
+    return connectedNodeIds.has(sourceId) || connectedNodeIds.has(targetId) ? 0.35 : 0.18;
   }
   return edge.edge_type === "vertical" ? 0.68 : 0.82;
 }

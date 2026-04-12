@@ -201,6 +201,7 @@ async def check_report_completeness(report_id: UUID, db: AsyncSession = Depends(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/{report_id}/export", response_model=None)
 @router.post("/{report_id}/export", response_model=None)
 async def export_report(
     report_id: UUID,
