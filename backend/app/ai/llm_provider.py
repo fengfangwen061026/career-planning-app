@@ -7,6 +7,7 @@ import logging
 import re
 from typing import Any, AsyncIterator, Literal
 
+import httpx
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, RateLimitError
 from openai.resources.chat.completions.completions import AsyncCompletions
 
@@ -78,10 +79,15 @@ class LLMProvider:
         if client is None:
             base_url, api_key, _ = self._provider_config(provider)
             headers = self._provider_headers(provider)
+            # Do not inherit shell proxy settings implicitly. The current
+            # environment exports a SOCKS proxy that httpx cannot use here,
+            # which breaks all model requests before they reach the provider.
+            http_client = httpx.AsyncClient(trust_env=False)
             client = AsyncOpenAI(
                 base_url=base_url,
                 api_key=api_key,
                 default_headers=headers,
+                http_client=http_client,
             )
             self._clients[provider] = client
         return client

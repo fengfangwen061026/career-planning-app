@@ -41,6 +41,19 @@ cd backend && uvicorn app.main:app --reload --port 8000
 cd frontend && npm run dev
 ```
 
+### 6. 生成岗位画像
+
+`seed_data.py` 只会导入 `jobs` 和 `roles`，不会自动生成 `job_profiles`。
+
+可通过以下任一方式生成岗位画像：
+
+```bash
+# 方式 1：使用后端脚本批量生成
+cd backend && python app/scripts/regenerate_all_profiles.py
+
+# 方式 2：启动系统后，在“岗位画像库”页面点击“生成画像”
+```
+
 ## API 接口
 
 ### Jobs

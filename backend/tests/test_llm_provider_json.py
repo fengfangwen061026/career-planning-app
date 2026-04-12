@@ -36,6 +36,19 @@ def test_normalize_stepfun_base_url_rewrites_legacy_path() -> None:
     assert _normalize_stepfun_base_url("https://api.stepfun.com/step_plan/v1") == "https://api.stepfun.com/v1"
 
 
+def test_get_client_disables_env_proxy_inheritance(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = LLMProvider()
+    monkeypatch.setattr(
+        provider,
+        "_provider_config",
+        lambda _provider: ("https://api.stepfun.com/v1", "test-key", "step-3.5-flash"),
+    )
+
+    client = provider._get_client("default")
+
+    assert client._client._trust_env is False
+
+
 @pytest.mark.asyncio
 async def test_chat_drops_unsupported_stepfun_reasoning_controls(monkeypatch: pytest.MonkeyPatch) -> None:
     class DummyCreate:

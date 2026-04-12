@@ -21,6 +21,11 @@ _CACHE_MAX_SIZE = 2048
 _NORMALIZE_RE = re.compile(r"\s+")
 
 
+def _build_http_client() -> httpx.AsyncClient:
+    """Create outbound clients without inheriting shell proxy settings."""
+    return httpx.AsyncClient(trust_env=False)
+
+
 def _normalize_for_cache(text: str) -> str:
     """Normalize text for consistent cache key generation."""
     return _NORMALIZE_RE.sub("", text.strip().lower())
@@ -173,7 +178,7 @@ class EmbeddingProvider:
             return db_cached
 
         # Call API
-        async with httpx.AsyncClient() as client:
+        async with _build_http_client() as client:
             data = await self._request_embeddings(client, text)
             vec = self._extract_embedding(data, expected_index=0)
 
@@ -238,7 +243,7 @@ class EmbeddingProvider:
         )
 
         # Call API for remaining
-        async with httpx.AsyncClient() as client:
+        async with _build_http_client() as client:
             try:
                 data = await self._request_embeddings(client, still_uncached_texts)
                 db_entries: list[tuple[str, str, list[float]]] = []

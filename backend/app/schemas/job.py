@@ -94,6 +94,10 @@ class JobWithCompanyResponse(BaseModel):
     source_url: str | None = None
     company_id: UUID | None = None
     company: CompanyBrief | None = None
+    company_name: str | None = None
+    industries: list[str] | None = None
+    company_size: str | None = None
+    company_stage: str | None = None
     benefits: list[str] = []
 
     model_config = ConfigDict(from_attributes=True)

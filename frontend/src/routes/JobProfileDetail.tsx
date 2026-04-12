@@ -457,15 +457,15 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
   }, [allJobs]);
 
   const companyList = useMemo(() => {
-    const companyMap = new Map<string, { name: string; jobCount: number; industries: string; company_size: string; cities: string[]; salaryRange: string; benefits: string[] }>();
+    const companyMap = new Map<string, { name: string; industries: string | string[]; company_size: string; cities: string[]; salaryRange: string; benefits: string[]; jobCount: number }>();
     filteredJobs.forEach(job => {
       const companyName = job.company?.name || job.company_name || '未知公司';
       if (!companyMap.has(companyName)) {
         companyMap.set(companyName, {
           name: companyName,
           jobCount: 0,
-          industries: job.company?.industries || '',
-          company_size: job.company?.company_size || '',
+          industries: job.company?.industries || job.industries || '',
+          company_size: job.company?.company_size || job.company_size || '',
           cities: [],
           salaryRange: '',
           benefits: [],
@@ -473,6 +473,12 @@ export default function JobProfileDetail({ embeddedRoleId, onClose }: JobProfile
       }
       const c = companyMap.get(companyName)!;
       c.jobCount++;
+      if ((!c.industries || (Array.isArray(c.industries) && c.industries.length === 0)) && (job.company?.industries || job.industries)) {
+        c.industries = job.company?.industries || job.industries || '';
+      }
+      if (!c.company_size && (job.company?.company_size || job.company_size)) {
+        c.company_size = job.company?.company_size || job.company_size || '';
+      }
       if (job.city && !c.cities.includes(job.city)) c.cities.push(job.city);
       if (job.salary_min && job.salary_max) {
         const range = `${Math.round(job.salary_min / 1000)}K-${Math.round(job.salary_max / 1000)}K`;

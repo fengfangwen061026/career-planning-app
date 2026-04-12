@@ -17,6 +17,7 @@ from app.schemas.job import (
     JobProfileUpdate,
 )
 from app.services.job_profile import (
+    JobProfileGenerationError,
     generate_role_profile,
     get_role_profiles,
     update_job_profile,
@@ -24,6 +25,24 @@ from app.services.job_profile import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _serialize_generation_error(role: Role, exc: Exception) -> dict[str, Any]:
+    """Return stable error details for frontend display."""
+    payload: dict[str, Any] = {
+        "role_id": str(role.id),
+        "role_name": role.name,
+        "error": str(exc),
+        "error_type": type(exc).__name__,
+    }
+
+    if isinstance(exc, JobProfileGenerationError):
+        payload["stage"] = exc.stage
+        payload["cause_type"] = exc.cause_type
+    elif exc.__cause__ is not None:
+        payload["cause_type"] = type(exc.__cause__).__name__
+
+    return payload
 
 
 @router.post("/generate/{role_id}", response_model=JobProfileGenerateResponse)
@@ -42,7 +61,7 @@ async def generate_profile_for_role(
         logger.error(f"ValueError: {e}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except Exception as e:
-        logger.error(f"Error generating profile: {type(e).__name__}: {e}", exc_info=True)
+        logger.exception("Error generating profile for role %s", role_id)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
     profile = result["profile"]
@@ -87,12 +106,8 @@ async def generate_all_profiles(
                 stats=gen_result.get("stats"),
             ))
         except Exception as e:
-            logger.error("Failed to generate profile for role '%s': %s", role.name, e)
-            errors.append({
-                "role_id": str(role.id),
-                "role_name": role.name,
-                "error": str(e),
-            })
+            logger.exception("Failed to generate profile for role '%s' (%s)", role.name, role.id)
+            errors.append(_serialize_generation_error(role, e))
 
     # Commit all successful profiles
     if results:

@@ -7,10 +7,17 @@ import client from '../api/client';
 import { jobsApi } from '../api/jobs';
 import LoadingState from '../components/LoadingState';
 import JobProfileDetail from './JobProfileDetail';
-import type { RoleResponse } from '../types/job';
+import type { BatchGenerateError, BatchGenerateResponse, RoleResponse } from '../types/job';
 
 interface RoleWithProfile extends RoleResponse {
   loading?: boolean;
+}
+
+function formatBatchGenerateError(error: BatchGenerateError): string {
+  const stageLabel = error.stage ? `[${error.stage}] ` : '';
+  const typeLabel = error.cause_type || error.error_type;
+  const suffix = typeLabel ? ` (${typeLabel})` : '';
+  return `${stageLabel}${error.role_name}: ${error.error}${suffix}`;
 }
 
 function RoleCard({
@@ -140,8 +147,49 @@ export default function JobProfiles() {
   const handleBatchGenerate = async () => {
     setBatchGenerating(true);
     try {
-      const response = await client.post<{ succeeded: number }>('/job-profiles/generate-all');
-      message.success(`批量生成完成，成功生成 ${response.data.succeeded} 个画像`);
+      const response = await client.post<BatchGenerateResponse>('/job-profiles/generate-all');
+      const { succeeded, failed, errors } = response.data;
+
+      if (failed === 0) {
+        message.success(`批量生成完成，成功生成 ${succeeded} 个画像`);
+      } else {
+        const topErrors = errors.slice(0, 5);
+        const title =
+          succeeded > 0
+            ? `批量生成完成：成功 ${succeeded} 个，失败 ${failed} 个`
+            : `岗位画像生成失败：共 ${failed} 个角色生成失败`;
+
+        Modal.warning({
+          title,
+          width: 760,
+          content: (
+            <div style={{ display: 'grid', gap: 10, maxHeight: 360, overflowY: 'auto', paddingRight: 8 }}>
+              {topErrors.map((error) => (
+                <div
+                  key={`${error.role_id}-${error.stage ?? 'unknown'}`}
+                  style={{
+                    border: '1px solid #F5D0A9',
+                    borderRadius: 8,
+                    padding: '10px 12px',
+                    background: '#FFF7ED',
+                    color: '#7C2D12',
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {formatBatchGenerateError(error)}
+                </div>
+              ))}
+              {errors.length > topErrors.length ? (
+                <div style={{ color: '#92400E', fontSize: 12 }}>
+                  其余 {errors.length - topErrors.length} 个失败项未展开，请查看后端日志获取完整信息。
+                </div>
+              ) : null}
+            </div>
+          ),
+        });
+      }
+
       await fetchRoles();
     } catch {
       message.error('批量生成失败');

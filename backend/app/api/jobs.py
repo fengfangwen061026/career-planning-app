@@ -219,6 +219,10 @@ async def get_jobs_by_role(
             source_url=job.source_url,
             company_id=job.company_id,
             company=company_brief,
+            company_name=job.company_name,
+            industries=job.industries,
+            company_size=job.company_size,
+            company_stage=job.company_stage,
             benefits=benefits,
         ))
 

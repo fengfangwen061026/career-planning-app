@@ -1,7 +1,17 @@
+import asyncio
+
 import httpx
 import pytest
 
-from app.ai.embedding import EmbeddingProvider
+from app.ai.embedding import EmbeddingProvider, _build_http_client
+
+
+def test_build_http_client_disables_env_proxy_inheritance() -> None:
+    client = _build_http_client()
+    try:
+        assert client._trust_env is False
+    finally:
+        asyncio.run(client.aclose())
 
 
 @pytest.mark.asyncio

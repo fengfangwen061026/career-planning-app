@@ -30,6 +30,17 @@ _MAX_JD_TOKENS = 180_000
 _AVG_CHARS_PER_TOKEN = 1.5
 _JOB_PROFILE_MAX_OUTPUT_TOKENS = 4096
 
+
+class JobProfileGenerationError(RuntimeError):
+    """Raised when a specific generation stage fails for a role."""
+
+    def __init__(self, stage: str, role_name: str, exc: Exception) -> None:
+        self.stage = stage
+        self.role_name = role_name
+        self.cause_type = type(exc).__name__
+        message = f"{stage} stage failed for role '{role_name}': {exc}"
+        super().__init__(message)
+
 # ---------------------------------------------------------------------------
 # 0. JD噪音黑名单（用于过滤非技能内容）
 # ---------------------------------------------------------------------------
@@ -722,9 +733,13 @@ async def generate_role_profile(
     if not representative_jds:
         raise ValueError(f"Role '{role.name}' has no JDs with descriptions")
 
-    llm_profile, llm_strategy, llm_jd_count = await _generate_job_profile_with_fallback(
-        role.name, jobs, representative_jds,
-    )
+    try:
+        llm_profile, llm_strategy, llm_jd_count = await _generate_job_profile_with_fallback(
+            role.name, jobs, representative_jds,
+        )
+    except Exception as exc:
+        logger.exception("LLM extraction failed for role '%s' (role_id=%s)", role.name, role_id)
+        raise JobProfileGenerationError("llm", role.name, exc) from exc
     logger.info(
         "LLM extraction done for role '%s' using strategy %s (%d JDs)",
         role.name, llm_strategy, llm_jd_count,
@@ -743,7 +758,11 @@ async def generate_role_profile(
 
     # 生成 embedding（基于 profile 摘要）
     profile_summary = _build_profile_summary(merged_profile, role.name)
-    profile_embedding = await embedding.embed(profile_summary)
+    try:
+        profile_embedding = await embedding.embed(profile_summary)
+    except Exception as exc:
+        logger.exception("Embedding generation failed for role '%s' (role_id=%s)", role.name, role_id)
+        raise JobProfileGenerationError("embedding", role.name, exc) from exc
 
     job_profile = JobProfile(
         role_id=role_id,

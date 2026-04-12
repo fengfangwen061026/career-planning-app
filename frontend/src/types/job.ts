@@ -187,7 +187,16 @@ export interface BatchGenerateResponse {
   succeeded: number;
   failed: number;
   results: JobProfileGenerateResponse[];
-  errors: Record<string, unknown>[];
+  errors: BatchGenerateError[];
+}
+
+export interface BatchGenerateError {
+  role_id: string;
+  role_name: string;
+  error: string;
+  error_type?: string;
+  cause_type?: string;
+  stage?: string;
 }
 
 // ============================================
@@ -274,6 +283,9 @@ export interface JobWithCompany {
   company_id?: string;
   company?: CompanyBrief;
   company_name?: string;  // 原始公司名（当 company_id 为空时使用）
+  industries?: string[];
+  company_size?: string;
+  company_stage?: string;
   benefits: string[];
 }
 

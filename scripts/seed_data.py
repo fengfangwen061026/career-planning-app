@@ -17,7 +17,7 @@ from sqlalchemy.orm import sessionmaker
 # 添加 backend 路径
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
-from app.models.job import Job, Role
+from app.models.job import Company, Job, Role
 
 
 # Role 归一化映射表 - 基于 data_analysis_report.md
@@ -289,7 +289,36 @@ def clean_description(description) -> str:
     return description.strip()
 
 
-async def import_jobs(session: AsyncSession, df: pd.DataFrame, batch_size: int = 500) -> int:
+def build_role_metadata(df: pd.DataFrame) -> dict[str, dict[str, Any]]:
+    """从原始 JD 中抽取归一化 role 及其元数据。"""
+    role_meta_map: dict[str, dict[str, Any]] = {}
+
+    for title in df["岗位名称"].fillna(""):
+        role_info = normalize_role(str(title))
+        role_name = role_info["role"]
+        if role_name not in role_meta_map:
+            role_meta_map[role_name] = {
+                "category": role_info.get("category", "其他"),
+                "level": role_info.get("level", "unknown"),
+                "description": role_info.get("description", ""),
+            }
+
+    if "其他" not in role_meta_map:
+        role_meta_map["其他"] = {
+            "category": "其他",
+            "level": "unknown",
+            "description": "未分类岗位",
+        }
+
+    return role_meta_map
+
+
+async def import_jobs(
+    session: AsyncSession,
+    df: pd.DataFrame,
+    role_map: dict[str, Any],
+    batch_size: int = 500,
+) -> int:
     """批量导入 jobs 表"""
     total_imported = 0
     existing_codes = set()
@@ -329,6 +358,7 @@ async def import_jobs(session: AsyncSession, df: pd.DataFrame, batch_size: int =
             job_code=str(job_code),
             title=title,
             role=role_info["role"],
+            role_id=role_map.get(role_info["role"]),
             city=city,
             district=district,
             salary_min=salary_min,
@@ -360,29 +390,19 @@ async def import_jobs(session: AsyncSession, df: pd.DataFrame, batch_size: int =
     return total_imported
 
 
-async def sync_roles(session: AsyncSession) -> dict[str, Any]:
-    """同步 roles 表：基于 jobs 表中已有的 role 归一化"""
-    # 获取 jobs 表中所有唯一的 role
-    result = await session.execute(select(Job.role).distinct())
-    job_roles = {row[0] for row in result.all()}
-
+async def sync_roles(
+    session: AsyncSession,
+    role_meta_map: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """同步 roles 表：基于归一化结果预创建岗位角色。"""
     # 查询已存在的 role
     result = await session.execute(select(Role.name))
     existing_roles = {row[0] for row in result.all()}
 
     roles_to_insert = []
-    for role_name in job_roles:
+    for role_name, meta in role_meta_map.items():
         if role_name in existing_roles:
             continue
-
-        # 查找对应的 meta
-        meta = {"category": "其他", "level": "unknown", "description": ""}
-        for pattern, m in ROLE_MAPPING.items():
-            if re.search(pattern, role_name):
-                meta = m
-                break
-        if role_name == "其他":
-            meta = {"category": "其他", "level": "unknown", "description": "未分类岗位"}
 
         role = Role(
             name=role_name,
@@ -397,6 +417,13 @@ async def sync_roles(session: AsyncSession) -> dict[str, Any]:
         await session.commit()
 
     return {"inserted": len(roles_to_insert), "existing": len(existing_roles)}
+
+
+async def get_role_map(session: AsyncSession) -> dict[str, Any]:
+    """获取 role 名称到主键的映射。"""
+    result = await session.execute(select(Role))
+    roles = result.scalars().all()
+    return {role.name: role.id for role in roles}
 
 
 async def update_job_role_ids(session: AsyncSession) -> int:
@@ -418,6 +445,113 @@ async def update_job_role_ids(session: AsyncSession) -> int:
         await session.commit()
 
     return len(jobs_without_role)
+
+
+async def sync_companies(session: AsyncSession) -> dict[str, int]:
+    """同步 companies 表并回填 jobs.company_id。"""
+    before_company_count = await session.scalar(select(func.count(Company.id))) or 0
+
+    result = await session.execute(select(Job).where(Job.company_name.is_not(None)))
+    jobs = result.scalars().all()
+
+    company_payload_by_name: dict[str, dict[str, Any]] = {}
+    jobs_by_company_name: dict[str, list[Job]] = {}
+    for job in jobs:
+        company_name = (job.company_name or "").strip()
+        if not company_name:
+            continue
+        jobs_by_company_name.setdefault(company_name, []).append(job)
+
+        payload = company_payload_by_name.setdefault(
+            company_name,
+            {
+                "name": company_name,
+                "industries": None,
+                "company_size": None,
+                "company_stage": None,
+                "intro": None,
+            },
+        )
+
+        if not payload["industries"] and job.industries:
+            payload["industries"] = ", ".join(job.industries)
+        if not payload["company_size"] and job.company_size:
+            payload["company_size"] = job.company_size
+        if not payload["company_stage"] and job.company_stage:
+            payload["company_stage"] = job.company_stage
+        if not payload["intro"] and job.company_intro:
+            payload["intro"] = job.company_intro
+
+    existing_result = await session.execute(select(Company))
+    existing_companies = {company.name: company for company in existing_result.scalars().all()}
+
+    inserted = 0
+    updated = 0
+    for company_name, payload in company_payload_by_name.items():
+        company = existing_companies.get(company_name)
+        if company is None:
+            company = Company(
+                name=payload["name"],
+                industries=payload["industries"],
+                company_size=payload["company_size"],
+                company_stage=payload["company_stage"],
+                intro=payload["intro"],
+            )
+            session.add(company)
+            existing_companies[company_name] = company
+            inserted += 1
+            continue
+
+        changed = False
+        if not company.industries and payload["industries"]:
+            company.industries = payload["industries"]
+            changed = True
+        if not company.company_size and payload["company_size"]:
+            company.company_size = payload["company_size"]
+            changed = True
+        if not company.company_stage and payload["company_stage"]:
+            company.company_stage = payload["company_stage"]
+            changed = True
+        if not company.intro and payload["intro"]:
+            company.intro = payload["intro"]
+            changed = True
+        if changed:
+            updated += 1
+
+    await session.flush()
+
+    linked_jobs = 0
+    for job in jobs:
+        company_name = (job.company_name or "").strip()
+        if not company_name:
+            continue
+        company = existing_companies.get(company_name)
+        if company is None or job.company_id == company.id:
+            continue
+        job.company_id = company.id
+        linked_jobs += 1
+
+    stats_result = await session.execute(select(Company))
+    companies = stats_result.scalars().all()
+    for company in companies:
+        company_jobs = jobs_by_company_name.get(company.name, [])
+        company.job_count = len(company_jobs)
+
+        salary_mins = [job.salary_min for job in company_jobs if job.salary_min and job.salary_min > 0]
+        salary_maxs = [job.salary_max for job in company_jobs if job.salary_max and job.salary_max > 0]
+        company.avg_salary_min = int(sum(salary_mins) / len(salary_mins)) if salary_mins else None
+        company.avg_salary_max = int(sum(salary_maxs) / len(salary_maxs)) if salary_maxs else None
+
+    await session.commit()
+
+    after_company_count = await session.scalar(select(func.count(Company.id))) or 0
+    return {
+        "before": int(before_company_count),
+        "after": int(after_company_count),
+        "inserted": inserted,
+        "updated": updated,
+        "linked_jobs": linked_jobs,
+    }
 
 
 async def get_role_statistics(session: AsyncSession) -> list[dict]:
@@ -472,25 +606,40 @@ async def main():
     df = df.drop_duplicates(subset=["岗位编码"], keep="last")
     print(f"🔄 去重后: {len(df)} 条")
 
+    # 预计算角色元数据，确保 jobs 插入时即可写入 role_id
+    role_meta_map = build_role_metadata(df)
+
     # 创建异步引擎
     engine = create_async_engine(args.database_url, echo=False)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
-        # 导入 jobs
-        print(f"\n📥 正在导入 jobs 表 (每批 {args.batch_size} 条)...")
-        jobs_count = await import_jobs(session, df, args.batch_size)
-        print(f"✅ 成功导入 {jobs_count} 条 job 记录")
-
         # 同步 roles
         print("\n🔄 正在同步 roles 表...")
-        roles_result = await sync_roles(session)
+        roles_result = await sync_roles(session, role_meta_map)
         print(f"✅ 新增 {roles_result['inserted']} 条 role 记录")
 
-        # 更新 role_id
-        print("\n🔗 正在更新 role_id 外键...")
+        role_map = await get_role_map(session)
+
+        # 导入 jobs
+        print(f"\n📥 正在导入 jobs 表 (每批 {args.batch_size} 条)...")
+        jobs_count = await import_jobs(session, df, role_map, args.batch_size)
+        print(f"✅ 成功导入 {jobs_count} 条 job 记录")
+
+        # 回填 role_id（兼容旧数据）
+        print("\n🔗 正在回填缺失的 role_id...")
         updated_count = await update_job_role_ids(session)
         print(f"✅ 已更新 {updated_count} 条 job 的 role_id")
+
+        print("\n🏢 正在同步公司维表...")
+        company_result = await sync_companies(session)
+        print(
+            "✅ 公司同步完成: "
+            f"{company_result['before']} → {company_result['after']} 家公司, "
+            f"新增 {company_result['inserted']} 家, "
+            f"补全 {company_result['updated']} 家, "
+            f"关联 {company_result['linked_jobs']} 条 job"
+        )
 
         # 打印统计
         print("\n" + "=" * 50)
