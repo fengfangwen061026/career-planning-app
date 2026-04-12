@@ -1099,14 +1099,17 @@ async def generate_chapters(
         )
 
         try:
-            llm_text = await llm.generate(
-                prompt=prompt_text,
-                system_prompt=REPORT_SYSTEM_PROMPT,
-                temperature=0.4,
-                max_tokens=800,
-                disable_reasoning=True,
-                max_retries=1,
-                timeout=12,
+            llm_text = await asyncio.wait_for(
+                llm.generate(
+                    prompt=prompt_text,
+                    system_prompt=REPORT_SYSTEM_PROMPT,
+                    temperature=0.4,
+                    max_tokens=800,
+                    disable_reasoning=True,
+                    max_retries=1,
+                    timeout=45,
+                ),
+                timeout=50.0,
             )
             llm_text, json_data = _extract_llm_text_and_data(llm_text)
             chapter_data = _normalize_llm_chapter_data(
@@ -1136,7 +1139,11 @@ async def generate_chapters(
             )
 
         except Exception as exc:
-            logger.warning("LLM chapter %d failed, using template: %s", chapter_id, exc)
+            logger.warning(
+                "LLM chapter %d failed (%s), using template",
+                chapter_id,
+                type(exc).__name__,
+            )
             final_chapters.append(template_ch)
 
     return final_chapters

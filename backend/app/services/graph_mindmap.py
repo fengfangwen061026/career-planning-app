@@ -196,8 +196,8 @@ def _build_node_payloads(latest_profiles: dict[UUID, JobProfile], job_counts: di
                 "experience_min": exp_min,
                 "maturity_score": _calc_maturity_score(role.level, exp_min),
                 "community_id": f"community:{role_id}",
-                "community_color": COMMUNITY_COLORS[0],
-                "color": COMMUNITY_COLORS[0],
+                "community_color": COMMUNITY_COLORS[0],  # will be overwritten by _build_communities
+                "color": COMMUNITY_COLORS[0],  # will be overwritten by _build_communities
             }
         )
 
@@ -336,6 +336,8 @@ def _build_communities(
         color = COMMUNITY_COLORS[(index - 1) % len(COMMUNITY_COLORS)]
         for node in members:
             node["community_id"] = community_id
+            node["community_color"] = color
+            node["color"] = color
 
         communities.append(
             {
