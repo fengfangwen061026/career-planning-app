@@ -43,7 +43,7 @@ import type {
 const { Title, Paragraph, Text } = Typography;
 
 const EMPTY_CONTENT = (): ReportContent => ({
-  title: '职业发展报告',
+  title: '智引鸿图职业发展报告',
   summary: '',
   target_job: {},
   dimensions: [],
@@ -385,7 +385,7 @@ export default function Report() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${selectedReport.title || '职业发展报告'}.${format}`;
+      link.download = `${selectedReport.title || '智引鸿图职业发展报告'}.${format}`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -478,9 +478,9 @@ export default function Report() {
           报告导出
         </div>
         <Title level={2} style={{ margin: 0 }}>
-          职业发展报告
+          智引鸿图报告中心
         </Title>
-        <Text type="secondary">生成、查看并导出与移动端 demo 结构一致的五章报告。</Text>
+        <Text type="secondary">生成、查看并导出与移动端 demo 结构一致的智引鸿图职业发展报告。</Text>
       </div>
 
       <GlassCard style={{ padding: 20, marginBottom: 16 }}>
@@ -568,7 +568,7 @@ export default function Report() {
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
                 <Title level={3} style={{ marginBottom: 8 }}>
-                  {activeContent?.title || selectedReport?.title || '职业发展报告'}
+                  {activeContent?.title || selectedReport?.title || '智引鸿图职业发展报告'}
                 </Title>
                 <Paragraph style={{ marginBottom: 0 }}>
                   {activeContent?.summary || selectedReport?.summary || '暂无摘要'}

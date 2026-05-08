@@ -37,6 +37,12 @@ class CareerReport(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     student = relationship("Student", back_populates="career_reports")
+    versions = relationship(
+        "ReportVersion",
+        back_populates="report",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class ReportVersion(Base):
@@ -56,3 +62,5 @@ class ReportVersion(Base):
     content = Column(JSON)
     change_notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    report = relationship("CareerReport", back_populates="versions")

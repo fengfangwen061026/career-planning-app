@@ -5,9 +5,12 @@ from urllib.parse import urlsplit, urlunsplit
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# 固定指向项目根目录的 .env，与启动目录无关
-# backend/app/config.py -> backend/app -> backend -> 项目根目录
-_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+_BACKEND_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+_ROOT_ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+
+# Prefer backend/.env for production deployments, but keep the project-root
+# .env fallback so existing local development setups continue to work.
+_ENV_FILE = _BACKEND_ENV_FILE if _BACKEND_ENV_FILE.exists() else _ROOT_ENV_FILE
 
 
 def _normalize_stepfun_base_url(value: str | None) -> str | None:
@@ -32,6 +35,7 @@ class Settings(BaseSettings):
         env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     # Database

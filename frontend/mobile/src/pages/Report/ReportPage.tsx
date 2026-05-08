@@ -249,7 +249,7 @@ export default function ReportPage() {
     <>
       <div style={{ padding: '10px 12px', background: 'white', borderBottom: '0.5px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: '-0.4px', color: '#0A0A0A' }}>职业发展报告</div>
+          <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: '-0.4px', color: '#0A0A0A' }}>智引鸿图报告</div>
           <div style={{ fontSize: 9, color: '#6B7280', marginTop: 2 }}>{session.getName()} · AI 实时生成</div>
         </div>
         <button

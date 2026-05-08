@@ -11,6 +11,7 @@ import {
   LucideIcon,
 } from 'lucide-react';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
+import { ADMIN_AUTH_KEY } from '../routes/Login';
 
 interface MenuItem {
   key: string;
@@ -51,14 +52,20 @@ export default function Layout() {
 
   const currentAccent = getCurrentAccentColor();
 
+  const handleLogout = () => {
+    localStorage.removeItem(ADMIN_AUTH_KEY);
+    navigate('/login', { replace: true });
+  };
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      {/* Sidebar - 深色主题 */}
+      {/* Sidebar - 浅色主题 */}
       <div
         style={{
           width: collapsed ? 64 : 220,
           minHeight: '100vh',
-          background: '#1A1A2E',
+          background: '#FFFFFF',
+          borderRight: '1px solid #E5E7EB',
           display: 'flex',
           flexDirection: 'column',
           transition: 'width 0.2s ease',
@@ -72,7 +79,7 @@ export default function Layout() {
             display: 'flex',
             alignItems: 'center',
             padding: collapsed ? '0 20px' : '0 20px',
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            borderBottom: '1px solid #E5E7EB',
           }}
         >
           <div
@@ -90,12 +97,12 @@ export default function Layout() {
               style={{
                 fontSize: 15,
                 fontWeight: 800,
-                color: '#FFFFFF',
+                color: '#111827',
                 letterSpacing: '-0.4px',
                 whiteSpace: 'nowrap',
               }}
             >
-              职业规划
+              智引鸿图
             </span>
           )}
         </div>
@@ -117,15 +124,15 @@ export default function Layout() {
                   borderRadius: 10,
                   marginBottom: 2,
                   cursor: 'pointer',
-                  background: isActive ? 'rgba(255,255,255,0.10)' : 'transparent',
-                  color: isActive ? '#FFFFFF' : 'rgba(255,255,255,0.52)',
+                  background: isActive ? `${item.accentColor}14` : 'transparent',
+                  color: isActive ? item.accentColor : '#6B7280',
                   fontWeight: isActive ? 600 : 400,
                   fontSize: 13,
                   transition: 'all 0.15s ease',
                   borderLeft: isActive ? `3px solid ${item.accentColor}` : '3px solid transparent',
                 }}
                 onMouseEnter={(e) => {
-                  if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.06)';
+                  if (!isActive) (e.currentTarget as HTMLDivElement).style.background = '#F3F4F6';
                 }}
                 onMouseLeave={(e) => {
                   if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'transparent';
@@ -142,7 +149,7 @@ export default function Layout() {
         <div
           style={{
             padding: '12px 8px',
-            borderTop: '1px solid rgba(255,255,255,0.06)',
+            borderTop: '1px solid #E5E7EB',
           }}
         >
           <div
@@ -154,7 +161,7 @@ export default function Layout() {
               padding: '8px 12px',
               borderRadius: 10,
               cursor: 'pointer',
-              color: 'rgba(255,255,255,0.40)',
+              color: '#9CA3AF',
               fontSize: 12,
               transition: 'all 0.15s ease',
             }}
@@ -194,25 +201,42 @@ export default function Layout() {
               background: `${currentAccent}15`,
             }}
           >
-            {menuItems.find(m => m.key === activeKey)?.label || '职业规划系统'}
+            {menuItems.find(m => m.key === activeKey)?.label || '智引鸿图管理台'}
           </div>
 
-          {/* 右：头像 */}
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: '50%',
-              background: `linear-gradient(135deg, ${currentAccent}, #7C6DC8)`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'white',
-              fontSize: 13,
-              fontWeight: 600,
-            }}
-          >
-            U
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: '50%',
+                background: `linear-gradient(135deg, ${currentAccent}, #7C6DC8)`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              A
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              style={{
+                border: '1px solid #E5E7EB',
+                borderRadius: 10,
+                padding: '7px 12px',
+                background: '#FFFFFF',
+                color: '#6B7280',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              退出登录
+            </button>
           </div>
         </div>
 

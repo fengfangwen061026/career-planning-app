@@ -9,7 +9,7 @@ import logging
 import re
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 EXPORT_DIR = Path(__file__).resolve().parents[2] / "static" / "exports"
 REPORT_TEMPLATE_VERSION = "2.0"
-DEFAULT_REPORT_TITLE = "职业发展报告"
+DEFAULT_REPORT_TITLE = "智引鸿图职业发展报告"
 REPORT_CHAPTERS = [
     {"chapter_id": 1, "title": "一、个人优势总结"},
     {"chapter_id": 2, "title": "二、目标岗位分析"},
@@ -667,10 +667,11 @@ def _build_paths(
 def _build_summary(student_profile: dict[str, Any], job_info: dict[str, Any], actions: list[dict[str, Any]]) -> str:
     basic = student_profile.get("basic_info") or {}
     background = _join_non_empty([_safe_text(basic.get("school")), _safe_text(basic.get("major"))], " / ")
+    background_sentence = f"当前背景为 {background}。" if background else ""
     next_step = actions[0]["action"] if actions else "继续补强项目与实习证据"
     return _clean_paragraph(
         f"{_safe_text(basic.get('name'), '该学生')}当前与“{job_info['role_name']}”的综合匹配度为 {job_info['match_score']} 分。"
-        f"{f'当前背景为 {background}。' if background else ''}"
+        f"{background_sentence}"
         f"下一步建议优先执行：{next_step}"
     )
 
@@ -743,18 +744,30 @@ def _build_report_content(
     strongest_dimension = max(dimensions, key=lambda item: item["score"], default=None)
     weakest_dimension = min(dimensions, key=lambda item: item["score"], default=None)
     score_band = _score_band_text(job_info["match_score"])
+    background = _join_non_empty([_safe_text(basic.get("school")), _safe_text(basic.get("major"))], " / ")
+    background_clause = f"当前背景为 {background}，" if background else ""
+    skills_sentence = f"核心技能集中在 {', '.join(skills)}。" if skills else ""
+    internships_sentence = f"已有 {', '.join(internships)} 等经历。" if internships else ""
+    projects_sentence = f"项目实践包括 {', '.join(projects)}。" if projects else ""
+    strongest_sentence = f"当前优势主要体现在“{strongest_dimension['label']}”维度。" if strongest_dimension else ""
+    weakest_sentence = f"短板则集中在“{weakest_dimension['label']}”维度，需要优先补强。" if weakest_dimension else ""
+    alt_paths_sentence = (
+        f"同时也可关注 {', '.join(item['title'] for item in paths['alt_paths'])} 等相邻岗位作为横向备选。"
+        if paths["alt_paths"]
+        else ""
+    )
     chapter_one = _clean_paragraph(
         f"{_safe_text(basic.get('name'), '该学生')}目前的综合竞争力约为 {competitiveness} 分，"
-        f"{f'当前背景为 {_join_non_empty([_safe_text(basic.get('school')), _safe_text(basic.get('major'))], ' / ')}，' if _join_non_empty([_safe_text(basic.get('school')), _safe_text(basic.get('major'))], ' / ') else ''}"
+        f"{background_clause}"
         f"面向“{job_info['role_name']}”方向整体{score_band}。"
-        f"{f'核心技能集中在 {", ".join(skills)}。' if skills else ''}"
-        f"{f'已有 {", ".join(internships)} 等经历。' if internships else ''}"
-        f"{f'项目实践包括 {", ".join(projects)}。' if projects else ''}"
+        f"{skills_sentence}"
+        f"{internships_sentence}"
+        f"{projects_sentence}"
     )
     chapter_two = _clean_paragraph(
         f"目标岗位为“{job_info['role_name']}”，当前综合匹配度为 {job_info['match_score']} 分。"
-        f"{f'当前优势主要体现在“{strongest_dimension['label']}”维度。' if strongest_dimension else ''}"
-        f"{f'短板则集中在“{weakest_dimension['label']}”维度，需要优先补强。' if weakest_dimension else ''}"
+        f"{strongest_sentence}"
+        f"{weakest_sentence}"
     )
     must_fix = len([item for item in actions if item["priority"] == "必须补齐"])
     recoverable_score = min(
@@ -767,7 +780,7 @@ def _build_report_content(
     )
     chapter_four = _clean_paragraph(
         f"推荐以“{job_info['role_name']}”作为当前主路径，先进入准备期，再向初级岗位和进阶岗位逐步推进。"
-        f"{f'同时也可关注 {", ".join(item["title"] for item in paths["alt_paths"])} 等相邻岗位作为横向备选。' if paths['alt_paths'] else ''}"
+        f"{alt_paths_sentence}"
     )
     checkpoints = "、".join(item["item"] for item in actions[:3]) or "核心技能与项目表达"
     chapter_five = _clean_paragraph(
@@ -784,7 +797,7 @@ def _build_report_content(
     ]
     recommendations = _build_recommendations(job_info, dimensions, actions)
     content_json = {
-        "title": f"{_safe_text(basic.get('name'), '学生')} - {job_info['role_name']}职业发展报告",
+        "title": f"{_safe_text(basic.get('name'), '学生')} - {job_info['role_name']}职业发展报告（智引鸿图）",
         "summary": summary,
         "target_job": job_info,
         "dimensions": dimensions,
@@ -793,7 +806,7 @@ def _build_report_content(
         "paths": paths,
         "review_checkpoints": review_checkpoints,
         "chapters": chapters,
-        "metadata": {"generated_at": datetime.now(UTC).isoformat(), "template_version": REPORT_TEMPLATE_VERSION},
+        "metadata": {"generated_at": datetime.now(timezone.utc).isoformat(), "template_version": REPORT_TEMPLATE_VERSION},
     }
     return content_json, summary, recommendations
 
@@ -1263,12 +1276,13 @@ def _build_export_html(report: CareerReport, content_json: dict[str, Any]) -> st
                 items = []
                 for item in chapter["data"].get(key) or []:
                     resources = " / ".join(_escape_html(resource) for resource in (item.get("resources") or []))
+                    resource_text = f" · 资源：{resources}" if resources else ""
                     items.append(
                         f'<div class="action-item"><strong>{_escape_html(item.get("priority"))} / {_escape_html(item.get("item"))}</strong>'
                         f'<div>{_escape_html(item.get("gap_desc"))}</div>'
                         f'<div>{_escape_html(item.get("action"))}</div>'
                         f'<div class="muted">周期：{_escape_html(item.get("timeline"))}'
-                        f'{f" · 资源：{resources}" if resources else ""}</div></div>'
+                        f"{resource_text}</div></div>"
                     )
                 if items:
                     groups.append(f'<div class="action-group-title">{title}</div>' + "".join(items))
@@ -1302,7 +1316,7 @@ def _build_export_html(report: CareerReport, content_json: dict[str, Any]) -> st
     )
     title = content.get("title") or DEFAULT_REPORT_TITLE
     summary = report.summary or content.get("summary") or ""
-    generated_at = report.created_at.strftime("%Y-%m-%d %H:%M:%S") if report.created_at else datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+    generated_at = report.created_at.strftime("%Y-%m-%d %H:%M:%S") if report.created_at else datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     return f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="UTF-8"><title>{_escape_html(title)}</title>
 <style>
@@ -1324,7 +1338,7 @@ async def export_to_pdf(report_id: UUID, db: AsyncSession) -> str:
         raise ValueError(f"Report {report_id} not found")
     html_content = _build_export_html(report, report.content_json or {})
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     html_path = EXPORT_DIR / f"career_report_{report.student_id}_{timestamp}.html"
     pdf_path = EXPORT_DIR / f"career_report_{report.student_id}_{timestamp}.pdf"
     html_path.write_text(html_content, encoding="utf-8")
@@ -1369,7 +1383,7 @@ async def _export_to_html(report_id: UUID, db: AsyncSession) -> str:
     if report is None:
         raise ValueError(f"Report {report_id} not found")
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    html_path = EXPORT_DIR / f"career_report_{report.student_id}_{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}.html"
+    html_path = EXPORT_DIR / f"career_report_{report.student_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}.html"
     html_path.write_text(_build_export_html(report, report.content_json or {}), encoding="utf-8")
     return str(html_path)
 
@@ -1411,7 +1425,7 @@ async def export_to_docx(report_id: UUID, db: AsyncSession) -> str:
         for item in report.recommendations:
             document.add_paragraph(f"{item.get('title')}: {item.get('content')}", style="List Bullet")
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    docx_path = EXPORT_DIR / f"career_report_{report.student_id}_{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}.docx"
+    docx_path = EXPORT_DIR / f"career_report_{report.student_id}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}.docx"
     document.save(str(docx_path))
     report.docx_path = str(docx_path)
     await db.commit()
@@ -1489,7 +1503,7 @@ async def _ai_polish_report_content(content: dict[str, Any], report: CareerRepor
     updated_content["chapters"] = polished_chapters
     updated_content["metadata"] = {
         **dict(content.get("metadata") or {}),
-        "last_polished_at": datetime.now(UTC).isoformat(),
+        "last_polished_at": datetime.now(timezone.utc).isoformat(),
         "last_polish_mode": "ai",
     }
     return updated_content, changes

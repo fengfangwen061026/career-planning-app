@@ -348,7 +348,7 @@ async def test_polish_report_uses_llm_to_rewrite_summary_and_chapters(monkeypatc
     report_obj = SimpleNamespace(
         id=uuid4(),
         content_json={
-            "title": "张明远 - 推广专员职业发展报告",
+            "title": "张明远 - 推广专员职业发展报告（智引鸿图）",
             "summary": "原摘要。",
             "target_job": {"role_name": "推广专员"},
             "dimensions": [],

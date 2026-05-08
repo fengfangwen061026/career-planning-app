@@ -32,7 +32,7 @@ const CONFIG = {
   },
   report: {
     title: '尚未生成报告',
-    desc: '完成岗位匹配后，可生成完整的职业规划报告',
+    desc: '完成岗位匹配后，可生成完整的智引鸿图职业发展报告',
     icon: (
       <svg width="56" height="56" viewBox="0 0 56 56" style={{ marginBottom: 12 }}>
         <rect width="56" height="56" rx="14" fill="#F3F4F6"/>

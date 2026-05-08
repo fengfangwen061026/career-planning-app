@@ -13,6 +13,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embedding import embedding as embedding_provider
@@ -1232,34 +1233,41 @@ async def upsert_match_result(
     computation: MatchComputation,
 ) -> MatchResult:
     """Create or update one persisted match result."""
+    scores_payload = computation.scores_payload()
+    gaps_payload = computation.gaps_payload()
+    normalized_total = round(computation.scores.total_score / 100.0, 6)
+    now = datetime.utcnow()
+
+    stmt = insert(MatchResult).values(
+        student_profile_id=student_profile.id,
+        job_profile_id=job_profile.id,
+        total_score=normalized_total,
+        scores_json=scores_payload,
+        gaps_json=gaps_payload,
+        version="1.0",
+        created_at=now,
+        updated_at=now,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[MatchResult.student_profile_id, MatchResult.job_profile_id],
+        set_={
+            "total_score": stmt.excluded.total_score,
+            "scores_json": stmt.excluded.scores_json,
+            "gaps_json": stmt.excluded.gaps_json,
+            "version": stmt.excluded.version,
+            "updated_at": stmt.excluded.updated_at,
+        },
+    )
+    await db.execute(stmt)
+    await db.flush()
+
     result = await db.execute(
         select(MatchResult).where(
             MatchResult.student_profile_id == student_profile.id,
             MatchResult.job_profile_id == job_profile.id,
         )
     )
-    match_result = result.scalar_one_or_none()
-    scores_payload = computation.scores_payload()
-    gaps_payload = computation.gaps_payload()
-    normalized_total = round(computation.scores.total_score / 100.0, 6)
-
-    if match_result is None:
-        match_result = MatchResult(
-            student_profile_id=student_profile.id,
-            job_profile_id=job_profile.id,
-            total_score=normalized_total,
-            scores_json=scores_payload,
-            gaps_json=gaps_payload,
-        )
-        db.add(match_result)
-    else:
-        match_result.total_score = normalized_total
-        match_result.scores_json = scores_payload
-        match_result.gaps_json = gaps_payload
-
-    await db.flush()
-    await db.refresh(match_result)
-    return match_result
+    return result.scalar_one()
 
 
 async def upsert_match_results_batch(
@@ -1267,45 +1275,63 @@ async def upsert_match_results_batch(
     student_profile: StudentProfile,
     items: list[tuple[JobProfile, MatchComputation]],
 ) -> list[MatchResult]:
-    """Batch upsert multiple match results with a single query to check existence."""
+    """Batch upsert multiple match results safely under duplicate or concurrent writes."""
     if not items:
         return []
 
-    job_profile_ids = [jp.id for jp, _ in items]
-    existing_result = await db.execute(
-        select(MatchResult).where(
-            MatchResult.student_profile_id == student_profile.id,
-            MatchResult.job_profile_id.in_(job_profile_ids),
-        )
-    )
-    existing_map = {mr.job_profile_id: mr for mr in existing_result.scalars().all()}
-
-    results: list[MatchResult] = []
+    deduped_items: dict[UUID, tuple[JobProfile, MatchComputation]] = {}
+    ordered_job_profile_ids: list[UUID] = []
     for job_profile, computation in items:
+        if job_profile.id not in deduped_items:
+            ordered_job_profile_ids.append(job_profile.id)
+        deduped_items[job_profile.id] = (job_profile, computation)
+
+    now = datetime.utcnow()
+    payloads: list[dict[str, Any]] = []
+    for job_profile_id in ordered_job_profile_ids:
+        job_profile, computation = deduped_items[job_profile_id]
         scores_payload = computation.scores_payload()
         gaps_payload = computation.gaps_payload()
         normalized_total = round(computation.scores.total_score / 100.0, 6)
+        payloads.append(
+            {
+                "student_profile_id": student_profile.id,
+                "job_profile_id": job_profile.id,
+                "total_score": normalized_total,
+                "scores_json": scores_payload,
+                "gaps_json": gaps_payload,
+                "version": "1.0",
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
 
-        match_result = existing_map.get(job_profile.id)
-        if match_result is None:
-            match_result = MatchResult(
-                student_profile_id=student_profile.id,
-                job_profile_id=job_profile.id,
-                total_score=normalized_total,
-                scores_json=scores_payload,
-                gaps_json=gaps_payload,
-            )
-            db.add(match_result)
-        else:
-            match_result.total_score = normalized_total
-            match_result.scores_json = scores_payload
-            match_result.gaps_json = gaps_payload
-        results.append(match_result)
-
+    stmt = insert(MatchResult).values(payloads)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[MatchResult.student_profile_id, MatchResult.job_profile_id],
+        set_={
+            "total_score": stmt.excluded.total_score,
+            "scores_json": stmt.excluded.scores_json,
+            "gaps_json": stmt.excluded.gaps_json,
+            "version": stmt.excluded.version,
+            "updated_at": stmt.excluded.updated_at,
+        },
+    )
+    await db.execute(stmt)
     await db.flush()
-    for mr in results:
-        await db.refresh(mr)
-    return results
+
+    result = await db.execute(
+        select(MatchResult).where(
+            MatchResult.student_profile_id == student_profile.id,
+            MatchResult.job_profile_id.in_(ordered_job_profile_ids),
+        )
+    )
+    match_result_map = {item.job_profile_id: item for item in result.scalars().all()}
+    return [
+        match_result_map[job_profile_id]
+        for job_profile_id in ordered_job_profile_ids
+        if job_profile_id in match_result_map
+    ]
 
 
 async def match_student_job(

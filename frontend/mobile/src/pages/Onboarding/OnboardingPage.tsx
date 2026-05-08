@@ -110,6 +110,9 @@ export default function OnboardingPage() {
         alignItems: 'center', justifyContent: 'center',
         padding: '24px 16px', background: 'white',
       }}>
+        <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', color: '#4F46E5', background: '#EEF2FF', padding: '4px 10px', borderRadius: 999, marginBottom: 12 }}>
+          智引鸿图
+        </div>
         <svg width="80" height="80" viewBox="0 0 80 80" style={{ marginBottom: 16 }}>
           <rect width="80" height="80" rx="20" fill="#EEF2FF" />
           <rect x="16" y="28" width="48" height="32" rx="6" fill="#C7D2FE" stroke="#4F46E5" strokeWidth="1.5" />
@@ -180,6 +183,9 @@ export default function OnboardingPage() {
       alignItems: 'center', justifyContent: 'center',
       padding: '20px 16px', textAlign: 'center', background: 'white',
     }}>
+      <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', color: '#4F46E5', background: '#EEF2FF', padding: '4px 10px', borderRadius: 999, marginBottom: 12 }}>
+        智引鸿图
+      </div>
       {s.icon}
       <div style={{ fontSize: 16, fontWeight: 900, letterSpacing: '-0.6px', color: '#0A0A0A', marginBottom: 8 }}>
         {s.title}

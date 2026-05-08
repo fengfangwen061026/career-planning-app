@@ -50,11 +50,11 @@
   --gray-100: #f3f4f6;
   --gray-50: #f9fafb;
 
-  --sidebar-bg: #1a1a2e;
-  --sidebar-text: rgba(255, 255, 255, 0.52);
-  --sidebar-text-active: #ffffff;
-  --sidebar-hover: rgba(255, 255, 255, 0.06);
-  --sidebar-active-bg: rgba(255, 255, 255, 0.1);
+  --sidebar-bg: #ffffff;
+  --sidebar-text: #6b7280;
+  --sidebar-text-active: #111827;
+  --sidebar-hover: #f3f4f6;
+  --sidebar-active-bg: rgba(91, 111, 212, 0.08);
 
   --card-bg: rgba(255, 255, 255, 0.82);
   --card-border: rgba(255, 255, 255, 0.88);

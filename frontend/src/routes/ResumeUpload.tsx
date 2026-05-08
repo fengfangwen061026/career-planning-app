@@ -479,15 +479,25 @@ export default function ResumeUpload() {
     nextMeta?: ParseMeta,
     options?: { preserveResume?: boolean },
   ) => {
+    const selectedStudentRecord = students.find((student) => student.id === selectedStudent);
     const parsedRecord = responseData.parsed_data as Record<string, unknown> | undefined;
     const rawText = (parsedRecord?.raw_text as string) || '';
     const backendBasicInfo = (parsedRecord?.basic_info as Record<string, unknown>) || {};
     const rawContact = extractContactFromRawText(rawText);
-    const extractedName = (backendBasicInfo.name as string | undefined) || extractNameFromRawText(rawText);
+    const extractedName =
+      (backendBasicInfo.name as string | undefined) ||
+      extractNameFromRawText(rawText) ||
+      selectedStudentRecord?.name;
     const extractedContact = {
       ...rawContact,
-      phone: (backendBasicInfo.phone as string | undefined) || rawContact?.phone,
-      email: (backendBasicInfo.email as string | undefined) || rawContact?.email,
+      phone:
+        (backendBasicInfo.phone as string | undefined) ||
+        rawContact?.phone ||
+        selectedStudentRecord?.phone,
+      email:
+        (backendBasicInfo.email as string | undefined) ||
+        rawContact?.email ||
+        selectedStudentRecord?.email,
       location: (backendBasicInfo.location as string | undefined) || rawContact?.location,
     };
 

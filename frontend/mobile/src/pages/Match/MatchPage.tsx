@@ -391,7 +391,7 @@ export default function MatchPage() {
             )}
 
             <button className="btn-primary" onClick={handleGenerateReport}>
-              生成职业规划报告 →
+              生成智引鸿图报告 →
             </button>
           </>
         )}

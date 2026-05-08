@@ -156,7 +156,7 @@ export default function Dashboard() {
           <LayoutDashboard size={12} /> 总览
         </div>
         <h1 style={{ fontSize: 28, fontWeight: 800, color: '#0A0A0A', letterSpacing: '-0.8px', margin: 0 }}>
-          职业规划系统
+          智引鸿图
         </h1>
         <p style={{ fontSize: 14, color: '#6B7280', margin: '6px 0 0 0' }}>
           基于 AI 的大学生职业发展全链路平台

@@ -35,9 +35,25 @@ class Student(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    resumes = relationship("Resume", back_populates="student")
-    student_profile = relationship("StudentProfile", back_populates="student", uselist=False)
-    career_reports = relationship("CareerReport", back_populates="student")
+    resumes = relationship(
+        "Resume",
+        back_populates="student",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    student_profile = relationship(
+        "StudentProfile",
+        back_populates="student",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    career_reports = relationship(
+        "CareerReport",
+        back_populates="student",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class Resume(Base):
@@ -93,7 +109,12 @@ class StudentProfile(Base):
 
     # Relationships
     student = relationship("Student", back_populates="student_profile")
-    match_results = relationship("MatchResult", back_populates="student_profile")
+    match_results = relationship(
+        "MatchResult",
+        back_populates="student_profile",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     # 表级索引
     __table_args__ = (

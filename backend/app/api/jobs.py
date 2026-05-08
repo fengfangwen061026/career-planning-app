@@ -55,6 +55,7 @@ def extract_benefits(description: str | None) -> list[str]:
     return list(dict.fromkeys(benefits))
 
 
+@router.get("", response_model=PaginatedJobResponse, include_in_schema=False)
 @router.get("/", response_model=PaginatedJobResponse)
 async def list_jobs(
     page: int = Query(1, ge=1, description="页码"),

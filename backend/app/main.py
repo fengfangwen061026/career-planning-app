@@ -19,6 +19,9 @@ app = FastAPI(
     title=settings.app_name,
     debug=settings.debug,
     lifespan=lifespan,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
 )
 
 # CORS configuration
@@ -29,6 +32,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://localhost:5176",
         "http://127.0.0.1:5176",
+        "https://career.sudaffw.top",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -62,7 +66,18 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"]
 app.include_router(student_app.router, prefix="/api/student-app", tags=["student-app"])
 
 
-@app.get("/health")
+@app.get("/health", include_in_schema=False)
+@app.get("/api/health", tags=["system"])
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+@app.get("/api", include_in_schema=False)
+async def api_root():
+    """Small API index used by deployment smoke tests."""
+    return {
+        "status": "ok",
+        "health": "/api/health",
+        "docs": "/api/docs",
+    }

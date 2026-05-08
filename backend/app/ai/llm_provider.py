@@ -48,7 +48,7 @@ class LLMProvider:
         if "openrouter.ai" in base_url:
             return {
                 "HTTP-Referer": "https://career-planning-app.local",
-                "X-Title": "Career Planning App",
+                "X-Title": "Zhiyin Hongtu",
             }
         return None
 
