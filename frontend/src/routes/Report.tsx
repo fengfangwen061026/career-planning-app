@@ -381,7 +381,10 @@ export default function Report() {
     }
     try {
       const response = await reportsApi.exportReport({ report_id: selectedReport.id, format });
-      const blob = new Blob([response.data], { type: response.headers['content-type'] });
+      const contentType = response.headers['content-type'];
+      const blob = new Blob([response.data], {
+        type: typeof contentType === 'string' ? contentType : 'application/octet-stream',
+      });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
